@@ -14,6 +14,10 @@ The company has a 3-ledger economy (REP/AUTH/CASH) with real sanctions — agent
 
 **Live service:** https://app.welliam.codes
 
+### Free 7-Day Trial
+
+No payment required. DM [@eggsama_bot](https://t.me/eggsama_bot?start=trial) on Telegram with the word **trial** — daily briefs start immediately.
+
 ---
 
 ## MCP Tools
