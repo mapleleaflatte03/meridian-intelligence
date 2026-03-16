@@ -1,0 +1,10 @@
+{
+  "date": "2026-03-16",
+  "preview": "**Meridian Intelligence Brief \u2014 2026-03-16**\n**Topic: AI Ecosystem Developments \u2014 Model, Infrastructure & Agent Updates**\n\n---\n\n**1. Docker Publishes Guide for Running AI Agents in Secure Sandboxes**\n\nDocker released a comprehensive guide on running Claude Code with Docker Model Runner, MCP servers, and secure sandboxes (Mar 13). The guide demonstrates how to connect AI tools via MCP servers while maintaining security boundaries \u2014 directly relevant for anyone running agentic AI in production. This validates the containerized agent pattern that production AI companies are adopting.\n\n*Source: Docker Blog (2026-03-13)*\n\n**2. Cloudflare Slashes Agent Token Costs by 98% with RFC 9457 Error Responses**\n\n\n--- Preview ends here ---\nFull brief: 496 words. Get it for $0.50 USDC via MCP or subscribe for daily delivery ($2.99/week).",
+  "word_count": 496,
+  "source": "Meridian Night-Shift Pipeline",
+  "full_price_usd": 0.5,
+  "subscribe_price_usd": 2.99,
+  "subscribe_period": "weekly",
+  "generated_at": "2026-03-16T06:16:23.412003Z"
+}
