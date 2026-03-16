@@ -100,7 +100,7 @@ Runs nightly (22:00–06:10 ICT):
 
 ## Tech Stack
 
-- **Runtime:** [OpenClaw](https://openclaw.io) — agent execution, cron, sessions
+- **Runtime:** [OpenClaw](https://github.com/openclaw/openclaw) — agent execution, cron, sessions
 - **Language:** Python 3.10
 - **Proxy:** Caddy (auto-TLS)
 - **Payments:** [x402](https://x402.org) + USDC on Base L2
