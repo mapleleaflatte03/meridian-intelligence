@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Meridian — Paid Pilot Offer</title>
+<meta name="description" content="Paid pilot: recurring competitor intelligence for your product team. Daily alerts, weekly briefs, battlecards.">
+<style>
+  :root { --bg: #0a0a0f; --fg: #e0e0e0; --accent: #4fc3f7; --card: #151520; --border: #2a2a3a; --green: #4caf50; --dim: #888; --warn: #ffa726; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Inter', system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--fg); line-height: 1.6; }
+  .container { max-width: 720px; margin: 0 auto; padding: 2rem 1.5rem; }
+  h1 { font-size: 1.8rem; color: #fff; margin-bottom: 0.5rem; padding-top: 2rem; }
+  .subtitle { color: var(--dim); margin-bottom: 2rem; font-size: 1.05rem; }
+  h2 { font-size: 1.2rem; color: var(--accent); margin: 2rem 0 0.75rem; border-bottom: 1px solid var(--border); padding-bottom: 0.5rem; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 1.25rem; margin-bottom: 1rem; }
+  .offer-table { width: 100%; border-collapse: collapse; font-size: 0.95rem; }
+  .offer-table td { padding: 0.6rem 0; border-bottom: 1px solid var(--border); vertical-align: top; }
+  .offer-table td:first-child { color: var(--dim); width: 40%; font-weight: 600; }
+  .offer-table tr:last-child td { border-bottom: none; }
+  a { color: var(--accent); }
+  .tag { display: inline-block; font-size: 0.75rem; padding: 2px 8px; border-radius: 3px; font-weight: 600; }
+  .tag-auto { background: #1a3a1a; color: var(--green); }
+  .tag-manual { background: #3a3a1a; color: #ffd54f; }
+  .tag-planned { background: #1a2a3a; color: var(--accent); }
+  .scope-table { width: 100%; border-collapse: collapse; font-size: 0.92rem; margin: 0.5rem 0; }
+  .scope-table th { text-align: left; color: var(--accent); padding: 0.5rem 0.75rem; border-bottom: 2px solid var(--border); font-size: 0.82rem; text-transform: uppercase; }
+  .scope-table td { padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--border); }
+  .scope-table tr:last-child td { border-bottom: none; }
+  .cta { display: inline-block; padding: 12px 28px; border-radius: 6px; text-decoration: none; font-weight: 700; font-size: 1rem; margin: 0.5rem 0.5rem 0.5rem 0; }
+  .cta-primary { background: var(--accent); color: #000; }
+  .cta-outline { background: transparent; border: 2px solid var(--accent); color: var(--accent); }
+  .blocker { background: #1a1510; border: 1px solid #3a2a1a; border-radius: 8px; padding: 1rem 1.25rem; margin: 1rem 0; }
+  .blocker strong { color: var(--warn); }
+  .footer { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid var(--border); color: #555; font-size: 0.85rem; text-align: center; }
+  .footer a { color: var(--dim); }
+  ul { margin: 0.5rem 0 0.5rem 1.5rem; }
+  li { padding: 0.2rem 0; }
+</style>
+</head>
+<body>
+<div class="container">
+
+<h1>Paid Pilot: Competitor Intelligence</h1>
+<p class="subtitle">Recurring competitive monitoring for your product marketing and CI team.</p>
+
+<!-- ─── WHO IS THIS FOR ─── -->
+<h2>Who This Is For</h2>
+<div class="card">
+  <table class="offer-table">
+    <tr><td>Buyer</td><td><strong>Product Marketing Managers, Competitive Intelligence leads, or Product Managers</strong> at B2B software and AI-native companies who need to track what competitors ship, price, and launch.</td></tr>
+    <tr><td>Team size</td><td>1&ndash;3 admin seats + unlimited internal readers (forward the brief to your team).</td></tr>
+    <tr><td>Best fit</td><td>Teams that track 3&ndash;10 competitors in the AI/ML infrastructure space and need recurring, cited updates without manual research overhead.</td></tr>
+  </table>
+</div>
+
+<!-- ─── WHAT YOU GET ─── -->
+<h2>What Is Included</h2>
+<div class="card">
+  <table class="scope-table">
+    <thead><tr><th>Deliverable</th><th>Cadence</th><th>Format</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Daily Competitor Alert</strong></td><td>Every morning by 06:00 ICT</td><td>Cited findings (400+ words, 5+ sources) covering pricing, launches, API changes, deprecations</td></tr>
+      <tr><td><strong>Weekly Intelligence Brief</strong></td><td>End of each week</td><td>Curated top competitive moves with action items and risk signals</td></tr>
+      <tr><td><strong>Battlecard (on request)</strong></td><td>On demand</td><td>Structured competitor snapshot: recent moves, pricing, product updates, talking points</td></tr>
+      <tr><td><strong>Competitor Watchlist</strong></td><td>Always-on</td><td>Configured per customer. Meridian monitors tracked competitors automatically.</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- ─── DELIVERY ─── -->
+<h2>How You Receive It</h2>
+<div class="card">
+  <table class="offer-table">
+    <tr><td>Primary channel</td><td><strong>Telegram</strong> &mdash; daily alert delivered as a message to your subscribed account.</td></tr>
+    <tr><td>Public preview</td><td><a href="https://t.me/MeridianIntelligence">@MeridianIntelligence</a> Telegram channel (abbreviated preview of daily alerts).</td></tr>
+    <tr><td>Developer API</td><td>MCP protocol at <code>https://app.welliam.codes/sse</code>. Pay-per-call via x402 (USDC on Base L2).</td></tr>
+    <tr><td>Email</td><td>Planned. Not yet available.</td></tr>
+    <tr><td>Slack</td><td>Planned. Not yet available.</td></tr>
+  </table>
+</div>
+
+<!-- ─── PRICING ─── -->
+<h2>Pricing</h2>
+<div class="card">
+  <table class="offer-table">
+    <tr><td>Free trial</td><td><strong>7 days, no payment needed.</strong> Full daily alerts for the trial period.</td></tr>
+    <tr><td>Weekly subscription</td><td><strong>$2.99 / week</strong> &mdash; daily alerts + weekly brief + battlecards on request.</td></tr>
+    <tr><td>Monthly subscription</td><td><strong>$9.99 / month</strong> &mdash; same as weekly, lower effective rate.</td></tr>
+    <tr><td>MCP pay-per-call</td><td>$0.50 (daily alert), $1.50 (weekly digest), $3.00 (battlecard). Settled via x402 USDC on Base L2.</td></tr>
+    <tr><td>Custom / enterprise</td><td>Contact us for custom watchlists, dedicated sources, or higher-volume access.</td></tr>
+  </table>
+</div>
+
+<!-- ─── AUTOMATED vs MANUAL ─── -->
+<h2>What Is Automated vs. Manual</h2>
+<div class="card">
+  <table class="scope-table">
+    <thead><tr><th>Capability</th><th>Status</th><th>Detail</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>Source monitoring (30+ sources)</td>
+        <td><span class="tag tag-auto">Automated</span></td>
+        <td>Nightly pipeline fetches all configured sources automatically.</td>
+      </tr>
+      <tr>
+        <td>Finding extraction and deduplication</td>
+        <td><span class="tag tag-auto">Automated</span></td>
+        <td>Keyword-based extraction with relevance scoring and deduplication.</td>
+      </tr>
+      <tr>
+        <td>Alert writing</td>
+        <td><span class="tag tag-auto">Automated</span></td>
+        <td>AI-written from findings, framed as competitive intelligence.</td>
+      </tr>
+      <tr>
+        <td>Quality assurance</td>
+        <td><span class="tag tag-auto">Automated</span></td>
+        <td>Multi-agent QA: word count, source diversity, freshness, citation check.</td>
+      </tr>
+      <tr>
+        <td>Telegram delivery</td>
+        <td><span class="tag tag-auto">Automated</span></td>
+        <td>Delivered by 06:00 ICT daily. Delivery log tracked.</td>
+      </tr>
+      <tr>
+        <td>Watchlist setup</td>
+        <td><span class="tag tag-manual">Manual</span></td>
+        <td>We configure your competitor watchlist during onboarding. Changes on request.</td>
+      </tr>
+      <tr>
+        <td>Battlecard requests</td>
+        <td><span class="tag tag-manual">Manual</span></td>
+        <td>Request a battlecard for any tracked competitor. Delivered within 24 hours.</td>
+      </tr>
+      <tr>
+        <td>Custom source addition</td>
+        <td><span class="tag tag-manual">Manual</span></td>
+        <td>Add competitor-specific URLs (e.g., a startup's changelog) to monitoring. Setup within 24 hours.</td>
+      </tr>
+      <tr>
+        <td>Email / Slack delivery</td>
+        <td><span class="tag tag-planned">Planned</span></td>
+        <td>Not yet available. Telegram and MCP are the current delivery channels.</td>
+      </tr>
+      <tr>
+        <td>CRM / Notion writeback</td>
+        <td><span class="tag tag-planned">Planned</span></td>
+        <td>Not yet available. Under development.</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- ─── WHAT THE PIPELINE MONITORS ─── -->
+<h2>What We Monitor</h2>
+<div class="card">
+  <p style="margin-bottom: 0.75rem;">30+ sources across these categories:</p>
+  <ul>
+    <li><strong>Provider blogs &amp; docs:</strong> Anthropic, OpenAI, Google DeepMind, Mistral, Meta, DeepSeek</li>
+    <li><strong>Pricing &amp; changelog pages:</strong> Direct monitoring of API pricing, changelogs, deprecation notices</li>
+    <li><strong>Tech aggregators:</strong> TechCrunch, VentureBeat, The Verge</li>
+    <li><strong>Technical:</strong> HuggingFace, arXiv, transparency reports</li>
+    <li><strong>Community:</strong> Hacker News</li>
+    <li><strong>Infrastructure:</strong> Docker, Kubernetes, Cloudflare, AWS, Azure, GCP</li>
+    <li><strong>Frameworks:</strong> LangChain, LlamaIndex, CrewAI, Vercel AI SDK</li>
+  </ul>
+  <p style="margin-top: 0.5rem; color: var(--dim); font-size: 0.9rem;">Custom sources can be added for your tracked competitors during onboarding.</p>
+</div>
+
+<!-- ─── PAYMENT BLOCKERS ─── -->
+<h2>Current Payment Status</h2>
+<div class="blocker">
+  <strong>What blocks real payment today:</strong>
+  <ul style="margin-top: 0.5rem;">
+    <li><strong>Telegram subscription payments:</strong> Require USDC on Base L2. No credit card or PayPal option yet. This is the primary blocker for non-crypto-native customers.</li>
+    <li><strong>MCP x402 payments:</strong> Work via USDC on Base L2. Functional but no external customer has completed a transaction yet.</li>
+  </ul>
+  <p style="margin-top: 0.75rem; color: var(--dim);">
+    <strong>Workaround for pilot customers:</strong> We can accept manual payment (bank transfer, Wise, or stablecoin) and activate your subscription directly. Contact <strong>nguyensimon186@gmail.com</strong> or <strong><a href="https://t.me/Enhanhsj">@Enhanhsj on Telegram</a></strong> to arrange a pilot.
+  </p>
+</div>
+
+<!-- ─── WHAT THE PILOT PROVES ─── -->
+<h2>What the Pilot Proves</h2>
+<div class="card">
+  <ul>
+    <li>That recurring competitor monitoring saves your team research hours every week.</li>
+    <li>That cited, dated findings are more trustworthy than ad-hoc Googling or generic newsletters.</li>
+    <li>That battlecard-ready output accelerates your sales enablement and exec briefing workflows.</li>
+    <li>That the pipeline runs reliably &mdash; daily delivery with QA verification.</li>
+  </ul>
+</div>
+
+<!-- ─── START ─── -->
+<h2>Start</h2>
+<div class="card" style="text-align: center;">
+  <p style="margin-bottom: 1rem;">Start with a free 7-day trial or contact us to arrange a paid pilot.</p>
+  <a class="cta cta-primary" href="https://t.me/eggsama_bot?start=trial">Start Free Trial</a>
+  <a class="cta cta-outline" href="mailto:nguyensimon186@gmail.com?subject=Meridian Pilot Interest">Email Us</a>
+  <a class="cta cta-outline" href="https://t.me/Enhanhsj">Telegram DM</a>
+</div>
+
+<p style="text-align: center; margin-top: 1rem;">
+  <a href="demo.html">See full product demo</a> &middot; <a href="index.html">Back to main page</a>
+</p>
+
+<div class="footer">
+  <p><a href="index.html">Home</a> &middot; <a href="demo.html">Demo</a> &middot; <a href="https://t.me/MeridianIntelligence">Telegram Channel</a> &middot; <a href="https://github.com/mapleleaflatte03/meridian-intelligence">GitHub</a></p>
+  <p style="margin-top: 0.5rem;">Meridian &copy; 2026 &mdash; Competitor Intelligence for Product Teams</p>
+</div>
+
+</div>
+</body>
+</html>

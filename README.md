@@ -1,6 +1,6 @@
-# Meridian Intelligence — AI Intelligence MCP Server
+# Meridian — Competitor Intelligence for Product Teams
 
-> Autonomous AI intelligence service. Daily briefs, on-demand research, QA verification. 7 specialized agents. Pay with USDC on Base L2 via x402 protocol.
+> Track what your competitors ship, price, and launch. Daily cited alerts, weekly briefs, and battlecard-ready output for Product Marketing and Competitive Intelligence teams.
 
 [![MCP Server](https://img.shields.io/badge/MCP-Server-blue)](https://app.welliam.codes/sse)
 [![x402 Payments](https://img.shields.io/badge/Payments-x402%20USDC-green)](https://x402.org)
@@ -8,15 +8,23 @@
 
 ## What is Meridian?
 
-Meridian is an **autonomous AI company** running on a single VPS with 7 specialized agents that produce daily intelligence briefs about the AI/ML ecosystem.
+Meridian is a **competitor intelligence service** for B2B software and AI-native companies. It monitors 30+ sources nightly — provider blogs, pricing pages, changelogs, tech news — and delivers cited competitive intelligence to your team every morning.
 
-The company has a 3-ledger economy (REP/AUTH/CASH) with real sanctions — agents that produce bad work lose authority and get restricted to lower-value tasks.
+**Who it's for:** Product Marketing Managers, Competitive Intelligence leads, Product Managers, and Sales Enablement teams who need to know what competitors are doing without manual research overhead.
+
+**What you get:**
+- **Daily competitor alerts** — cited findings on pricing changes, product launches, API updates, deprecations
+- **Weekly intelligence briefs** — curated top competitive moves with action items
+- **Battlecards on demand** — structured competitor snapshots for sales enablement or exec briefings
+- **Competitor watchlists** — track specific companies; Meridian monitors their sources automatically
 
 **Live service:** https://app.welliam.codes
+**Product demo:** https://app.welliam.codes/demo.html
+**Paid pilot offer:** https://app.welliam.codes/pilot.html
 
 ### Free 7-Day Trial
 
-No payment required. DM [@eggsama_bot](https://t.me/eggsama_bot?start=trial) on Telegram with the word **trial** — daily briefs start immediately.
+No payment required. DM [@eggsama_bot](https://t.me/eggsama_bot?start=trial) on Telegram with the word **trial** — daily competitor alerts start immediately.
 
 ---
 
@@ -38,12 +46,12 @@ Connect via SSE: `https://app.welliam.codes/sse`
 
 | Tool | Price | Description |
 |------|-------|-------------|
-| `intelligence_latest_brief` | **$0.50 USDC** | Today's AI intelligence brief with sourced findings |
-| `intelligence_on_demand_research` | **$2.00 USDC** | Research any topic with 3-7 sourced findings |
-| `intelligence_qa_verify` | **$1.00 USDC** | Multi-agent QA verification (factual/completeness/readiness) |
-| `intelligence_weekly_digest` | **$1.50 USDC** | Top 5 AI/ML developments from the past 7 days |
-| `intelligence_competitor_snapshot` | **$3.00 USDC** | Deep research snapshot of any AI company or product |
-| `company_info` | **FREE** | Meridian capabilities, agent roster, and pricing |
+| `intelligence_latest_brief` | **$0.50 USDC** | Daily competitor intelligence alert with cited findings |
+| `intelligence_on_demand_research` | **$2.00 USDC** | On-demand competitive research on any company or topic |
+| `intelligence_competitor_snapshot` | **$3.00 USDC** | Battlecard-ready competitor snapshot: recent moves, pricing, product, talking points |
+| `intelligence_qa_verify` | **$1.00 USDC** | QA verification of competitive claims or intelligence text |
+| `intelligence_weekly_digest` | **$1.50 USDC** | Weekly competitive digest across tracked competitors |
+| `company_info` | **FREE** | Meridian capabilities and pricing |
 
 ---
 
@@ -88,17 +96,16 @@ For daily brief delivery without the MCP client:
 
 ---
 
-## Daily Pipeline
+## Nightly Pipeline
 
-Runs nightly (22:00–06:10 ICT):
+Runs nightly (22:00–06:10 ICT). Produces competitor intelligence alerts:
 
-1. **Kickoff** — Select research topic
-2. **Research** — Atlas gathers 3-5 sourced findings
-3. **Execute** — Forge runs one bounded improvement task
-4. **Write** — Quill drafts 200-300 word brief
-5. **QA** — Sentinel verifies, Aegis accepts/rejects
-6. **Deliver** — Brief sent to Telegram + subscribers
-7. **Score** — Economy auto-scores agents (REP/AUTH deltas)
+1. **Research** — Fetch 30+ sources (provider blogs, changelogs, pricing pages, tech aggregators). Watchlist competitors get priority.
+2. **Extract** — 8-12 sourced findings with relevance scoring and deduplication
+3. **Write** — 400+ word competitor intelligence alert, each finding framed as competitive intelligence with source citation
+4. **QA** — Multi-agent verification: source freshness, citation accuracy, minimum quality bar (200+ words, 5+ sources)
+5. **Deliver** — Approved alert sent to all active subscribers via Telegram by 06:00 ICT
+6. **Score** — Economy auto-scores agents (REP/AUTH deltas based on output quality)
 
 ---
 

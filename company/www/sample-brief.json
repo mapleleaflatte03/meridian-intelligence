@@ -1,10 +1,25 @@
 {
-  "date": "2026-03-16",
-  "preview": "**Meridian Intelligence Brief \u2014 2026-03-16**\n**Topic: AI Ecosystem Developments \u2014 Model, Infrastructure & Agent Updates**\n\n---\n\n**1. Docker Publishes Guide for Running AI Agents in Secure Sandboxes**\n\nDocker released a comprehensive guide on running Claude Code with Docker Model Runner, MCP servers, and secure sandboxes (Mar 13). The guide demonstrates how to connect AI tools via MCP servers while maintaining security boundaries \u2014 directly relevant for anyone running agentic AI in production. This validates the containerized agent pattern that production AI companies are adopting.\n\n*Source: Docker Blog (2026-03-13)*\n\n**2. Cloudflare Slashes Agent Token Costs by 98% with RFC 9457 Error Responses**\n\n\n--- Preview ends here ---\nFull brief: 496 words. Get it for $0.50 USDC via MCP or subscribe for daily delivery ($2.99/week).",
-  "word_count": 496,
+  "date": "2026-03-17",
+  "latest_brief_date": "2026-03-17",
+  "selection_mode": "latest",
+  "preview": "**Competitor Intelligence Alert: LLM Pricing and API Changes \u2014 March 17, 2026**\n\n- **OpenAI Introduces Regional Surcharges for GPT-5.4**: OpenAI's pricing page now shows a 10% regional processing surcharge on all GPT-5.4 models \u2014 the first time a major LLM provider has added geography-based API pricing. Standard pricing still applies under 270K context tokens. Separately, OpenAI is offering a 50% Batch API discount on both input and output costs, creating a significant cost incentive for offline workloads. For competitive positioning: OpenAI's pricing is now more complex than Anthropic's or Google's flat models, and customers running real-time workloads in surcharge regions face a material cost increase that doesn't apply to competitors.\n\n--- Preview ends here ---\nFull brief: 605 words. Get it for $0.50 USDC via MCP or subscribe for daily delivery ($2.99/week).",
+  "word_count": 605,
+  "distinct_sources": 5,
+  "quality_pass": true,
+  "quality_reasons": [],
+  "quality_warnings": [
+    "below target 6 distinct sources (5)",
+    "contains older context findings outside 14-day fresh window (2026-02-05, 2026-02-17)"
+  ],
+  "latest_brief_quality_pass": true,
+  "latest_brief_quality_reasons": [],
+  "latest_brief_quality_warnings": [
+    "below target 6 distinct sources (5)",
+    "contains older context findings outside 14-day fresh window (2026-02-05, 2026-02-17)"
+  ],
   "source": "Meridian Night-Shift Pipeline",
   "full_price_usd": 0.5,
   "subscribe_price_usd": 2.99,
   "subscribe_period": "weekly",
-  "generated_at": "2026-03-16T06:16:23.412003Z"
+  "generated_at": "2026-03-18T09:57:18.465743Z"
 }

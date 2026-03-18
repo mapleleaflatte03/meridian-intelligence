@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Meridian — Product Demo</title>
+<meta name="description" content="See how Meridian tracks competitors end to end: watchlists, daily alerts, weekly briefs, and battlecards.">
+<style>
+  :root { --bg: #0a0a0f; --fg: #e0e0e0; --accent: #4fc3f7; --card: #151520; --border: #2a2a3a; --green: #4caf50; --dim: #888; --warn: #ffa726; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Inter', system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--fg); line-height: 1.6; }
+  .container { max-width: 800px; margin: 0 auto; padding: 2rem 1.5rem; }
+  h1 { font-size: 2rem; color: #fff; margin-bottom: 0.5rem; text-align: center; padding-top: 2rem; }
+  .subtitle { text-align: center; color: var(--dim); margin-bottom: 2.5rem; font-size: 1.05rem; }
+  h2 { font-size: 1.3rem; color: var(--accent); margin: 2.5rem 0 0.75rem; border-bottom: 1px solid var(--border); padding-bottom: 0.5rem; }
+  h3 { color: #fff; font-size: 1.05rem; margin: 1.25rem 0 0.5rem; }
+  .step-label { display: inline-block; background: var(--accent); color: #000; font-weight: 700; font-size: 0.8rem; padding: 2px 10px; border-radius: 4px; margin-bottom: 0.5rem; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 1.25rem; margin-bottom: 1rem; }
+  .card-header { color: var(--accent); font-weight: 700; font-size: 0.9rem; margin-bottom: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; }
+  .finding { margin-bottom: 1rem; padding-bottom: 0.75rem; border-bottom: 1px solid var(--border); }
+  .finding:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
+  .finding-title { color: #fff; font-weight: 600; margin-bottom: 0.3rem; }
+  .finding-body { color: var(--fg); font-size: 0.92rem; }
+  .finding-source { color: var(--dim); font-size: 0.82rem; margin-top: 0.25rem; }
+  .tag { display: inline-block; font-size: 0.75rem; padding: 2px 8px; border-radius: 3px; margin-right: 0.4rem; font-weight: 600; }
+  .tag-pricing { background: #1a2a3a; color: var(--accent); }
+  .tag-product { background: #1a3a1a; color: var(--green); }
+  .tag-deprecation { background: #3a2a1a; color: var(--warn); }
+  .tag-strategy { background: #2a1a3a; color: #ce93d8; }
+  .watchlist-table { width: 100%; border-collapse: collapse; margin: 0.5rem 0; font-size: 0.92rem; }
+  .watchlist-table th { text-align: left; color: var(--accent); padding: 0.5rem 0.75rem; border-bottom: 2px solid var(--border); font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; }
+  .watchlist-table td { padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--border); }
+  .watchlist-table tr:last-child td { border-bottom: none; }
+  .status-active { color: var(--green); }
+  .brief-box { background: #0d1117; border: 1px solid var(--border); border-radius: 8px; padding: 1.5rem; margin: 1rem 0; font-size: 0.92rem; line-height: 1.7; }
+  .brief-box h4 { color: #fff; font-size: 1.1rem; margin-bottom: 0.75rem; }
+  .action-item { padding: 0.3rem 0; }
+  .action-item::before { content: "-> "; color: var(--accent); }
+  .risk-box { background: #1a1510; border: 1px solid #3a2a1a; border-radius: 6px; padding: 0.75rem 1rem; margin-top: 0.75rem; font-size: 0.9rem; }
+  .risk-box strong { color: var(--warn); }
+  .battlecard { background: var(--card); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; margin: 1rem 0; }
+  .battlecard-header { background: #1a1a2a; padding: 1rem 1.25rem; border-bottom: 1px solid var(--border); }
+  .battlecard-header h4 { color: #fff; font-size: 1.1rem; margin: 0; }
+  .battlecard-meta { color: var(--dim); font-size: 0.82rem; margin-top: 0.25rem; }
+  .battlecard-body { padding: 1.25rem; }
+  .battlecard-section { margin-bottom: 1rem; }
+  .battlecard-section:last-child { margin-bottom: 0; }
+  .battlecard-section h5 { color: var(--accent); font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.5rem; }
+  .battlecard-item { padding: 0.3rem 0; font-size: 0.92rem; }
+  .battlecard-item::before { content: "- "; color: var(--accent); }
+  .delivery-visual { display: grid; grid-template-columns: 1fr auto 1fr auto 1fr; align-items: center; gap: 0.5rem; margin: 1.5rem 0; text-align: center; font-size: 0.85rem; }
+  .delivery-node { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 0.75rem; }
+  .delivery-node strong { color: #fff; display: block; }
+  .delivery-arrow { color: var(--accent); font-size: 1.2rem; }
+  @media (max-width: 600px) { .delivery-visual { grid-template-columns: 1fr; } .delivery-arrow { transform: rotate(90deg); } }
+  .cta-section { text-align: center; margin: 3rem 0 2rem; padding: 2rem; background: linear-gradient(180deg, #0d1020, var(--bg)); border-radius: 12px; }
+  .cta-section h2 { border: none; margin-bottom: 0.75rem; }
+  .cta { display: inline-block; padding: 12px 28px; border-radius: 6px; text-decoration: none; font-weight: 700; font-size: 1rem; margin: 0.5rem; }
+  .cta-primary { background: var(--accent); color: #000; }
+  .cta-outline { background: transparent; border: 2px solid var(--accent); color: var(--accent); }
+  a { color: var(--accent); }
+  .footer { margin-top: 2rem; padding-top: 1rem; border-top: 1px solid var(--border); color: #555; font-size: 0.85rem; text-align: center; }
+  .footer a { color: var(--dim); }
+  .note { color: var(--dim); font-size: 0.85rem; font-style: italic; margin: 0.5rem 0; }
+  .confidence { display: inline-block; padding: 2px 8px; border-radius: 3px; font-size: 0.75rem; font-weight: 600; }
+  .confidence-high { background: #1a3a1a; color: var(--green); }
+  .confidence-medium { background: #3a3a1a; color: #ffd54f; }
+</style>
+</head>
+<body>
+<div class="container">
+
+<h1>Meridian Product Demo</h1>
+<p class="subtitle">End-to-end competitor intelligence workflow with real pipeline output</p>
+
+<!-- ─────────────── STEP 1: WATCHLIST ─────────────── -->
+<span class="step-label">Step 1</span>
+<h2>Set Your Competitor Watchlist</h2>
+<p>You tell Meridian which competitors to track and what topics matter. The system monitors their pricing pages, blogs, changelogs, and docs automatically.</p>
+
+<div class="card">
+  <div class="card-header">Watchlist: Acme Corp (sample customer)</div>
+  <table class="watchlist-table">
+    <thead>
+      <tr><th>Competitor</th><th>Topics</th><th>Sources Monitored</th><th>Status</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>OpenAI</strong></td>
+        <td><span class="tag tag-pricing">pricing</span><span class="tag tag-product">models</span><span class="tag tag-deprecation">API changes</span></td>
+        <td>3 (blog, changelog, pricing page)</td>
+        <td class="status-active">Active</td>
+      </tr>
+      <tr>
+        <td><strong>Anthropic</strong></td>
+        <td><span class="tag tag-pricing">pricing</span><span class="tag tag-product">models</span><span class="tag tag-strategy">safety</span></td>
+        <td>2 (blog, model docs)</td>
+        <td class="status-active">Active</td>
+      </tr>
+      <tr>
+        <td><strong>Google (Gemini)</strong></td>
+        <td><span class="tag tag-pricing">pricing</span><span class="tag tag-deprecation">deprecations</span><span class="tag tag-product">Vertex AI</span></td>
+        <td>3 (DeepMind blog, pricing page, deprecation page)</td>
+        <td class="status-active">Active</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+<p class="note">Watchlists are configured per customer. Meridian's pipeline automatically prioritizes sources for tracked competitors.</p>
+
+<!-- ─────────────── STEP 2: DAILY ALERT ─────────────── -->
+<span class="step-label">Step 2</span>
+<h2>Receive Daily Competitor Alerts</h2>
+<p>Every morning, Meridian delivers a cited intelligence alert covering the most important changes across your tracked competitors. Below is an actual pipeline output.</p>
+
+<div class="brief-box">
+  <h4>Competitor Intelligence Alert &mdash; March 17, 2026</h4>
+  <p><em>Covering: OpenAI, Anthropic, Google (Gemini)</em></p>
+
+  <div class="finding">
+    <div class="finding-title"><span class="tag tag-pricing">Pricing</span> OpenAI introduces regional surcharges and batch discounts for GPT-5.4</div>
+    <div class="finding-body">OpenAI's pricing page now shows a <strong>10% regional processing surcharge</strong> on all GPT-5.4 models and a <strong>50% Batch API discount</strong> on both input and output costs. Standard pricing applies under 270K context tokens. This is the first time OpenAI has added geography-based pricing to its API, creating new cost dynamics for customers choosing between providers. Teams running high-volume batch workloads may see significant savings; teams in surcharge regions face a material cost increase.</div>
+    <div class="finding-source">Source: openai.com/api/pricing (fetched 2026-03-17)</div>
+  </div>
+
+  <div class="finding">
+    <div class="finding-title"><span class="tag tag-product">Product</span> Anthropic holds pricing steady while expanding Claude to 1M-token context</div>
+    <div class="finding-body">Anthropic shipped <strong>Claude Opus 4.6</strong> (Feb 5) and <strong>Sonnet 4.6</strong> (Feb 17) without raising prices. Opus stays at $5/$25 per million tokens; Sonnet stays at $3/$15. Both models gained a <strong>1M-token context window</strong> in beta. Opus 4.6 shows state-of-the-art results on agentic coding benchmarks (Terminal-Bench 2.0) and long-context reliability. For competitive positioning: Anthropic is expanding capability without price increases, making the "context window per dollar" comparison increasingly favorable.</div>
+    <div class="finding-source">Source: anthropic.com/news/claude-opus-4-6 (2026-02-05), anthropic.com/news/claude-sonnet-4-6 (2026-02-17)</div>
+  </div>
+
+  <div class="finding">
+    <div class="finding-title"><span class="tag tag-deprecation">Deprecation</span> Google hard-deprecates Gemini 3 Pro Preview</div>
+    <div class="finding-body">Google shut down <strong>gemini-3-pro-preview</strong> on <strong>March 9, 2026</strong> and recommends migrating to Gemini 3.1 Pro Preview. This is a fast deprecation cycle &mdash; the preview model was live for less than 8 weeks. Teams building on Gemini preview models need active migration tracking. Google's deprecation cadence is notably faster than OpenAI's or Anthropic's.</div>
+    <div class="finding-source">Source: ai.google.dev/gemini-api/docs/pricing (2026-03-09 shutdown date)</div>
+  </div>
+
+  <div class="finding">
+    <div class="finding-title"><span class="tag tag-pricing">Pricing</span> Google positions Gemini Flash as the low-cost high-volume option</div>
+    <div class="finding-body"><strong>Gemini 2.5 Flash</strong> is priced at $0.30/1M input and $2.50/1M output tokens with a 1M-token context window and 50% Batch API discount. This undercuts both OpenAI and Anthropic on raw token cost for high-volume workloads. Google is clearly competing on price for the inference-heavy segment.</div>
+    <div class="finding-source">Source: ai.google.dev/gemini-api/docs/pricing (fetched 2026-03-17)</div>
+  </div>
+
+  <div class="finding">
+    <div class="finding-title"><span class="tag tag-product">Product</span> OpenAI accelerates release cadence with GPT-5.4</div>
+    <div class="finding-body">OpenAI introduced <strong>GPT-5.4</strong> on March 5 as its most capable model, then migrated existing GPT-5.1 conversations to GPT-5.3/5.4 by March 11. This indicates a <strong>monthly release cadence</strong> that operators need to track. GPT-5.4 emphasizes coding, computer use, tool search, and a 1M-token context window &mdash; converging with Anthropic on context size.</div>
+    <div class="finding-source">Source: openai.com/index/introducing-gpt-5-4 (2026-03-05), help.openai.com release notes (2026-03-11)</div>
+  </div>
+
+  <h4 style="margin-top: 1.25rem;">Action Items</h4>
+  <div class="action-item">Review OpenAI's regional surcharges to assess cost impact on your deployment regions.</div>
+  <div class="action-item">Update internal pricing comparisons: Anthropic and Google are both more competitive per token than 30 days ago.</div>
+  <div class="action-item">If using Gemini preview models, check deprecation timelines now. Google's cycle is fast.</div>
+  <div class="action-item">Track OpenAI's monthly release cadence &mdash; plan for model migration as a recurring task, not an exception.</div>
+
+  <div class="risk-box">
+    <strong>Risk to Watch:</strong> Provider pricing is diverging: OpenAI adding surcharges, Google competing on price, Anthropic holding steady. Teams using multiple providers need updated cost models. Gemini's fast deprecation cycle adds migration risk for preview-model adopters.
+  </div>
+</div>
+<p class="note">Above: based on actual findings from Meridian's nightly pipeline (March 16&ndash;17 data). The real brief (605 words, 5 findings, 5 sources, QA PASS) is delivered as formatted text via Telegram. This demo shows the same content in a visual layout.</p>
+
+<!-- ─────────────── STEP 3: WEEKLY BRIEF ─────────────── -->
+<span class="step-label">Step 3</span>
+<h2>Weekly Intelligence Brief</h2>
+<p>At the end of each week, Meridian curates the most important competitive moves into a single brief. Below is a representative weekly summary.</p>
+
+<div class="brief-box">
+  <h4>Weekly Competitive Brief &mdash; Week of March 11&ndash;17, 2026</h4>
+  <p><em>Competitors tracked: OpenAI, Anthropic, Google</em></p>
+
+  <h4 style="margin-top: 1rem; font-size: 0.95rem; color: var(--accent);">Top Competitive Moves This Week</h4>
+
+  <div class="finding">
+    <div class="finding-title">1. OpenAI introduces geography-based API pricing (first in industry)</div>
+    <div class="finding-body">GPT-5.4 now carries a 10% regional surcharge. Combined with the 50% batch discount, OpenAI is segmenting its pricing more aggressively than before. This is a strategic shift from flat global pricing.</div>
+  </div>
+
+  <div class="finding">
+    <div class="finding-title">2. Google deprecates Gemini 3 Pro Preview after less than 8 weeks</div>
+    <div class="finding-body">Fastest deprecation cycle among major providers. Signals Google's willingness to iterate quickly at the cost of API stability. Migration burden falls on developers.</div>
+  </div>
+
+  <div class="finding">
+    <div class="finding-title">3. Context window convergence at 1M tokens across all three providers</div>
+    <div class="finding-body">OpenAI (GPT-5.4), Anthropic (Opus/Sonnet 4.6), and Google (Gemini Flash) all now offer 1M-token context. Context window is no longer a differentiator &mdash; pricing, reliability, and tooling are.</div>
+  </div>
+
+  <div class="finding">
+    <div class="finding-title">4. Anthropic maintains price stability while competitors adjust</div>
+    <div class="finding-body">No pricing changes from Anthropic since initial launch. In a week where OpenAI added surcharges and Google pushed aggressive Flash pricing, Anthropic's stability is itself a competitive signal.</div>
+  </div>
+
+  <h4 style="margin-top: 1rem; font-size: 0.95rem;">Takeaway</h4>
+  <p>The LLM provider market is shifting from capability competition to pricing and deployment model competition. Teams should update their vendor comparison matrices and revisit total cost of ownership by region.</p>
+</div>
+
+<!-- ─────────────── STEP 4: BATTLECARD ─────────────── -->
+<span class="step-label">Step 4</span>
+<h2>Battlecard: On-Demand Competitor Snapshot</h2>
+<p>Request a battlecard for any tracked competitor. Structured for sales enablement, exec briefings, or product planning.</p>
+
+<div class="battlecard">
+  <div class="battlecard-header">
+    <h4>Battlecard: OpenAI</h4>
+    <div class="battlecard-meta">Generated March 18, 2026 | Data from pipeline findings | <span class="confidence confidence-high">HIGH CONFIDENCE</span> (5 findings, 3 from last 7 days)</div>
+  </div>
+  <div class="battlecard-body">
+    <div class="battlecard-section">
+      <h5>Recent Moves</h5>
+      <div class="battlecard-item">Launched GPT-5.4 on March 5 with 1M-token context, coding focus, and tool-search capabilities</div>
+      <div class="battlecard-item">Migrated existing GPT-5.1 users to GPT-5.3/5.4 by March 11 (fast forced migration)</div>
+      <div class="battlecard-item">Introduced regional processing surcharges (10%) &mdash; first geography-based API pricing in the industry</div>
+      <div class="battlecard-item">Added 50% Batch API discount for high-volume workloads</div>
+    </div>
+
+    <div class="battlecard-section">
+      <h5>Pricing Intelligence</h5>
+      <div class="battlecard-item">GPT-5.4: standard pricing under 270K context; 10% surcharge for regional processing</div>
+      <div class="battlecard-item">Batch API: 50% reduction on both input and output &mdash; significant for high-volume users</div>
+      <div class="battlecard-item">Pricing is now more complex than Anthropic's flat model; comparison requires region-aware calculation</div>
+    </div>
+
+    <div class="battlecard-section">
+      <h5>Product Updates</h5>
+      <div class="battlecard-item">GPT-5.4 positioned as coding + agentic work model (competing directly with Claude Opus 4.6)</div>
+      <div class="battlecard-item">1M-token context matches Anthropic and Google offerings</div>
+      <div class="battlecard-item">Monthly release cadence (5.1 -> 5.3 -> 5.4 in 6 weeks) shows accelerating iteration</div>
+    </div>
+
+    <div class="battlecard-section">
+      <h5>Talking Points</h5>
+      <div class="battlecard-item">OpenAI is the first provider to add regional surcharges &mdash; ask customers if they've modeled the impact</div>
+      <div class="battlecard-item">Batch discount is compelling for offline workloads but does not apply to real-time use cases</div>
+      <div class="battlecard-item">Fast model migration (5.1 -> 5.4) means customers face integration churn; position stability as a selling point</div>
+      <div class="battlecard-item">Context window parity at 1M tokens means the differentiator is now pricing, tooling, and reliability</div>
+    </div>
+  </div>
+</div>
+
+<!-- ─────────────── STEP 5: DELIVERY ─────────────── -->
+<span class="step-label">Step 5</span>
+<h2>Delivery</h2>
+<p>Meridian delivers outputs directly to your team's channels.</p>
+
+<div class="delivery-visual">
+  <div class="delivery-node">
+    <strong>Nightly Pipeline</strong>
+    30+ sources scanned<br>QA-verified
+  </div>
+  <div class="delivery-arrow">&rarr;</div>
+  <div class="delivery-node">
+    <strong>Daily Alert</strong>
+    Telegram message<br>by 06:00 ICT
+  </div>
+  <div class="delivery-arrow">&rarr;</div>
+  <div class="delivery-node">
+    <strong>Your Team</strong>
+    PMMs, CI, PMs,<br>Sales Enablement
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header">Current Delivery Channels</div>
+  <table class="watchlist-table">
+    <thead>
+      <tr><th>Channel</th><th>Cadence</th><th>Status</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><strong>Telegram</strong> (daily alert)</td><td>Every morning by 06:00 ICT</td><td class="status-active">Live</td></tr>
+      <tr><td><strong>Telegram Channel</strong> (preview)</td><td>Daily (public preview)</td><td class="status-active">Live</td></tr>
+      <tr><td><strong>MCP Protocol</strong> (developer API)</td><td>On demand</td><td class="status-active">Live</td></tr>
+      <tr><td><strong>Email</strong></td><td>Daily / weekly</td><td style="color: var(--warn);">Planned</td></tr>
+      <tr><td><strong>Slack</strong></td><td>Daily / weekly</td><td style="color: var(--warn);">Planned</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- ─────────────── HOW IT WORKS BEHIND THE SCENES ─────────────── -->
+<h2>How the Pipeline Works</h2>
+<div class="card">
+  <p style="margin-bottom: 0.75rem;">Meridian runs a nightly automated pipeline:</p>
+  <table class="watchlist-table">
+    <thead><tr><th>Phase</th><th>What Happens</th><th>Output</th></tr></thead>
+    <tbody>
+      <tr><td><strong>1. Research</strong></td><td>Fetch 30+ sources: provider blogs, changelogs, pricing pages, tech news, community feeds. Watchlist competitors get priority.</td><td>8&ndash;12 sourced findings</td></tr>
+      <tr><td><strong>2. Write</strong></td><td>Draft competitor intelligence alert from findings. Frame each finding as competitive intelligence with source citation.</td><td>400+ word alert</td></tr>
+      <tr><td><strong>3. QA</strong></td><td>Multi-agent verification: check source freshness, citation accuracy, minimum quality bar (200+ words, 5+ sources).</td><td>PASS / FAIL decision</td></tr>
+      <tr><td><strong>4. Deliver</strong></td><td>Send approved alert to all active subscribers via configured channels.</td><td>Telegram message + delivery log</td></tr>
+    </tbody>
+  </table>
+  <p class="note" style="margin-top: 0.75rem;">Pipeline runs 22:00&ndash;06:00 ICT nightly. Alerts delivered by 06:00 ICT. Failed QA alerts are withheld and retried next cycle.</p>
+</div>
+
+<!-- ─────────────── CTA ─────────────── -->
+<div class="cta-section">
+  <h2>Try It</h2>
+  <p style="color: var(--dim); margin-bottom: 1rem;">7-day free trial. No payment needed. Cancel anytime.</p>
+  <a class="cta cta-primary" href="https://t.me/eggsama_bot?start=trial">Start Free Trial</a>
+  <a class="cta cta-outline" href="pilot.html">See Paid Pilot Offer</a>
+  <br>
+  <a class="cta cta-outline" href="index.html" style="margin-top: 0.5rem;">Back to Main Page</a>
+</div>
+
+<div class="footer">
+  <p><a href="index.html">Home</a> &middot; <a href="pilot.html">Paid Pilot</a> &middot; <a href="https://t.me/MeridianIntelligence">Telegram Channel</a> &middot; <a href="https://github.com/mapleleaflatte03/meridian-intelligence">GitHub</a></p>
+  <p style="margin-top: 0.5rem;">Meridian &copy; 2026 &mdash; Competitor Intelligence for Product Teams</p>
+</div>
+
+</div>
+</body>
+</html>

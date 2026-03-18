@@ -3,17 +3,17 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Meridian — Know what changed in AI today</title>
-<meta name="description" content="Daily AI intelligence brief in 2 minutes. Sourced findings from multiple outlets. 7-day free trial. No payment needed to start.">
-<meta property="og:title" content="Meridian — Know what changed in AI today">
-<meta property="og:description" content="Daily AI intelligence brief covering model releases, framework updates, and infrastructure changes. Free 7-day trial.">
+<title>Meridian — Competitor Intelligence for Product Teams</title>
+<meta name="description" content="Track what your competitors ship, price, and launch. Daily cited alerts, weekly briefs, and battlecard-ready output for PMM and CI teams.">
+<meta property="og:title" content="Meridian — Competitor Intelligence for Product Teams">
+<meta property="og:description" content="Daily competitor alerts with citations. Weekly intelligence briefs. Battlecard-ready output. Built for Product Marketing and Competitive Intelligence teams.">
 <meta property="og:type" content="website">
 <script type="application/ld+json">
 {
   "@context": "https://schema.org",
   "@type": "SoftwareApplication",
   "name": "Meridian Intelligence",
-  "description": "Daily AI intelligence brief covering model releases, framework updates, and infrastructure changes. Delivered via Telegram and MCP protocol.",
+  "description": "Competitor intelligence platform for Product Marketing and Competitive Intelligence teams. Daily cited alerts, weekly briefs, battlecard-ready output.",
   "url": "https://app.welliam.codes",
   "applicationCategory": "BusinessApplication",
   "operatingSystem": "Web",
@@ -43,7 +43,7 @@
   /* Hero */
   .hero { text-align: center; padding: 3rem 0 2rem; background: linear-gradient(180deg, #0d1020 0%, var(--bg) 100%); }
   .hero h1 { font-size: 2.2rem; color: #fff; margin-bottom: 0.75rem; line-height: 1.2; }
-  .hero .tagline { font-size: 1.1rem; color: var(--dim); margin-bottom: 2rem; max-width: 500px; margin-left: auto; margin-right: auto; }
+  .hero .tagline { font-size: 1.1rem; color: var(--dim); margin-bottom: 2rem; max-width: 540px; margin-left: auto; margin-right: auto; }
   .cta-group { display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap; margin-bottom: 1rem; }
   .cta { display: inline-block; padding: 12px 28px; border-radius: 6px; text-decoration: none; font-weight: 700; font-size: 1rem; transition: background 0.2s; }
   .cta-primary { background: var(--accent); color: #000; }
@@ -77,7 +77,7 @@
   .price-period { color: var(--dim); font-size: 0.9rem; }
   .price-features { list-style: none; margin: 1rem 0; text-align: left; font-size: 0.9rem; }
   .price-features li { padding: 0.3rem 0; }
-  .price-features li::before { content: "→ "; color: var(--accent); }
+  .price-features li::before { content: "-> "; color: var(--accent); }
   .tag-free { display: inline-block; background: #1a3a1a; color: var(--green); padding: 3px 10px; border-radius: 4px; font-size: 0.8rem; font-weight: 700; }
 
   /* FAQ */
@@ -90,6 +90,13 @@
   .footer { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid var(--border); color: #555; font-size: 0.85rem; text-align: center; }
   .footer a { color: var(--dim); }
 
+  /* Feature grid */
+  .feature-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin: 1rem 0; }
+  @media (max-width: 600px) { .feature-grid { grid-template-columns: 1fr; } }
+  .feature-card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 1rem; }
+  .feature-card h3 { color: #fff; font-size: 1rem; margin-bottom: 0.5rem; }
+  .feature-card p { color: var(--dim); font-size: 0.9rem; }
+
   /* Dev section toggle */
   .dev-toggle { color: var(--dim); cursor: pointer; font-size: 0.9rem; margin-top: 1rem; }
   .dev-section { display: none; }
@@ -100,6 +107,12 @@
   .trust { display: flex; gap: 2rem; justify-content: center; flex-wrap: wrap; margin: 1.5rem 0; color: var(--dim); font-size: 0.9rem; }
   .trust span { display: flex; align-items: center; gap: 0.4rem; }
   .wallet { word-break: break-all; font-family: monospace; color: var(--accent); font-size: 0.85rem; }
+
+  /* Audience */
+  .audience-list { list-style: none; margin: 1rem 0; padding: 0; }
+  .audience-list li { padding: 0.5rem 0; border-bottom: 1px solid var(--border); font-size: 0.95rem; }
+  .audience-list li:last-child { border-bottom: none; }
+  .audience-list li strong { color: #fff; }
 </style>
 </head>
 <body>
@@ -107,42 +120,74 @@
 <!-- Hero -->
 <div class="hero">
   <div class="container">
-    <h1>Know what changed in AI today.<br>In 2 minutes.</h1>
-    <p class="tagline">Daily intelligence brief sourced from multiple outlets. Model releases, framework updates, infrastructure changes — delivered to your Telegram every morning.</p>
+    <h1>Track what your competitors<br>ship, price, and launch.</h1>
+    <p class="tagline">Cited daily alerts. Weekly intelligence briefs. Battlecard-ready output. Built for Product Marketing and Competitive Intelligence teams.</p>
     <div class="cta-group">
       <a class="cta cta-primary" href="https://t.me/eggsama_bot?start=trial">Start 7-Day Free Trial</a>
       <a class="cta cta-outline" href="#pricing">See Pricing</a>
     </div>
-    <p class="cta-note">No payment needed. Cancel anytime.</p>
+    <p class="cta-note">No payment needed. No credit card. Cancel anytime.</p>
   </div>
 </div>
 
 <div class="container">
 
-  <!-- Today's Brief Preview -->
-  <h2>Today's Brief Preview</h2>
-  <div id="sample-box" class="sample-box">Loading today's brief...</div>
+  <!-- Who it's for -->
+  <h2>Built for Teams That Need to Know</h2>
+  <ul class="audience-list">
+    <li><strong>Product Marketing Managers</strong> — Know what competitors launched before your team asks.</li>
+    <li><strong>Competitive Intelligence</strong> — Daily monitoring across pricing, product, and positioning changes.</li>
+    <li><strong>Product Managers</strong> — Track API changes, deprecations, and feature gaps across your competitive set.</li>
+    <li><strong>Sales Enablement</strong> — Keep battlecards current with cited, dated competitive data.</li>
+  </ul>
+
+  <!-- What you get -->
+  <h2>What You Get</h2>
+  <div class="feature-grid">
+    <div class="feature-card">
+      <h3>Daily Competitor Alerts</h3>
+      <p>Cited findings from 30+ monitored sources. Pricing changes, product launches, API updates, deprecations — delivered every morning.</p>
+    </div>
+    <div class="feature-card">
+      <h3>Weekly Intelligence Brief</h3>
+      <p>Curated summary of the week's most important competitive moves. Action items and risk signals included.</p>
+    </div>
+    <div class="feature-card">
+      <h3>Competitor Watchlists</h3>
+      <p>Track specific competitors by name. Set topics — pricing, launches, partnerships, API changes. Get alerts only for what matters.</p>
+    </div>
+    <div class="feature-card">
+      <h3>Battlecard-Ready Output</h3>
+      <p>Structured competitive snapshots: recent moves, pricing intel, product updates, and talking points. Ready for your sales deck or Notion wiki.</p>
+    </div>
+  </div>
+
+  <!-- Sample output -->
+  <h2>Sample: Daily Alert</h2>
+  <div id="sample-box" class="sample-box">Loading today's alert...</div>
   <div id="sample-meta" class="sample-meta"></div>
+  <p style="text-align: center; margin-top: 0.75rem;"><a href="demo.html">See full product demo with watchlists, weekly brief, and battlecard &rarr;</a></p>
 
   <!-- How It Works -->
   <h2>How It Works</h2>
   <ol class="steps">
-    <li><strong>Subscribe</strong> — Start a free 7-day trial via <a href="https://t.me/eggsama_bot?start=trial">Telegram</a>. No payment, no credit card.</li>
-    <li><strong>Receive</strong> — Get a daily AI intelligence brief at 05:50 ICT, covering the most important changes across the ecosystem.</li>
-    <li><strong>Stay Ahead</strong> — Each brief is sourced from multiple outlets, QA-verified, and formatted for quick reading. Each finding cites its source.</li>
+    <li><strong>Set your watchlist</strong> — Tell us which competitors to track and what topics matter (pricing, launches, API changes, partnerships).</li>
+    <li><strong>Receive daily alerts</strong> — Every morning, get cited findings on your competitors. Each finding links to its source.</li>
+    <li><strong>Get weekly briefs</strong> — A curated weekly summary with action items, risk signals, and competitive context.</li>
+    <li><strong>Pull battlecards on demand</strong> — Request a structured competitive snapshot for any tracked company, ready for sales enablement or exec review.</li>
   </ol>
 
-  <!-- What You Get -->
-  <h2>What You Get</h2>
+  <!-- Pipeline -->
+  <h2>How We Monitor</h2>
   <div class="card">
-    <p><strong>Every brief includes:</strong></p>
+    <p>Meridian runs a nightly 7-agent pipeline that:</p>
     <ul style="margin: 0.75rem 0 0 1.5rem; font-size: 0.95rem;">
-      <li>4-6 sourced findings with links</li>
-      <li>Action items — what you should do</li>
-      <li>Risk watch — what could break</li>
-      <li>Coverage: model releases, API changes, framework updates, infrastructure, pricing shifts</li>
+      <li>Fetches 30+ sources: provider blogs, changelogs, pricing pages, tech aggregators, community feeds</li>
+      <li>Extracts and deduplicates findings with relevance scoring</li>
+      <li>Runs multi-agent QA verification before delivery</li>
+      <li>Cites every finding with source URL and date</li>
     </ul>
-    <p style="margin-top: 0.75rem; color: var(--dim); font-size: 0.9rem;">Sources include: Anthropic, OpenAI, Google DeepMind, HuggingFace, TechCrunch, Hacker News, Cloudflare, Docker, LangChain, and more.</p>
+    <p style="margin-top: 0.75rem; color: var(--dim); font-size: 0.9rem;">Sources include: Anthropic, OpenAI, Google DeepMind, Mistral, Meta, HuggingFace, TechCrunch, Hacker News, LangChain, and more.</p>
   </div>
 
   <!-- Pricing -->
@@ -154,7 +199,8 @@
       <div class="price-amount">$0</div>
       <div class="price-period">No payment needed</div>
       <ul class="price-features">
-        <li>Full daily brief for 7 days</li>
+        <li>Daily competitor alerts for 7 days</li>
+        <li>Full cited findings with sources</li>
         <li>Delivered via Telegram</li>
         <li>Cancel anytime</li>
       </ul>
@@ -165,33 +211,43 @@
       <div class="price-amount">$2.99</div>
       <div class="price-period">per week</div>
       <ul class="price-features">
-        <li>Daily brief via Telegram</li>
-        <li>Same-day delivery</li>
+        <li>Daily competitor alerts</li>
+        <li>Weekly intelligence brief</li>
+        <li>Battlecard requests</li>
         <li>Pay with USDC on Base L2</li>
       </ul>
       <a class="cta cta-outline" href="https://t.me/eggsama_bot" style="width:100%; text-align:center;">Subscribe</a>
     </div>
   </div>
   <p style="color: var(--dim); font-size: 0.85rem; text-align: center; margin-top: 0.5rem;">
-    Developers: access individual briefs for <strong>$0.50</strong> via <a href="#developers">MCP protocol</a>.
+    Developers: access individual tools from <strong>$0.50</strong> via <a href="#developers">MCP protocol</a>.
   </p>
 
   <!-- Trust -->
   <div class="trust">
+    <span>Every finding cited</span>
+    <span>30+ sources monitored</span>
+    <span>QA-verified daily</span>
     <span>Open source pipeline</span>
-    <span>Every finding sourced</span>
-    <span>Launched March 2026</span>
   </div>
 
   <!-- FAQ -->
   <h2>FAQ</h2>
   <details>
-    <summary>What topics does the brief cover?</summary>
-    <p>LLM/model releases, API pricing changes, agentic frameworks (LangChain, CrewAI, AutoGen), self-hosted AI infrastructure, safety/alignment developments, and more. Topics rotate daily.</p>
+    <summary>What competitors can I track?</summary>
+    <p>Any company in the AI/ML ecosystem: model providers (OpenAI, Anthropic, Google, Mistral, Meta, Cohere, DeepSeek), frameworks (LangChain, LlamaIndex, CrewAI), infrastructure (Cloudflare, AWS, Azure, GCP), and more. Custom competitor tracking available on request.</p>
   </details>
   <details>
-    <summary>How is this different from AI newsletters?</summary>
-    <p>Meridian briefs are produced by an automated pipeline that checks multiple sources every night, writes the brief, then runs QA before delivery. Every finding links to its source.</p>
+    <summary>What topics do you monitor?</summary>
+    <p>Pricing changes, model/product launches, API updates, deprecations, partnerships, positioning shifts, and strategic moves. You can configure which topics matter for each tracked competitor.</p>
+  </details>
+  <details>
+    <summary>How is this different from a newsletter or Google Alerts?</summary>
+    <p>Meridian monitors structured sources (pricing pages, changelogs, API docs) that newsletters and Google Alerts miss. Every finding cites its source with a date. Output is structured for PMM workflows — not just raw links.</p>
+  </details>
+  <details>
+    <summary>What is a battlecard?</summary>
+    <p>A structured competitive reference: recent moves, pricing intelligence, product updates, strategic signals, and talking points. The standard format used by PMM and sales enablement teams to brief reps on competitors.</p>
   </details>
   <details>
     <summary>Can I cancel anytime?</summary>
@@ -199,16 +255,12 @@
   </details>
   <details>
     <summary>What is MCP?</summary>
-    <p>Model Context Protocol — a standard for AI tools. Developers can connect their AI client to our MCP server to access briefs and research tools programmatically. Pay-per-use via x402 protocol (USDC on Base L2).</p>
-  </details>
-  <details>
-    <summary>What is x402?</summary>
-    <p>An open payment protocol for AI tools. When you call a paid MCP tool, the server returns HTTP 402 with payment requirements. Your AI client pays automatically with USDC on Base L2. Settlement is instant.</p>
+    <p>Model Context Protocol — a standard for AI tools. Developers can connect their AI client to our MCP server to access intelligence tools programmatically. Pay-per-use via x402 protocol (USDC on Base L2).</p>
   </details>
 
   <!-- Developer Section -->
   <h2 id="developers">For Developers</h2>
-  <p class="dev-toggle" onclick="document.getElementById('dev-details').classList.toggle('open')">Show MCP integration, payment details, and agent info ▾</p>
+  <p class="dev-toggle" onclick="document.getElementById('dev-details').classList.toggle('open')">Show MCP integration, payment details, and API info &#9662;</p>
   <div id="dev-details" class="dev-section">
     <h3 style="color: #fff; margin: 1rem 0 0.5rem;">MCP Integration</h3>
     <p>Add to your AI client config:</p>
@@ -222,12 +274,12 @@
 
     <h3 style="color: #fff; margin: 1.5rem 0 0.5rem;">Available Tools</h3>
     <div class="card">
-      <p><code>intelligence_latest_brief</code> — <strong>$0.50</strong> — Daily AI brief</p>
-      <p><code>intelligence_on_demand_research</code> — <strong>$2.00</strong> — Research any topic</p>
-      <p><code>intelligence_qa_verify</code> — <strong>$1.00</strong> — QA verification</p>
-      <p><code>intelligence_weekly_digest</code> — <strong>$1.50</strong> — Weekly top 5</p>
-      <p><code>intelligence_competitor_snapshot</code> — <strong>$3.00</strong> — Company deep dive</p>
-      <p><code>company_info</code> — <strong>FREE</strong> — Meridian info & pricing</p>
+      <p><code>intelligence_latest_brief</code> &mdash; <strong>$0.50</strong> &mdash; Daily competitor intelligence alert</p>
+      <p><code>intelligence_on_demand_research</code> &mdash; <strong>$2.00</strong> &mdash; Research any competitor or topic</p>
+      <p><code>intelligence_competitor_snapshot</code> &mdash; <strong>$3.00</strong> &mdash; Battlecard-ready competitor snapshot</p>
+      <p><code>intelligence_qa_verify</code> &mdash; <strong>$1.00</strong> &mdash; QA verification of competitive claims</p>
+      <p><code>intelligence_weekly_digest</code> &mdash; <strong>$1.50</strong> &mdash; Weekly competitive digest</p>
+      <p><code>company_info</code> &mdash; <strong>FREE</strong> &mdash; Meridian capabilities and pricing</p>
     </div>
 
     <h3 style="color: #fff; margin: 1.5rem 0 0.5rem;">Payment</h3>
@@ -237,40 +289,63 @@
       <p><strong>Token:</strong> USDC</p>
       <p><strong>Wallet:</strong> <span class="wallet">0x82009D0fa435d490A12e0cBfBE47bf3358e47761</span></p>
     </div>
-
-    <h3 style="color: #fff; margin: 1.5rem 0 0.5rem;">Pipeline Agents</h3>
-    <p style="color: var(--dim);">7 specialized agents with constitutional governance and 3-ledger economy (REP/AUTH/CASH).</p>
-    <div class="card" style="font-size: 0.9rem;">
-      <p><strong style="color: var(--accent);">Leviathann</strong> — Manager & orchestrator</p>
-      <p><strong style="color: var(--accent);">Atlas</strong> — Research & analysis</p>
-      <p><strong style="color: var(--accent);">Sentinel</strong> — Verification & audit</p>
-      <p><strong style="color: var(--accent);">Forge</strong> — Execution & ops</p>
-      <p><strong style="color: var(--accent);">Quill</strong> — Product writing</p>
-      <p><strong style="color: var(--accent);">Aegis</strong> — QA gate</p>
-      <p><strong style="color: var(--accent);">Pulse</strong> — Context compression</p>
-    </div>
   </div>
 
   <div class="footer">
     <p>
-      <a href="https://github.com/anthropics/meridian-intelligence">GitHub</a> &middot;
+      <a href="demo.html">Product Demo</a> &middot;
+      <a href="pilot.html">Paid Pilot Offer</a> &middot;
+      <a href="https://github.com/mapleleaflatte03/meridian-intelligence">GitHub</a> &middot;
       <a href="https://t.me/MeridianIntelligence">Telegram Channel</a> &middot;
       <a href="https://t.me/eggsama_bot">Subscribe</a>
     </p>
-    <p style="margin-top: 0.5rem;">Meridian &copy; 2026 &mdash; Built on <a href="https://github.com/openclaw/openclaw">OpenClaw</a> runtime</p>
+    <p style="margin-top: 0.5rem;">Meridian &copy; 2026 &mdash; Competitor Intelligence for Product Teams</p>
   </div>
 </div>
 
 <script>
+var FALLBACK_SAMPLE = "Competitor Intelligence Alert — March 17, 2026\n" +
+"Covering: OpenAI, Anthropic, Google (Gemini)\n\n" +
+"[Pricing] OpenAI introduces regional surcharges for GPT-5.4\n" +
+"OpenAI's pricing page now shows a 10% regional processing surcharge on all\n" +
+"GPT-5.4 models and a 50% Batch API discount. First geography-based API pricing\n" +
+"in the industry. Teams in surcharge regions face a material cost increase.\n" +
+"Source: openai.com/api/pricing (2026-03-17)\n\n" +
+"[Product] Anthropic holds pricing while expanding to 1M-token context\n" +
+"Claude Opus 4.6 and Sonnet 4.6 shipped without price increases. Both gained a\n" +
+"1M-token context window in beta. Anthropic is expanding capability per dollar.\n" +
+"Source: anthropic.com/news (2026-02-05, 2026-02-17)\n\n" +
+"[Deprecation] Google hard-deprecates Gemini 3 Pro Preview\n" +
+"gemini-3-pro-preview shut down March 9. Less than 8 weeks from preview to\n" +
+"deprecation — fastest cycle among major providers.\n" +
+"Source: ai.google.dev/gemini-api/docs/pricing (2026-03-09)\n\n" +
+"[Pricing] Google positions Gemini Flash as low-cost option\n" +
+"Gemini 2.5 Flash at $0.30/1M input tokens with 50% Batch discount. Undercuts\n" +
+"both OpenAI and Anthropic on raw token cost for high-volume workloads.\n" +
+"Source: ai.google.dev/gemini-api/docs/pricing (2026-03-17)\n\n" +
+"Action Items:\n" +
+"-> Review OpenAI regional surcharges for cost impact\n" +
+"-> Update pricing comparisons: Anthropic and Google more competitive\n" +
+"-> Check Gemini deprecation timelines if using preview models\n\n" +
+"Risk: Provider pricing diverging. Update cost models by region.";
+
 fetch('/api/sample-brief')
   .then(r => r.json())
   .then(d => {
-    document.getElementById('sample-box').textContent = d.preview;
-    document.getElementById('sample-meta').textContent =
-      'Date: ' + d.date + ' | ' + d.word_count + ' words | Source: ' + d.source;
+    if (d.quality_pass && d.preview && !d.preview.startsWith('Latest brief preview is temporarily')) {
+      document.getElementById('sample-box').textContent = d.preview;
+      document.getElementById('sample-meta').textContent =
+        'Date: ' + d.date + ' | ' + d.word_count + ' words | ' + d.distinct_sources + ' sources | QA: PASS | Source: Meridian Night-Shift Pipeline';
+    } else {
+      document.getElementById('sample-box').textContent = FALLBACK_SAMPLE;
+      document.getElementById('sample-meta').textContent =
+        'Representative sample from pipeline data (March 2026) | 5 findings, 5 sources | Full demo: demo.html';
+    }
   })
   .catch(() => {
-    document.getElementById('sample-box').textContent = 'Sample brief unavailable. Check back after the next night shift.';
+    document.getElementById('sample-box').textContent = FALLBACK_SAMPLE;
+    document.getElementById('sample-meta').textContent =
+      'Representative sample from pipeline data (March 2026) | 5 findings, 5 sources | Full demo: demo.html';
   });
 </script>
 </body>
