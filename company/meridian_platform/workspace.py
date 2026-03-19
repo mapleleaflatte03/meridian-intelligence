@@ -57,7 +57,7 @@ from treasury import treasury_snapshot, get_balance, get_runway, check_budget
 from court import (file_violation, get_violations, resolve_violation,
                    file_appeal, decide_appeal, get_agent_record, auto_review,
                    get_restrictions, _load_records, VIOLATION_TYPES)
-from ci_vertical import PIPELINE_PHASES
+from ci_vertical import PIPELINE_PHASES, _phase_gate_snapshot, get_agent_remediation
 
 
 def _now():
@@ -83,8 +83,12 @@ def api_status():
     lead_id, lead_auth = get_sprint_lead()
 
     agents = []
+    remediations = []
     for a in reg['agents'].values():
         restrictions = get_restrictions(a.get('economy_key', a['name'].lower()))
+        remediation = get_agent_remediation(a.get('economy_key', a['name'].lower()), reg)
+        if remediation:
+            remediations.append(remediation)
         agents.append({
             'id': a['id'], 'name': a['name'], 'role': a['role'],
             'purpose': a['purpose'],
@@ -95,6 +99,7 @@ def api_status():
             'incident_count': a.get('incident_count', 0),
             'restrictions': restrictions,
             'is_sprint_lead': a.get('economy_key') == lead_id,
+            'remediation': remediation,
         })
 
     open_violations = [v for v in records['violations'].values()
@@ -133,37 +138,15 @@ def api_status():
             'total_appeals': len(records['appeals']),
         },
         'ci_vertical': _ci_vertical_status(reg, lead_id),
+        'remediations': remediations,
         'timestamp': _now(),
     }
 
 
 def _ci_vertical_status(reg, lead_id):
     """Build CI vertical constitutional gate status."""
-    phases = []
-    for phase in PIPELINE_PHASES:
-        ekey = phase['agent']
-        agent_data = None
-        for a in reg['agents'].values():
-            if a.get('economy_key') == ekey:
-                agent_data = a
-                break
-        allowed, reason = check_authority(ekey, phase['action'])
-        restrictions = get_restrictions(ekey)
-        phases.append({
-            'phase': phase['phase'],
-            'agent_key': ekey,
-            'agent_name': agent_data['name'] if agent_data else ekey,
-            'action': phase['action'],
-            'description': phase['description'],
-            'authority_allowed': allowed,
-            'authority_reason': reason,
-            'risk_state': agent_data.get('risk_state', '?') if agent_data else '?',
-            'restrictions': restrictions,
-            'is_lead': ekey == lead_id,
-        })
-
-    all_clear = all(p['authority_allowed'] for p in phases)
-    blocked_phases = [p['phase'] for p in phases if not p['authority_allowed']]
+    phases, blocked_phases = _phase_gate_snapshot(reg)
+    all_clear = all(p['clear'] for p in phases)
 
     return {
         'preflight': 'CLEAR' if (all_clear and not is_kill_switch_engaged()) else 'BLOCKED',
@@ -301,6 +284,7 @@ function render(data) {
     ? '<span class="tag tag-on">ENGAGED</span>' : '<span class="tag tag-off">OFF</span>') + '</span>';
   sb += '<span class="item">Balance: <strong>$' + data.treasury.balance_usd.toFixed(2) + '</strong></span>';
   sb += '<span class="item">Runway: <strong>$' + data.treasury.runway_usd.toFixed(2) + '</strong></span>';
+  sb += '<span class="item">CI Gate: <strong>' + data.ci_vertical.preflight + '</strong></span>';
   sb += '<span class="item">Violations: <strong>' + data.court.open_violations.length + ' open</strong></span>';
   sb += '<span class="item">Approvals: <strong>' + data.authority.pending_approvals.length + ' pending</strong></span>';
   sb += '<span class="item">Lead: <strong>' + (data.authority.sprint_lead.agent_id || 'none') + '</strong></span>';
@@ -431,6 +415,11 @@ function render(data) {
   tc += ' | Paid orders: ' + tr.paid_orders + ' | Owner draws: $' + tr.owner_draws_usd.toFixed(2);
   tc += ' | ' + (tr.above_reserve ? '<span style="color:var(--green)">Above reserve</span>' : '<span style="color:var(--red)">BELOW reserve</span>');
   tc += '</div>';
+  if (!tr.above_reserve) {
+    tc += '<div style="margin-top:0.75rem;padding:0.75rem;border:1px solid var(--red);border-radius:6px;background:#241414">';
+    tc += '<strong style="color:var(--red)">Operating below reserve.</strong> Budget-gated phases should not run until treasury is recapitalized above the $' + tr.reserve_floor_usd.toFixed(2) + ' floor or the reserve policy is explicitly changed.';
+    tc += '</div>';
+  }
   document.getElementById('treasury-card').innerHTML = tc;
 
   // Court
@@ -504,12 +493,25 @@ function render(data) {
   ci.phases.forEach(function(p) {
     cv += '<tr><td><strong>' + p.phase + '</strong></td>';
     cv += '<td>' + p.agent_name + '</td><td>' + p.action + '</td>';
-    cv += '<td>' + (p.authority_allowed ? '<span style="color:var(--green)">PASS</span>' : '<span style="color:var(--red)">BLOCKED</span>') + '</td>';
+    var gate = p.clear ? '<span style="color:var(--green)">PASS</span>' : '<span style="color:var(--red)">BLOCKED</span>';
+    if (!p.clear && p.blockers.length) gate += '<div style="color:var(--dim);font-size:0.75rem">' + p.blockers.join(' | ') + '</div>';
+    cv += '<td>' + gate + '</td>';
     cv += '<td>' + riskTag(p.risk_state) + '</td>';
     cv += '<td>' + (p.restrictions.length ? p.restrictions.join(', ') : '-') + '</td>';
     cv += '<td>' + (p.is_lead ? '<strong>LEAD</strong>' : '-') + '</td></tr>';
   });
   cv += '</table>';
+  if (data.remediations.length) {
+    cv += '<div style="margin-top:0.75rem"><strong>Remediation Paths</strong></div>';
+    data.remediations.forEach(function(r) {
+      cv += '<div class="card" style="margin-top:0.5rem">';
+      cv += '<strong>' + r.agent_name + '</strong> ' + riskTag(r.risk_state);
+      cv += '<div style="margin-top:0.35rem;font-size:0.82rem;color:var(--dim)">Restrictions: ' + (r.restrictions.length ? r.restrictions.join(', ') : '-') + ' | Open violations: ' + r.open_violations + ' | Total violations: ' + r.total_violations + '</div>';
+      cv += '<ul style="margin:0.5rem 0 0 1.25rem">';
+      r.next_steps.forEach(function(step) { cv += '<li>' + step + '</li>'; });
+      cv += '</ul></div>';
+    });
+  }
   cv += '<div style="margin-top:0.5rem;font-size:0.8rem;color:var(--dim)">Pipeline phases execute in order: research -> write -> QA -> execute -> compress -> deliver -> score</div>';
   document.getElementById('ci-card').innerHTML = cv;
 }
