@@ -3,30 +3,30 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Meridian — Competitor Intelligence for Product Teams</title>
-<meta name="description" content="Track what your competitors ship, price, and launch. Daily cited alerts, weekly briefs, and battlecard-ready output for PMM and CI teams.">
-<meta property="og:title" content="Meridian — Competitor Intelligence for Product Teams">
-<meta property="og:description" content="Daily competitor alerts with citations. Weekly intelligence briefs. Battlecard-ready output. Built for Product Marketing and Competitive Intelligence teams.">
+<title>Meridian — Constitutional Operating System for Autonomous Institutions</title>
+<meta name="description" content="Constitutional operating system for autonomous institutions. Five primitives: Institution, Agent, Authority, Treasury, Court. Competitive intelligence is the first managed vertical.">
+<meta property="og:title" content="Meridian — Constitutional Operating System for Autonomous Institutions">
+<meta property="og:description" content="Run AI agents with constitutional governance. Five primitives: Institution, Agent, Authority, Treasury, Court. Intelligence workflow live now.">
 <meta property="og:type" content="website">
 <script type="application/ld+json">
 {
   "@context": "https://schema.org",
   "@type": "SoftwareApplication",
-  "name": "Meridian Intelligence",
-  "description": "Competitor intelligence platform for Product Marketing and Competitive Intelligence teams. Daily cited alerts, weekly briefs, battlecard-ready output.",
+  "name": "Meridian",
+  "description": "Constitutional operating system for autonomous institutions. Five primitives: Institution, Agent, Authority, Treasury, Court. Intelligence workflow is the first managed vertical.",
   "url": "https://app.welliam.codes",
   "applicationCategory": "BusinessApplication",
   "operatingSystem": "Web",
   "offers": [
     {
       "@type": "Offer",
-      "name": "7-Day Free Trial",
+      "name": "Intelligence Workflow Trial",
       "price": "0",
       "priceCurrency": "USD"
     },
     {
       "@type": "Offer",
-      "name": "Weekly Brief",
+      "name": "Weekly Intelligence",
       "price": "2.99",
       "priceCurrency": "USD",
       "billingDuration": "P1W"
@@ -35,7 +35,7 @@
 }
 </script>
 <style>
-  :root { --bg: #0a0a0f; --fg: #e0e0e0; --accent: #4fc3f7; --card: #151520; --border: #2a2a3a; --green: #4caf50; --gold: #ffd54f; --dim: #888; }
+  :root { --bg: #0a0a0f; --fg: #e0e0e0; --accent: #4fc3f7; --card: #151520; --border: #2a2a3a; --green: #4caf50; --gold: #ffd54f; --dim: #888; --purple: #b39ddb; }
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { font-family: 'Inter', system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--fg); line-height: 1.6; }
   .container { max-width: 760px; margin: 0 auto; padding: 2rem 1.5rem; }
@@ -43,7 +43,7 @@
   /* Hero */
   .hero { text-align: center; padding: 3rem 0 2rem; background: linear-gradient(180deg, #0d1020 0%, var(--bg) 100%); }
   .hero h1 { font-size: 2.2rem; color: #fff; margin-bottom: 0.75rem; line-height: 1.2; }
-  .hero .tagline { font-size: 1.1rem; color: var(--dim); margin-bottom: 2rem; max-width: 540px; margin-left: auto; margin-right: auto; }
+  .hero .tagline { font-size: 1.1rem; color: var(--dim); margin-bottom: 2rem; max-width: 580px; margin-left: auto; margin-right: auto; }
   .cta-group { display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap; margin-bottom: 1rem; }
   .cta { display: inline-block; padding: 12px 28px; border-radius: 6px; text-decoration: none; font-weight: 700; font-size: 1rem; transition: background 0.2s; }
   .cta-primary { background: var(--accent); color: #000; }
@@ -79,6 +79,8 @@
   .price-features li { padding: 0.3rem 0; }
   .price-features li::before { content: "-> "; color: var(--accent); }
   .tag-free { display: inline-block; background: #1a3a1a; color: var(--green); padding: 3px 10px; border-radius: 4px; font-size: 0.8rem; font-weight: 700; }
+  .tag-live { display: inline-block; background: #1a3a1a; color: var(--green); padding: 3px 10px; border-radius: 4px; font-size: 0.75rem; font-weight: 700; }
+  .tag-building { display: inline-block; background: #2a2a1a; color: var(--gold); padding: 3px 10px; border-radius: 4px; font-size: 0.75rem; font-weight: 700; }
 
   /* FAQ */
   details { margin-bottom: 0.5rem; }
@@ -97,6 +99,14 @@
   .feature-card h3 { color: #fff; font-size: 1rem; margin-bottom: 0.5rem; }
   .feature-card p { color: var(--dim); font-size: 0.9rem; }
 
+  /* Layer diagram */
+  .layer-stack { margin: 1.5rem 0; font-family: monospace; font-size: 0.85rem; }
+  .layer { background: var(--card); border: 1px solid var(--border); padding: 0.6rem 1rem; margin-bottom: 2px; display: flex; justify-content: space-between; align-items: center; }
+  .layer:first-child { border-radius: 8px 8px 0 0; }
+  .layer:last-child { border-radius: 0 0 8px 8px; }
+  .layer-name { color: #fff; font-weight: 600; }
+  .layer-desc { color: var(--dim); font-size: 0.8rem; }
+
   /* Dev section toggle */
   .dev-toggle { color: var(--dim); cursor: pointer; font-size: 0.9rem; margin-top: 1rem; }
   .dev-section { display: none; }
@@ -107,12 +117,6 @@
   .trust { display: flex; gap: 2rem; justify-content: center; flex-wrap: wrap; margin: 1.5rem 0; color: var(--dim); font-size: 0.9rem; }
   .trust span { display: flex; align-items: center; gap: 0.4rem; }
   .wallet { word-break: break-all; font-family: monospace; color: var(--accent); font-size: 0.85rem; }
-
-  /* Audience */
-  .audience-list { list-style: none; margin: 1rem 0; padding: 0; }
-  .audience-list li { padding: 0.5rem 0; border-bottom: 1px solid var(--border); font-size: 0.95rem; }
-  .audience-list li:last-child { border-bottom: none; }
-  .audience-list li strong { color: #fff; }
 </style>
 </head>
 <body>
@@ -120,29 +124,32 @@
 <!-- Hero -->
 <div class="hero">
   <div class="container">
-    <h1>Track what your competitors<br>ship, price, and launch.</h1>
-    <p class="tagline">Cited daily alerts. Weekly intelligence briefs. Battlecard-ready output. Built for Product Marketing and Competitive Intelligence teams.</p>
+    <h1>Constitutional operating system<br>for autonomous institutions.</h1>
+    <p class="tagline">Meridian governs AI agent operations through five primitives: Institution, Agent, Authority, Treasury, and Court. Competitive intelligence is the first managed vertical.</p>
     <div class="cta-group">
-      <a class="cta cta-primary" href="https://t.me/eggsama_bot?start=trial">Start 7-Day Free Trial</a>
-      <a class="cta cta-outline" href="#pricing">See Pricing</a>
+      <a class="cta cta-primary" href="https://t.me/eggsama_bot?start=trial">Try Intelligence Workflow Free</a>
+      <a class="cta cta-outline" href="#platform">See the Platform</a>
     </div>
-    <p class="cta-note">No payment needed. No credit card. Cancel anytime.</p>
+    <p class="cta-note">7-day free trial of competitive intelligence. No payment needed.</p>
   </div>
 </div>
 
 <div class="container">
 
-  <!-- Who it's for -->
-  <h2>Built for Teams That Need to Know</h2>
-  <ul class="audience-list">
-    <li><strong>Product Marketing Managers</strong> — Know what competitors launched before your team asks.</li>
-    <li><strong>Competitive Intelligence</strong> — Daily monitoring across pricing, product, and positioning changes.</li>
-    <li><strong>Product Managers</strong> — Track API changes, deprecations, and feature gaps across your competitive set.</li>
-    <li><strong>Sales Enablement</strong> — Keep battlecards current with cited, dated competitive data.</li>
-  </ul>
+  <!-- Five Primitives -->
+  <h2 id="platform">Five Primitives</h2>
+  <p style="color: var(--dim); margin-bottom: 1rem;">Meridian governs autonomous institutions through five constitutional primitives. Each one is live and enforced.</p>
+  <div class="layer-stack">
+    <div class="layer"><span class="layer-name">Institution</span> <span><span class="tag-live">LIVE</span> Charter, policy defaults, lifecycle, settings</span></div>
+    <div class="layer"><span class="layer-name">Agent</span> <span><span class="tag-live">LIVE</span> Identity, scopes, budget, risk state, economy participation</span></div>
+    <div class="layer"><span class="layer-name">Authority</span> <span><span class="tag-live">LIVE</span> Approval queues, delegations, kill switch</span></div>
+    <div class="layer"><span class="layer-name">Treasury</span> <span><span class="tag-live">LIVE</span> Balance, runway, reserve floor, spend tracking</span></div>
+    <div class="layer"><span class="layer-name">Court</span> <span><span class="tag-live">LIVE</span> Violations, sanctions, appeals, enforcement</span></div>
+  </div>
 
-  <!-- What you get -->
-  <h2>What You Get</h2>
+  <!-- Live Workflow: Competitive Intelligence -->
+  <h2>Live Workflow: Competitive Intelligence</h2>
+  <p style="color: var(--dim); margin-bottom: 1rem;">The first managed workflow vertical running on Meridian. A 7-agent pipeline that monitors 30+ sources and delivers cited intelligence daily.</p>
   <div class="feature-grid">
     <div class="feature-card">
       <h3>Daily Competitor Alerts</h3>
@@ -158,12 +165,12 @@
     </div>
     <div class="feature-card">
       <h3>Battlecard-Ready Output</h3>
-      <p>Structured competitive snapshots: recent moves, pricing intel, product updates, and talking points. Ready for your sales deck or Notion wiki.</p>
+      <p>Structured competitive snapshots: recent moves, pricing intel, product updates, and talking points. Ready for your sales deck.</p>
     </div>
   </div>
 
   <!-- Sample output -->
-  <h2>Sample: Daily Alert</h2>
+  <h2>Sample: Daily Intelligence Alert</h2>
   <div id="sample-box" class="sample-box">Loading today's alert...</div>
   <div id="sample-meta" class="sample-meta"></div>
   <p style="text-align: center; margin-top: 0.75rem;"><a href="demo.html">See full product demo with watchlists, weekly brief, and battlecard &rarr;</a></p>
@@ -171,23 +178,26 @@
   <!-- How It Works -->
   <h2>How It Works</h2>
   <ol class="steps">
-    <li><strong>Set your watchlist</strong> — Tell us which competitors to track and what topics matter (pricing, launches, API changes, partnerships).</li>
-    <li><strong>Receive daily alerts</strong> — Every morning, get cited findings on your competitors. Each finding links to its source.</li>
-    <li><strong>Get weekly briefs</strong> — A curated weekly summary with action items, risk signals, and competitive context.</li>
-    <li><strong>Pull battlecards on demand</strong> — Request a structured competitive snapshot for any tracked company, ready for sales enablement or exec review.</li>
+    <li><strong>Set your watchlist</strong> — Tell us which competitors to track and what topics matter.</li>
+    <li><strong>Agents research nightly</strong> — 7 managed agents fetch, extract, verify, and write. Every action is audited and metered.</li>
+    <li><strong>Receive cited alerts</strong> — Every morning, get sourced findings. Each cites its origin URL and date.</li>
+    <li><strong>Pull snapshots on demand</strong> — Request battlecards or deep research via MCP tools. Usage is metered per call.</li>
   </ol>
 
-  <!-- Pipeline -->
-  <h2>How We Monitor</h2>
+  <!-- Agent Team -->
+  <h2>Managed Agent Team</h2>
   <div class="card">
-    <p>Meridian runs a nightly 7-agent pipeline that:</p>
-    <ul style="margin: 0.75rem 0 0 1.5rem; font-size: 0.95rem;">
-      <li>Fetches 30+ sources: provider blogs, changelogs, pricing pages, tech aggregators, community feeds</li>
-      <li>Extracts and deduplicates findings with relevance scoring</li>
-      <li>Runs multi-agent QA verification before delivery</li>
-      <li>Cites every finding with source URL and date</li>
-    </ul>
-    <p style="margin-top: 0.75rem; color: var(--dim); font-size: 0.9rem;">Sources include: Anthropic, OpenAI, Google DeepMind, Mistral, Meta, HuggingFace, TechCrunch, Hacker News, LangChain, and more.</p>
+    <p>Every agent is a registered entity with identity, scopes, budget, and reputation scores.</p>
+    <table style="width: 100%; margin-top: 0.75rem; font-size: 0.9rem; border-collapse: collapse;">
+      <tr style="border-bottom: 1px solid var(--border);"><td style="padding: 0.4rem 0;"><strong style="color: #fff;">Leviathann</strong></td><td style="color: var(--dim);">Manager — orchestrates pipeline, routes work</td></tr>
+      <tr style="border-bottom: 1px solid var(--border);"><td style="padding: 0.4rem 0;"><strong style="color: #fff;">Atlas</strong></td><td style="color: var(--dim);">Research — sourced findings, competitive analysis</td></tr>
+      <tr style="border-bottom: 1px solid var(--border);"><td style="padding: 0.4rem 0;"><strong style="color: #fff;">Quill</strong></td><td style="color: var(--dim);">Writer — structured briefs and deliverables</td></tr>
+      <tr style="border-bottom: 1px solid var(--border);"><td style="padding: 0.4rem 0;"><strong style="color: #fff;">Aegis</strong></td><td style="color: var(--dim);">QA gate — PASS/FAIL acceptance with evidence</td></tr>
+      <tr style="border-bottom: 1px solid var(--border);"><td style="padding: 0.4rem 0;"><strong style="color: #fff;">Sentinel</strong></td><td style="color: var(--dim);">Verifier — contradiction detection, risk review</td></tr>
+      <tr style="border-bottom: 1px solid var(--border);"><td style="padding: 0.4rem 0;"><strong style="color: #fff;">Forge</strong></td><td style="color: var(--dim);">Executor — operational steps, implementation</td></tr>
+      <tr><td style="padding: 0.4rem 0;"><strong style="color: #fff;">Pulse</strong></td><td style="color: var(--dim);">Compressor — triage, context optimization</td></tr>
+    </table>
+    <p style="margin-top: 0.75rem; color: var(--dim); font-size: 0.85rem;">Agents earn REP (reputation) and AUTH (authority) from accepted output. Sanctions apply for failures. Scores are public in the economy ledger.</p>
   </div>
 
   <!-- Pricing -->
@@ -197,7 +207,7 @@
       <span class="tag-free">FREE</span>
       <h3>7-Day Trial</h3>
       <div class="price-amount">$0</div>
-      <div class="price-period">No payment needed</div>
+      <div class="price-period">Intelligence workflow</div>
       <ul class="price-features">
         <li>Daily competitor alerts for 7 days</li>
         <li>Full cited findings with sources</li>
@@ -220,34 +230,34 @@
     </div>
   </div>
   <p style="color: var(--dim); font-size: 0.85rem; text-align: center; margin-top: 0.5rem;">
-    Developers: access individual tools from <strong>$0.50</strong> via <a href="#developers">MCP protocol</a>.
+    Developers: access individual tools from <strong>$0.50</strong> via <a href="#developers">MCP protocol</a>. Usage metered per call.
   </p>
 
   <!-- Trust -->
   <div class="trust">
     <span>Every finding cited</span>
-    <span>30+ sources monitored</span>
-    <span>QA-verified daily</span>
-    <span>Automated 7-agent pipeline</span>
+    <span>Every action audited</span>
+    <span>Usage metered per org</span>
+    <span>7 managed agents</span>
   </div>
 
   <!-- FAQ -->
   <h2>FAQ</h2>
   <details>
-    <summary>What competitors can I track?</summary>
-    <p>Any company in the AI/ML ecosystem: model providers (OpenAI, Anthropic, Google, Mistral, Meta, Cohere, DeepSeek), frameworks (LangChain, LlamaIndex, CrewAI), infrastructure (Cloudflare, AWS, Azure, GCP), and more. Custom competitor tracking available on request.</p>
+    <summary>What is Meridian?</summary>
+    <p>Meridian is infrastructure for operating AI agents as managed digital labor. Organizations register agents, define permissions and budgets, and run governed workflows. The competitive intelligence pipeline is the first live workflow vertical built on this infrastructure.</p>
   </details>
   <details>
-    <summary>What topics do you monitor?</summary>
-    <p>Pricing changes, model/product launches, API updates, deprecations, partnerships, positioning shifts, and strategic moves. You can configure which topics matter for each tracked competitor.</p>
+    <summary>What competitors can I track?</summary>
+    <p>Any company in the AI/ML ecosystem: model providers (OpenAI, Anthropic, Google, Mistral, Meta, Cohere, DeepSeek), frameworks (LangChain, LlamaIndex, CrewAI), infrastructure (Cloudflare, AWS, Azure, GCP), and more.</p>
   </details>
   <details>
     <summary>How is this different from a newsletter or Google Alerts?</summary>
-    <p>Meridian monitors structured sources (pricing pages, changelogs, API docs) that newsletters and Google Alerts miss. Every finding cites its source with a date. Output is structured for PMM workflows — not just raw links.</p>
+    <p>Meridian monitors structured sources (pricing pages, changelogs, API docs) that newsletters miss. Every finding cites its source with a date. Output is structured for competitive workflows, not just raw links. And every agent action is audited and metered.</p>
   </details>
   <details>
-    <summary>What is a battlecard?</summary>
-    <p>A structured competitive reference: recent moves, pricing intelligence, product updates, strategic signals, and talking points. The standard format used by PMM and sales enablement teams to brief reps on competitors.</p>
+    <summary>What does "managed agent" mean?</summary>
+    <p>Each agent has a registered identity, defined purpose, permitted scopes, spend budget, and reputation score. Actions are logged to an audit trail. Usage is metered per organization. This is how you operate AI agents accountably at scale.</p>
   </details>
   <details>
     <summary>Can I cancel anytime?</summary>
@@ -255,7 +265,7 @@
   </details>
   <details>
     <summary>What is MCP?</summary>
-    <p>Model Context Protocol — a standard for AI tools. Developers can connect their AI client to our MCP server to access intelligence tools programmatically. Pay-per-use via x402 protocol (USDC on Base L2).</p>
+    <p>Model Context Protocol — a standard for AI tools. Connect your AI client to Meridian's MCP server to access intelligence tools programmatically. Pay-per-use via x402 protocol (USDC on Base L2). Every call is audited and metered.</p>
   </details>
 
   <!-- Developer Section -->
@@ -274,11 +284,11 @@
 
     <h3 style="color: #fff; margin: 1.5rem 0 0.5rem;">Available Tools</h3>
     <div class="card">
-      <p><code>intelligence_latest_brief</code> &mdash; <strong>$0.50</strong> &mdash; Daily competitor intelligence alert</p>
-      <p><code>intelligence_on_demand_research</code> &mdash; <strong>$2.00</strong> &mdash; Research any competitor or topic</p>
+      <p><code>intelligence_latest_brief</code> &mdash; <strong>$0.50</strong> &mdash; Daily intelligence alert with cited findings</p>
+      <p><code>intelligence_on_demand_research</code> &mdash; <strong>$2.00</strong> &mdash; Research any topic with sourced findings</p>
       <p><code>intelligence_competitor_snapshot</code> &mdash; <strong>$3.00</strong> &mdash; Battlecard-ready competitor snapshot</p>
-      <p><code>intelligence_qa_verify</code> &mdash; <strong>$1.00</strong> &mdash; QA verification of competitive claims</p>
-      <p><code>intelligence_weekly_digest</code> &mdash; <strong>$1.50</strong> &mdash; Weekly competitive digest</p>
+      <p><code>intelligence_qa_verify</code> &mdash; <strong>$1.00</strong> &mdash; QA verification of claims or text</p>
+      <p><code>intelligence_weekly_digest</code> &mdash; <strong>$1.50</strong> &mdash; Weekly digest across tracked competitors</p>
       <p><code>company_info</code> &mdash; <strong>FREE</strong> &mdash; Meridian capabilities and pricing</p>
     </div>
 
@@ -294,17 +304,17 @@
   <div class="footer">
     <p>
       <a href="demo.html">Product Demo</a> &middot;
-      <a href="pilot.html">Paid Pilot Offer</a> &middot;
+      <a href="pilot.html">Pilot Offer</a> &middot;
       <a href="https://github.com/mapleleaflatte03/meridian-intelligence">GitHub</a> &middot;
       <a href="https://t.me/MeridianIntelligence">Telegram Channel</a> &middot;
       <a href="https://t.me/eggsama_bot">Subscribe</a>
     </p>
-    <p style="margin-top: 0.5rem;">Meridian &copy; 2026 &mdash; Competitor Intelligence for Product Teams</p>
+    <p style="margin-top: 0.5rem;">Meridian &copy; 2026 &mdash; Constitutional Operating System for Autonomous Institutions</p>
   </div>
 </div>
 
 <script>
-var FALLBACK_SAMPLE = "Competitor Intelligence Alert — March 17, 2026\n" +
+var FALLBACK_SAMPLE = "Competitor Intelligence Alert \u2014 March 17, 2026\n" +
 "Covering: OpenAI, Anthropic, Google (Gemini)\n\n" +
 "[Pricing] OpenAI introduces regional surcharges for GPT-5.4\n" +
 "OpenAI's pricing page now shows a 10% regional processing surcharge on all\n" +
@@ -317,7 +327,7 @@ var FALLBACK_SAMPLE = "Competitor Intelligence Alert — March 17, 2026\n" +
 "Source: anthropic.com/news (2026-02-05, 2026-02-17)\n\n" +
 "[Deprecation] Google hard-deprecates Gemini 3 Pro Preview\n" +
 "gemini-3-pro-preview shut down March 9. Less than 8 weeks from preview to\n" +
-"deprecation — fastest cycle among major providers.\n" +
+"deprecation \u2014 fastest cycle among major providers.\n" +
 "Source: ai.google.dev/gemini-api/docs/pricing (2026-03-09)\n\n" +
 "[Pricing] Google positions Gemini Flash as low-cost option\n" +
 "Gemini 2.5 Flash at $0.30/1M input tokens with 50% Batch discount. Undercuts\n" +
@@ -335,7 +345,7 @@ fetch('/api/sample-brief')
     if (d.quality_pass && d.preview && !d.preview.startsWith('Latest brief preview is temporarily')) {
       document.getElementById('sample-box').textContent = d.preview;
       document.getElementById('sample-meta').textContent =
-        'Date: ' + d.date + ' | ' + d.word_count + ' words | ' + d.distinct_sources + ' sources | QA: PASS | Source: Meridian Night-Shift Pipeline';
+        'Date: ' + d.date + ' | ' + d.word_count + ' words | ' + d.distinct_sources + ' sources | QA: PASS | Source: Meridian Pipeline';
     } else {
       document.getElementById('sample-box').textContent = FALLBACK_SAMPLE;
       document.getElementById('sample-meta').textContent =
