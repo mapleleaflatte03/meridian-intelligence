@@ -22,6 +22,9 @@ Endpoints:
   POST /api/court/resolve         → Resolve a violation
   POST /api/court/appeal          → File an appeal
   POST /api/court/decide-appeal   → Decide an appeal
+  POST /api/court/remediate       → Lift lingering sanctions after review
+  POST /api/treasury/contribute   → Record owner capital contribution
+  POST /api/treasury/reserve-floor → Update reserve floor policy
   POST /api/institution/charter   → Set charter
   POST /api/institution/lifecycle → Transition lifecycle
 
@@ -53,7 +56,8 @@ from authority import (check_authority, request_approval, decide_approval,
                        delegate, revoke_delegation, engage_kill_switch,
                        disengage_kill_switch, get_pending_approvals,
                        get_sprint_lead, is_kill_switch_engaged, _load_queue)
-from treasury import treasury_snapshot, get_balance, get_runway, check_budget
+from treasury import (treasury_snapshot, get_balance, get_runway, check_budget,
+                      contribute_owner_capital, set_reserve_floor_policy)
 from court import (file_violation, get_violations, resolve_violation,
                    file_appeal, decide_appeal, get_agent_record, auto_review,
                    get_restrictions, remediate, _load_records, VIOLATION_TYPES)
@@ -420,6 +424,18 @@ function render(data) {
     tc += '<strong style="color:var(--red)">Operating below reserve.</strong> Budget-gated phases should not run until treasury is recapitalized above the $' + tr.reserve_floor_usd.toFixed(2) + ' floor or the reserve policy is explicitly changed.';
     tc += '</div>';
   }
+  if (tr.remediation && tr.remediation.blocked) {
+    tc += '<div class="card" style="margin-top:0.75rem"><strong>Treasury Remediation</strong>';
+    tc += '<div class="form-row"><label>Shortfall</label><strong>$' + tr.remediation.shortfall_usd.toFixed(2) + '</strong></div>';
+    tc += '<div class="form-row"><label>Capital</label><input id="cap-amount" type="number" step="0.01" value="' + tr.remediation.recommended_owner_capital_usd.toFixed(2) + '" style="width:120px"> <input id="cap-note" placeholder="Real transfer note" style="flex:1"></div>';
+    tc += '<div class="action-row"><button onclick="contributeCapital()">Record Owner Capital</button></div>';
+    tc += '<div style="font-size:0.8rem;color:var(--dim);margin-top:0.35rem">Only record this after real money has actually moved into treasury custody.</div>';
+    tc += '<div class="form-row" style="margin-top:0.75rem"><label>Reserve</label><input id="reserve-amount" type="number" step="0.01" value="' + tr.remediation.recommended_reserve_floor_usd.toFixed(2) + '" style="width:120px"> <input id="reserve-note" placeholder="Why policy changed" style="flex:1"></div>';
+    tc += '<div class="action-row"><button class="secondary" onclick="updateReserveFloor()">Update Reserve Floor</button></div>';
+    tc += '<ul style="margin:0.5rem 0 0 1.25rem;font-size:0.82rem;color:var(--dim)">';
+    tr.remediation.next_steps.forEach(function(step) { tc += '<li>' + step + '</li>'; });
+    tc += '</ul></div>';
+  }
   document.getElementById('treasury-card').innerHTML = tc;
 
   // Court
@@ -507,6 +523,9 @@ function render(data) {
       cv += '<div class="card" style="margin-top:0.5rem">';
       cv += '<strong>' + r.agent_name + '</strong> ' + riskTag(r.risk_state);
       cv += '<div style="margin-top:0.35rem;font-size:0.82rem;color:var(--dim)">Restrictions: ' + (r.restrictions.length ? r.restrictions.join(', ') : '-') + ' | Open violations: ' + r.open_violations + ' | Total violations: ' + r.total_violations + '</div>';
+      if (r.actions && r.actions.remediate && r.actions.remediate.allowed) {
+        cv += '<div class="action-row" style="margin-top:0.5rem"><button class="secondary" onclick="remediateAgent(\\'' + r.agent_key + '\\', \\'' + r.agent_name + '\\')">Run Court Remediation</button></div>';
+      }
       cv += '<ul style="margin:0.5rem 0 0 1.25rem">';
       r.next_steps.forEach(function(step) { cv += '<li>' + step + '</li>'; });
       cv += '</ul></div>';
@@ -587,6 +606,29 @@ function decideAppealAction(id, decision) {
 function autoReview() {
   api('POST', '/api/court/auto-review', {})
     .then(function(r) { toast(r.message); refresh(); });
+}
+
+function remediateAgent(agentId, agentName) {
+  var note = prompt('Remediation note for ' + agentName + ':') || '';
+  api('POST', '/api/court/remediate', { agent_id: agentId, by: 'owner', note: note })
+    .then(function(r) { toast(r.message); refresh(); });
+}
+
+function contributeCapital() {
+  var amount = parseFloat(document.getElementById('cap-amount').value) || 0;
+  var note = document.getElementById('cap-note').value || 'owner capital contribution';
+  if (amount <= 0) return toast('Capital amount must be greater than 0');
+  api('POST', '/api/treasury/contribute', { amount: amount, note: note, by: 'owner' })
+    .then(function(r) { toast(r.message || r.error); refresh(); });
+}
+
+function updateReserveFloor() {
+  var amount = parseFloat(document.getElementById('reserve-amount').value);
+  var note = document.getElementById('reserve-note').value || 'reserve policy change';
+  if (isNaN(amount) || amount < 0) return toast('Reserve floor must be 0 or greater');
+  if (!confirm('Update reserve floor to $' + amount.toFixed(2) + '?')) return;
+  api('POST', '/api/treasury/reserve-floor', { amount: amount, note: note, by: 'owner' })
+    .then(function(r) { toast(r.message || r.error); refresh(); });
 }
 
 function setCharter() {
@@ -790,6 +832,26 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                           outcome='success', details={'lifted': lifted})
                 return self._json({'message': f'Remediation complete: lifted {lifted}',
                                    'lifted': lifted})
+
+            elif path == '/api/treasury/contribute':
+                result = contribute_owner_capital(body['amount'], body.get('note', ''),
+                                                  body.get('by', 'owner'))
+                log_event(org_id, 'system', 'treasury_owner_capital', outcome='success',
+                          details=result)
+                return self._json({
+                    'message': f'Owner capital recorded: +${result["amount_usd"]:.2f}',
+                    'snapshot': treasury_snapshot(),
+                })
+
+            elif path == '/api/treasury/reserve-floor':
+                result = set_reserve_floor_policy(body['amount'], body.get('note', ''),
+                                                  body.get('by', 'owner'))
+                log_event(org_id, 'system', 'treasury_reserve_floor_updated',
+                          outcome='success', details=result)
+                return self._json({
+                    'message': 'Reserve floor updated',
+                    'snapshot': treasury_snapshot(),
+                })
 
             elif path == '/api/institution/charter':
                 set_charter(org_id, body['text'])

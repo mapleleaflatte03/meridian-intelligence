@@ -12,6 +12,8 @@ Usage:
   python3 treasury.py spend [--org_id <org>] [--days 30]
   python3 treasury.py snapshot
   python3 treasury.py check-budget --agent_id <id> --cost 2.00
+  python3 treasury.py contribute --amount 50.00 --note "owner top-up"
+  python3 treasury.py set-reserve-floor --amount 20.00 --note "policy change"
 """
 import argparse
 import datetime
@@ -30,6 +32,14 @@ _econ_revenue_mod = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_econ_revenue_mod)
 load_revenue = _econ_revenue_mod.load_revenue
 load_ledger = _econ_revenue_mod.load_ledger
+
+_accounting_spec = importlib.util.spec_from_file_location(
+    'company_accounting', os.path.join(WORKSPACE, 'company', 'accounting.py')
+)
+_accounting_mod = importlib.util.module_from_spec(_accounting_spec)
+_accounting_spec.loader.exec_module(_accounting_mod)
+_owner_contribute_capital = _accounting_mod.contribute_capital
+_update_reserve_floor = _accounting_mod.update_reserve_floor
 
 # Import platform metering
 sys.path.insert(0, PLATFORM_DIR)
@@ -88,6 +98,16 @@ def get_spend_summary(org_id, period_days=30):
         'period_days': period_days,
         'total_spend_usd': round(total, 4),
     }
+
+
+def contribute_owner_capital(amount_usd, note='', by='owner'):
+    """Record owner capital contribution via the accounting layer."""
+    return _owner_contribute_capital(amount_usd, note, actor=by)
+
+
+def set_reserve_floor_policy(amount_usd, note='', by='owner'):
+    """Update reserve floor policy via the accounting layer."""
+    return _update_reserve_floor(amount_usd, note, actor=by)
 
 
 def check_budget(agent_id, cost_usd):
@@ -155,11 +175,27 @@ def treasury_snapshot():
     balance = t['cash_usd']
     floor = t.get('reserve_floor_usd', 50.0)
     runway = balance - floor
+    shortfall = max(0.0, floor - balance)
+    remediation = {
+        'blocked': runway < 0,
+        'shortfall_usd': shortfall,
+        'recommended_owner_capital_usd': shortfall,
+        'recommended_reserve_floor_usd': max(0.0, balance),
+        'next_steps': [],
+    }
+    if shortfall > 0:
+        remediation['next_steps'].append(
+            f"Record at least ${shortfall:.2f} of real owner capital or customer cash before running budget-gated phases."
+        )
+        remediation['next_steps'].append(
+            f"If policy truly changed, explicitly lower reserve floor from ${floor:.2f} with an auditable note."
+        )
 
     return {
         'balance_usd': balance,
         'reserve_floor_usd': floor,
         'runway_usd': runway,
+        'shortfall_usd': shortfall,
         'above_reserve': runway >= 0,
         'total_revenue_usd': t.get('total_revenue_usd', 0.0),
         'owner_capital_usd': t.get('owner_capital_contributed_usd', 0.0),
@@ -168,6 +204,7 @@ def treasury_snapshot():
         'spend_30d_usd': spend_usd,
         'clients': rev_summary['clients'],
         'paid_orders': rev_summary['paid_orders'],
+        'remediation': remediation,
         'snapshot_at': _now(),
     }
 
@@ -190,6 +227,16 @@ def main():
     cb = sub.add_parser('check-budget')
     cb.add_argument('--agent_id', required=True)
     cb.add_argument('--cost', type=float, required=True)
+
+    cc = sub.add_parser('contribute')
+    cc.add_argument('--amount', type=float, required=True)
+    cc.add_argument('--note', default='owner top-up')
+    cc.add_argument('--by', default='owner')
+
+    rf = sub.add_parser('set-reserve-floor')
+    rf.add_argument('--amount', type=float, required=True)
+    rf.add_argument('--note', default='reserve policy update')
+    rf.add_argument('--by', default='owner')
 
     args = p.parse_args()
 
@@ -234,6 +281,12 @@ def main():
         status = 'ALLOWED' if allowed else 'BLOCKED'
         print(f'{status}: {reason}')
         sys.exit(0 if allowed else 1)
+    elif args.command == 'contribute':
+        result = contribute_owner_capital(args.amount, args.note, args.by)
+        print(f"Capital contribution recorded: +${result['amount_usd']:.2f} | cash now ${result['cash_after_usd']:.2f}")
+    elif args.command == 'set-reserve-floor':
+        result = set_reserve_floor_policy(args.amount, args.note, args.by)
+        print(f"Reserve floor updated: ${result['old_reserve_floor_usd']:.2f} -> ${result['new_reserve_floor_usd']:.2f}")
     else:
         p.print_help()
 
