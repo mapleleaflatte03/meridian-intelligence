@@ -308,6 +308,62 @@ def get_restrictions(agent_id):
     return _econ_get_restrictions(ledger, agent_id)
 
 
+def remediate(agent_id, approved_by, note=''):
+    """Remediation path: lift lingering sanctions after violation is resolved.
+
+    Requires all violations for the agent to be resolved/dismissed.
+    Lifts economy sanctions, resets risk_state to nominal, resets incident_count.
+    """
+    records = _load_records()
+
+    # Check that no open/sanctioned violations remain
+    open_violations = [
+        v for v in records['violations'].values()
+        if v['agent_id'] == agent_id and v['status'] in ('open', 'sanctioned', 'appealed')
+    ]
+    if open_violations:
+        raise ValueError(
+            f'Cannot remediate: {len(open_violations)} open violation(s) remain. '
+            f'Resolve or dismiss them first: {[v["id"] for v in open_violations]}'
+        )
+
+    # Lift all economy sanctions for this agent
+    ledger = _econ_load_ledger()
+    lifted = []
+    for stype in ('probation', 'zero_authority', 'lead_ban', 'remediation_only'):
+        agent_data = ledger.get('agents', {}).get(agent_id, {})
+        if agent_data.get(stype):
+            _econ_lift_sanction(ledger, agent_id, stype,
+                                f'Remediation approved by {approved_by}: {note}')
+            lifted.append(stype)
+    if lifted:
+        _econ_save_ledger(ledger)
+
+    # Reset risk_state and incident_count in agent registry
+    try:
+        sys.path.insert(0, PLATFORM_DIR)
+        from agent_registry import load_registry, save_registry, get_agent_by_economy_key
+        reg = load_registry()
+        reg_agent = get_agent_by_economy_key(agent_id)
+        if reg_agent and reg_agent['id'] in reg['agents']:
+            reg['agents'][reg_agent['id']]['risk_state'] = 'nominal'
+            reg['agents'][reg_agent['id']]['incident_count'] = 0
+            save_registry(reg)
+    except Exception:
+        pass
+
+    # Audit
+    try:
+        from audit import log_event
+        log_event('', agent_id, 'court_remediation',
+                  outcome='success',
+                  details={'lifted': lifted, 'approved_by': approved_by, 'note': note})
+    except Exception:
+        pass
+
+    return lifted
+
+
 # ── CLI ──────────────────────────────────────────────────────────────────────
 
 def main():
@@ -343,6 +399,11 @@ def main():
     rec = sub.add_parser('record')
     rec.add_argument('--agent', required=True)
 
+    rem = sub.add_parser('remediate')
+    rem.add_argument('--agent', required=True)
+    rem.add_argument('--by', required=True, help='Who approved remediation')
+    rem.add_argument('--note', default='', help='Remediation note')
+
     sub.add_parser('auto-review')
     sub.add_parser('show')
 
@@ -377,6 +438,16 @@ def main():
         print(f"Active restrictions: {', '.join(rec['active_restrictions']) or 'none'}")
         for v in rec['violations']:
             print(f"  {v['id']}  {v['type']}  sev={v['severity']}  status={v['status']}  {v['created_at']}")
+    elif args.command == 'remediate':
+        try:
+            lifted = remediate(args.agent, args.by, args.note)
+            if lifted:
+                print(f'Remediation complete for {args.agent}: lifted {lifted}')
+            else:
+                print(f'Remediation complete for {args.agent}: no active sanctions to lift')
+        except ValueError as e:
+            print(f'Remediation denied: {e}')
+            raise SystemExit(1)
     elif args.command == 'auto-review':
         vids = auto_review()
         if vids:

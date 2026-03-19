@@ -92,12 +92,19 @@ def get_spend_summary(org_id, period_days=30):
 
 def check_budget(agent_id, cost_usd):
     """Check agent budget + treasury runway. Returns (allowed, reason)."""
-    # First check agent-level budget
-    allowed, reason = _agent_check_budget(agent_id, cost_usd)
+    # Try economy_key → registry ID mapping first
+    from agent_registry import get_agent_by_economy_key
+    reg_agent = get_agent_by_economy_key(agent_id)
+    lookup_id = reg_agent['id'] if reg_agent else agent_id
+
+    # Check agent-level budget
+    allowed, reason = _agent_check_budget(lookup_id, cost_usd)
     if not allowed:
         return False, reason
-    # Then check treasury runway
+    # Then check treasury runway — negative runway blocks all spending
     runway = get_runway()
+    if runway < 0:
+        return False, f'Treasury below reserve floor (runway ${runway:.2f}). Recapitalize before spending.'
     if runway < cost_usd:
         return False, f'Treasury runway insufficient (${runway:.2f} available, ${cost_usd:.2f} requested)'
     return True, 'ok'

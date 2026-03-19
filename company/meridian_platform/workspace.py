@@ -56,7 +56,7 @@ from authority import (check_authority, request_approval, decide_approval,
 from treasury import treasury_snapshot, get_balance, get_runway, check_budget
 from court import (file_violation, get_violations, resolve_violation,
                    file_appeal, decide_appeal, get_agent_record, auto_review,
-                   get_restrictions, _load_records, VIOLATION_TYPES)
+                   get_restrictions, remediate, _load_records, VIOLATION_TYPES)
 from ci_vertical import PIPELINE_PHASES, _phase_gate_snapshot, get_agent_remediation
 
 
@@ -782,6 +782,14 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                 vids = auto_review()
                 return self._json({'message': f'Auto-review: {len(vids)} violation(s) created',
                                    'violations': vids})
+
+            elif path == '/api/court/remediate':
+                lifted = remediate(body['agent_id'], body.get('by', 'owner'),
+                                   body.get('note', ''))
+                log_event(org_id, 'system', 'court_remediation', resource=body['agent_id'],
+                          outcome='success', details={'lifted': lifted})
+                return self._json({'message': f'Remediation complete: lifted {lifted}',
+                                   'lifted': lifted})
 
             elif path == '/api/institution/charter':
                 set_charter(org_id, body['text'])
