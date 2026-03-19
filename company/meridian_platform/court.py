@@ -107,11 +107,19 @@ def file_violation(agent_id, org_id, violation_type, severity, evidence, policy_
         except Exception as e:
             print(f'WARN: could not apply sanction: {e}')
 
-    # Record incident in agent registry
+    # Record incident in agent registry (try economy_key-based ID then registry ID)
     try:
         sys.path.insert(0, PLATFORM_DIR)
-        from agent_registry import record_incident
-        record_incident(agent_id)
+        from agent_registry import record_incident, get_agent_by_economy_key, load_registry
+        # agent_id might be an economy key (e.g. 'pulse') — map to registry ID
+        reg_agent = get_agent_by_economy_key(agent_id)
+        if reg_agent:
+            record_incident(reg_agent['id'])
+        else:
+            # Try direct registry ID
+            reg = load_registry()
+            if agent_id in reg['agents']:
+                record_incident(agent_id)
     except Exception:
         pass
 
