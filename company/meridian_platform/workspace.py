@@ -756,23 +756,25 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
         except Exception:
             return self._json({'error': 'Invalid JSON'}, 400)
 
+        by = 'owner'  # server-enforced — never trust client-supplied actor identity
+
         try:
             if path == '/api/authority/kill-switch':
                 if body.get('engage'):
-                    engage_kill_switch(body.get('by', 'owner'), body.get('reason', ''))
+                    engage_kill_switch(by, body.get('reason', ''))
                     log_event(org_id, 'system', 'kill_switch_engaged', outcome='success',
-                              details={'by': body.get('by'), 'reason': body.get('reason')})
+                              details={'by': by, 'reason': body.get('reason')})
                     return self._json({'message': 'Kill switch ENGAGED'})
                 else:
-                    disengage_kill_switch(body.get('by', 'owner'))
+                    disengage_kill_switch(by)
                     log_event(org_id, 'system', 'kill_switch_disengaged', outcome='success',
-                              details={'by': body.get('by')})
+                              details={'by': by})
                     return self._json({'message': 'Kill switch disengaged'})
 
             elif path == '/api/authority/approve':
                 decision = body['decision']
                 decide_approval(body['approval_id'], decision,
-                               body.get('by', 'owner'), body.get('reason', ''))
+                               by, body.get('reason', ''))
                 log_event(org_id, 'system', 'approval_decided', resource=body['approval_id'],
                           outcome='success', details={'decision': decision})
                 return self._json({'message': f'Approval {body["approval_id"]}: {decision}'})
@@ -815,7 +817,7 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                 return self._json({'message': f'Appeal filed: {aid}', 'appeal_id': aid})
 
             elif path == '/api/court/decide-appeal':
-                decide_appeal(body['appeal_id'], body['decision'], body.get('by', 'owner'))
+                decide_appeal(body['appeal_id'], body['decision'], by)
                 log_event(org_id, 'system', 'appeal_decided', resource=body['appeal_id'],
                           outcome='success', details={'decision': body['decision']})
                 return self._json({'message': f'Appeal {body["appeal_id"]}: {body["decision"]}'})
@@ -826,7 +828,7 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                                    'violations': vids})
 
             elif path == '/api/court/remediate':
-                lifted = remediate(body['agent_id'], body.get('by', 'owner'),
+                lifted = remediate(body['agent_id'], by,
                                    body.get('note', ''))
                 log_event(org_id, 'system', 'court_remediation', resource=body['agent_id'],
                           outcome='success', details={'lifted': lifted})
@@ -835,7 +837,7 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
 
             elif path == '/api/treasury/contribute':
                 result = contribute_owner_capital(body['amount'], body.get('note', ''),
-                                                  body.get('by', 'owner'))
+                                                  by)
                 log_event(org_id, 'system', 'treasury_owner_capital', outcome='success',
                           details=result)
                 return self._json({
@@ -845,7 +847,7 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
 
             elif path == '/api/treasury/reserve-floor':
                 result = set_reserve_floor_policy(body['amount'], body.get('note', ''),
-                                                  body.get('by', 'owner'))
+                                                  by)
                 log_event(org_id, 'system', 'treasury_reserve_floor_updated',
                           outcome='success', details=result)
                 return self._json({

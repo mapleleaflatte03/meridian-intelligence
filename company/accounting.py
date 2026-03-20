@@ -217,7 +217,7 @@ def cmd_show(args):
     print(f"  Cash (USD):                  ${t['cash_usd']:.2f}")
     print(f"  Reserve floor:               ${t['reserve_floor_usd']:.2f}")
     print(f"  Available for draw:          ${avail_for_draw:.2f}")
-    print(f"  Revenue from customers:      ${t['revenue_received_usd']:.2f}")
+    print(f"  Revenue from customers:      ${t.get('total_revenue_usd', 0):.2f}")
     print(f"  Owner capital deposited:     ${t['owner_capital_contributed_usd']:.2f}")
 
 def main():
