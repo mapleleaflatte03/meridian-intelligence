@@ -148,6 +148,12 @@ cd /root/.openclaw/workspace
 python3 company/lead_tracker.py summary
 ```
 
+For exact message wording and channel guidance, use:
+
+```bash
+less company/OUTREACH_PACK.md
+```
+
 ---
 
 ## Truth Guardrails
