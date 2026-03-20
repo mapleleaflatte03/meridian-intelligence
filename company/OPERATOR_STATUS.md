@@ -159,6 +159,7 @@ These reminders go to owner-controlled accounts. Not funnel activity.
 
 ## What Can Be Done Without Owner Action
 
+- Run `python3 company/meridian_platform/readiness.py` for a one-command readiness verdict
 - Read and inspect all state files
 - Run `--dry-run` on any delivery script to see what would be sent
 - Improve product surfaces (docs, site copy, architecture docs)

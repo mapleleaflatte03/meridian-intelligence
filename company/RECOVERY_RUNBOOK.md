@@ -13,6 +13,12 @@ Two blockers currently matter:
 2. ~~**Runtime instability**~~ — **RESOLVED AT CLOSEOUT**. Host-level verification now shows `openclaw health` OK and the canonical PONG probe returning `PONG` 3/3 back-to-back.
 3. **Treasury below reserve floor** — $2.00 cash vs $50.00 reserve floor = $-48.00 runway, blocking all budget-gated pipeline phases
 
+One-command status check:
+```bash
+cd /root/.openclaw/workspace
+python3 company/meridian_platform/readiness.py
+```
+
 ## What Was Repaired (Engineering-Owned)
 
 | Fix | Detail |
