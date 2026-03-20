@@ -28,6 +28,9 @@ company/trial_reminder_state.json
 company/payment_monitor_state.json
 company/leads.json
 company/payment_events.log
+company/mcp_settlements.jsonl
+company/.mcp_settlement.lock
+company/tests/
 company/battlecards/
 company/__pycache__/
 

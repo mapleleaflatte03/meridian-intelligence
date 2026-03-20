@@ -26,11 +26,11 @@ python3 company/meridian_platform/readiness.py
 | Workspace auth hardened | All POST endpoints now enforce `by='owner'` server-side |
 | Caddy basicauth | Mutating `/api/*` routes require HTTP Basic Auth |
 | Treasury route fixed | `/api/treasury/*` now routes to workspace server (was falling to MCP → 404) |
-| MCP paid-tool integrity | All 5 tools have `agent_id`; x402 fails closed; settlement refs are FIFO-safe; revenue recording is idempotent |
-| Revenue accounting unified | All codepaths use `total_revenue_usd` (stale `revenue_received_usd` eliminated) |
+| MCP paid-tool integrity | All 5 tools have `agent_id`; x402 fails closed; settlement recording now happens post-settlement with durable retry journal |
+| Revenue accounting unified | Customer revenue surfaces use `total_revenue_usd`; legacy `revenue_received_usd` removed from the live ledger snapshot |
 | Payment email attribution | Empty wallet no longer matches any payment |
 | Premium delivery dedup | `brief_date` field for reliable dedup; `record_delivery()` returns success/failure |
-| Tests rewritten | `unittest.TestCase` — 5/5 pass (workspace), 4/4 pass (kernel) |
+| Tests rewritten | `unittest.TestCase` coverage now includes economy integrity plus company money-integrity checks |
 | Pipeline bootstrap files | Created `night-shift/BACKLOG.md` and `night-shift/LAST_HANDOFF.md` |
 | Caddy credentials | Stored at `/etc/caddy/.workspace_credentials` (mode 0600) |
 | Sentinel authority drift | `lift_sanction()` now restores minimum AUTH when lifting `zero_authority`; Sentinel reconciled to AUTH=6 |
