@@ -4,6 +4,9 @@ This is the zero-spend path to the first real customer.
 
 Do not pretend the nightly automated pipeline is currently delivering. It is treasury-gated by policy. Sell the value of the output first, then reactivate automation when the economics are real.
 
+If you need the plain-language model behind Meridian before selling anything, read:
+- [Meridian Doctrine](MERIDIAN_DOCTRINE.md)
+
 ---
 
 ## Goal

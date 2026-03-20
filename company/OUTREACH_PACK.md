@@ -12,6 +12,9 @@ It is written for the current honest state of Meridian:
 
 Do not improvise beyond this unless the system state changes.
 
+If you start getting confused about what Meridian is selling versus what it is building long-term, re-read:
+- [Meridian Doctrine](MERIDIAN_DOCTRINE.md)
+
 ---
 
 ## The Core Rule

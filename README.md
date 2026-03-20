@@ -16,6 +16,9 @@ Meridian is a constitutional operating system for running AI agents as governed,
 **Product demo:** https://app.welliam.codes/demo.html
 **Current go-to-market mode:** founder-led manual pilot until treasury-funded automated delivery resumes
 
+Need the plain-language model behind this?
+- [Meridian Doctrine](company/MERIDIAN_DOCTRINE.md)
+
 ### Five Primitives
 
 | Primitive | Status | What it does |
@@ -45,6 +48,9 @@ Start with the demo and pilot surfaces:
 - Contact: Telegram [@Enhanhsj](https://t.me/Enhanhsj) or email `nguyensimon186@gmail.com`
 
 The honest current offer is a founder-led manual pilot. The automated pipeline remains treasury-gated by policy until recapitalized.
+
+If you are confused about support vs pilot vs customer revenue vs future contributor payouts, read:
+- [Meridian Doctrine](company/MERIDIAN_DOCTRINE.md)
 
 ---
 
