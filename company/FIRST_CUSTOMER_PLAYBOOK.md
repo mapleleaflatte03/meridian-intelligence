@@ -141,6 +141,13 @@ Red flags:
 6. Ask for usefulness verdict before asking for payment.
 7. If positive, convert into paid continuation.
 
+Track every real prospect in:
+
+```bash
+cd /root/.openclaw/workspace
+python3 company/lead_tracker.py summary
+```
+
 ---
 
 ## Truth Guardrails

@@ -26,6 +26,7 @@ company/watchlists.json
 company/channel_deliver_state.json
 company/trial_reminder_state.json
 company/payment_monitor_state.json
+company/leads.json
 company/payment_events.log
 company/battlecards/
 company/__pycache__/
