@@ -12,7 +12,7 @@ It is not promotional copy. Every claim is tagged verified, inferred, or unknown
 
 | Component | Status | Source |
 |-----------|--------|--------|
-| Agent runtime | UNSTABLE — current checks fail with gateway 1006 / embedded timeout | `openclaw health`, `openclaw agent --agent main --message "respond with PONG"` |
+| Agent runtime | HEALTHY — `openclaw health` OK and 3/3 PONG verified at closeout | `openclaw health`, `openclaw agent --agent main --message "respond with PONG" --timeout 15000` |
 | Night-shift pipeline | BLOCKED — treasury $48 below reserve floor | `ci_vertical.py preflight` |
 | Constitutional preflight | BLOCKED — treasury $48 below reserve floor | `treasury.py runway` |
 | Channel delivery (@MeridianIntelligence) | NOT RUNNING — no new briefs (treasury-blocked) | preflight output |
@@ -49,30 +49,28 @@ It is not promotional copy. Every claim is tagged verified, inferred, or unknown
 
 The `deactivated_workspace` error was caused by upstream OpenAI Codex workspace state.
 Owner re-ran `openclaw models auth login --provider openai-codex` and the upstream
-`deactivated_workspace` error disappeared. Earlier 3/3 PONG successes confirmed the
-workspace was no longer deactivated, but the current runtime path is still flaky:
-`openclaw health` and the canonical PONG probe now fail with gateway 1006 and
-embedded timeout. Stale `deactivated_workspace` errors in jobs.json will self-clear
-on the next scheduled run of each job.
+`deactivated_workspace` error disappeared. Host-level verification at closeout now
+shows `openclaw health` returning OK and the canonical PONG probe succeeding 3/3.
+Stale `deactivated_workspace` errors in jobs.json will self-clear on the next scheduled
+run of each job.
 
 ---
 
-## Blocker 1 (engineering): Runtime Instability
+## Resolved: Runtime Health Re-verified
 
-**Status:** VERIFIED
+**Status:** RESOLVED 2026-03-20
 
-Current direct checks fail:
-- `openclaw health` → gateway closed (1006 abnormal closure)
+Current direct checks pass on the host:
+- `openclaw health` → OK
 - `openclaw agent --agent main --message "respond with PONG" --timeout 15000`
-  → gateway 1006, then embedded timeout
+  → `PONG` (verified 3/3 back-to-back)
 
-This is no longer the old workspace-deactivation issue. It is a current runtime/
-gateway stability issue. The pipeline preflight path itself is not blocked by this,
-but operator/runtime health is not currently stable enough to call healthy.
+This confirms the runtime is no longer blocked by workspace deactivation and is
+healthy enough to remove the engineering runtime blocker from closeout.
 
 ---
 
-## Blocker 2 (owner): Constitutional Preflight — Treasury Below Reserve Floor
+## Blocker 1 (owner): Constitutional Preflight — Treasury Below Reserve Floor
 
 **Status:** VERIFIED
 **Command:** `python3 company/meridian_platform/ci_vertical.py preflight`
@@ -105,7 +103,7 @@ Document the reason. Only the owner should make this call.
 
 ---
 
-## Blocker 3 (consequence): No Recent Brief Files
+## Blocker 2 (consequence): No Recent Brief Files
 
 **Status:** VERIFIED (consequence of treasury block)
 
@@ -179,14 +177,15 @@ These reminders go to owner-controlled accounts. Not funnel activity.
 2. **Acquire first external customer** — zero external traction exists.
    Manual pilot path is available via email or Telegram DM (see pilot.html).
 
-Engineering still needs to stabilize the runtime path before operator health can be
-called green. That is not an owner-only action.
+No active engineering blocker remains at closeout. The system is currently owner-blocked
+by treasury policy and, as a consequence, by the absence of a fresh brief.
 
 ---
 
 ## What Is Healthy (Verified)
 
 - Codebase intact, no corruption
+- Agent runtime healthy: `openclaw health` OK and canonical PONG verified 3/3 at closeout
 - Constitutional primitives (institution, agents, authority, court) initialized and enforced
 - Website accessible: app.welliam.codes (index.html, pilot.html, demo.html)
 - Public Telegram channel @MeridianIntelligence exists

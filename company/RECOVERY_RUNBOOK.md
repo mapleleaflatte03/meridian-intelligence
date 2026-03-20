@@ -1,7 +1,7 @@
 # Meridian Recovery Runbook
 
 **Date:** 2026-03-20 (updated)
-**Status:** Operationally blocked — one engineering blocker plus one owner treasury action
+**Status:** Operationally blocked — owner treasury action remaining
 
 ---
 
@@ -10,7 +10,7 @@
 Two blockers currently matter:
 
 1. ~~**OpenAI Codex workspace deactivated**~~ — **RESOLVED** 2026-03-20. Owner re-ran `openclaw models auth login --provider openai-codex`. Agent health verified 3/3 PONG.
-2. **Runtime instability remains** — current direct verification still shows `openclaw health` failing with gateway 1006, and the canonical PONG probe falling back to embedded timeout.
+2. ~~**Runtime instability**~~ — **RESOLVED AT CLOSEOUT**. Host-level verification now shows `openclaw health` OK and the canonical PONG probe returning `PONG` 3/3 back-to-back.
 3. **Treasury below reserve floor** — $2.00 cash vs $50.00 reserve floor = $-48.00 runway, blocking all budget-gated pipeline phases
 
 ## What Was Repaired (Engineering-Owned)
@@ -31,24 +31,22 @@ Two blockers currently matter:
 
 ## What Still Requires Engineering Work
 
-### Runtime stabilization
+No active engineering blocker is verified at closeout. The runtime check that was previously
+failing now passes on the host:
 
-`deactivated_workspace` is resolved, but runtime health is not yet stable at closeout time.
-Current direct verification still shows:
-
-- `openclaw health` → gateway closed (1006 abnormal closure)
+- `openclaw health` → OK
 - `openclaw agent --agent main --message "respond with PONG" --timeout 15000`
-  → gateway 1006, then embedded timeout
+  → `PONG` (verified 3/3 back-to-back)
 
-Do not call the runtime healthy until those direct checks pass again at closeout time.
+The remaining operational blocker is owner-side treasury policy, not engineering breakage.
 
 ## What Still Requires Owner Action
 
 ### ~~Action 1: Reactivate OpenAI Codex Workspace~~ — DONE
 
 Resolved 2026-03-20. Owner re-ran `openclaw models auth login --provider openai-codex`.
-This removed the upstream `deactivated_workspace` blocker. It did not fully stabilize
-the current runtime path.
+This removed the upstream `deactivated_workspace` blocker and the runtime is now verified
+healthy at closeout time.
 
 ### Action 2 (sole remaining blocker): Unblock Treasury Gating
 
@@ -76,11 +74,11 @@ This is a policy decision. It allows the pipeline to run on any treasury balance
 ```bash
 python3 company/meridian_platform/ci_vertical.py preflight
 ```
-Expected: `PREFLIGHT: OK` (no BLOCKED phases except possibly sentinel zero-authority)
+Expected: `PREFLIGHT: OK`
 
 ---
 
-## After Runtime Stabilization And Treasury Action — Controlled Verification Ladder
+## After Treasury Action — Controlled Verification Ladder
 
 Run these in order to confirm the system is fully operational:
 

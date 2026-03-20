@@ -102,9 +102,8 @@ bypasses this via `--skip-preflight` flag — for operator use only during recov
 See `OPERATOR_STATUS.md` for the full breakdown of what is blocked and why.
 
 Short version:
-- `deactivated_workspace` is resolved, but direct runtime checks are currently unstable:
-  `openclaw health` fails with gateway 1006, and the canonical PONG probe falls
-  back to embedded timeout.
+- `deactivated_workspace` is resolved and current host-level runtime checks are healthy:
+  `openclaw health` returns OK and the canonical PONG probe returns `PONG` 3/3.
 - Constitutional preflight is blocked by treasury shortfall ($-48 vs reserve floor).
 - No brief files exist for recent dates — pipeline has not run since treasury block.
 - The two "active" trial subscriptions are owner-controlled internal tests.
