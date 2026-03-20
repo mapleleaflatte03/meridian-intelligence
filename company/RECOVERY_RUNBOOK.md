@@ -35,7 +35,7 @@ Two independent blockers prevent the Meridian pipeline from running:
 
 **Where:** This appears to be upstream workspace/account state on the OpenAI Codex side, not a local code or file-state issue inside this repo.
 
-**Likely recovery path:**
+**Operator investigation path:**
 1. Open the same OpenAI Codex account/workspace used by `openclaw configure`
 2. Check whether the workspace is deactivated, suspended, or blocked by billing/usage limits
 3. Reactivate or re-enable that workspace if the UI offers it
@@ -94,14 +94,15 @@ openclaw agent --agent main --message "respond with PONG" --timeout 15000
 cd /root/.openclaw/workspace
 python3 company/meridian_platform/ci_vertical.py preflight
 
-# Step 3: Dry-run delivery
+# Step 3: Dry-run delivery wiring check
 python3 company/premium_deliver.py --dry-run --skip-preflight
 python3 company/channel_deliver.py --dry-run --skip-preflight
 
 # Current expected result before a fresh brief exists:
 # - premium_deliver.py: "No brief available for delivery."
 # - channel_deliver.py: "No brief available for channel delivery."
-# After one successful pipeline cycle creates a brief, rerun these commands.
+# Treat this as "no brief generated yet", not as proof that delivery is healthy.
+# After one successful pipeline cycle creates a fresh brief, rerun these commands.
 
 # Step 4: Trigger one controlled pipeline cycle
 openclaw cron run "7274a600-3588-430d-807c-4286bff20f5a" --timeout 60000
@@ -120,12 +121,12 @@ openclaw cron run "25911223-5a4a-44ae-a089-c1d8527e4e58" --timeout 120000  # del
 
 | Check | Expected |
 |-------|----------|
-| `openclaw agent --agent main --message "PONG"` | Agent responds (no deactivated_workspace) |
-| `python3 ci_vertical.py preflight` | `PREFLIGHT: OK` |
-| `python3 treasury.py runway` | `Runway: $X.XX` (positive number) |
+| `openclaw agent --agent main --message "respond with PONG" --timeout 15000` | Agent responds (no `deactivated_workspace`) |
+| `python3 company/meridian_platform/ci_vertical.py preflight` | `PREFLIGHT: OK` |
+| `python3 company/meridian_platform/treasury.py runway` | `Runway: $X.XX` (positive number) |
 | `ls night-shift/brief-YYYY-MM-DD.md` | File exists after one pipeline cycle |
-| `python3 premium_deliver.py --dry-run --skip-preflight` | Before a fresh brief exists: reports `No brief available for delivery.` After one successful cycle creates a brief: shows dry-run delivery output for the 2 test subscribers |
-| `python3 channel_deliver.py --dry-run --skip-preflight` | Before a fresh brief exists: reports `No brief available for channel delivery.` After one successful cycle creates a brief: renders the channel preview |
+| `python3 premium_deliver.py --dry-run --skip-preflight` | Before a fresh brief exists: reports `No brief available for delivery.` After a fresh brief exists: should show dry-run delivery output instead of the no-brief message. |
+| `python3 channel_deliver.py --dry-run --skip-preflight` | Before a fresh brief exists: reports `No brief available for channel delivery.` After a fresh brief exists: should show channel dry-run output instead of the no-brief message. |
 | Telegram @eggsama_bot `/start` | Bot responds |
 | `curl https://app.welliam.codes/api/status` | JSON with institution active |
 
@@ -141,6 +142,6 @@ openclaw cron run "25911223-5a4a-44ae-a089-c1d8527e4e58" --timeout 120000  # del
 - Telegram bot @eggsama_bot: connected and healthy
 - Trial reminders: working (2 owner test accounts, expiring 2026-03-23)
 - Economy tests: 5/5 passing
-- Git repos: tracked changes were pushed at verification time; re-check local workspace status before making further edits
+- Git repos: clean and pushed (workspace + kernel)
 - Pipeline bootstrap files: created
 - Cron scheduler: enabled, 12 jobs configured
