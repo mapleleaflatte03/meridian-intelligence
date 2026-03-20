@@ -32,6 +32,8 @@ _econ_revenue_mod = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_econ_revenue_mod)
 load_revenue = _econ_revenue_mod.load_revenue
 load_ledger = _econ_revenue_mod.load_ledger
+customer_client_ids = _econ_revenue_mod.customer_client_ids
+customer_orders = _econ_revenue_mod.customer_orders
 
 _accounting_spec = importlib.util.spec_from_file_location(
     'company_accounting', os.path.join(WORKSPACE, 'company', 'accounting.py')
@@ -75,14 +77,14 @@ def get_revenue_summary():
     rev = load_revenue()
     ledger = load_ledger()
     t = ledger['treasury']
-    orders = rev.get('orders', {})
+    orders = customer_orders(rev)
     paid = [o for o in orders.values() if o['status'] == 'paid']
     open_orders = [o for o in orders.values() if o['status'] not in ('paid', 'rejected')]
     return {
         'total_revenue_usd': t.get('total_revenue_usd', 0.0),
         'owner_capital_contributed_usd': t.get('owner_capital_contributed_usd', 0.0),
         'receivables_usd': rev.get('receivables_usd', 0.0),
-        'clients': len(rev.get('clients', {})),
+        'clients': len(customer_client_ids(rev)),
         'paid_orders': len(paid),
         'open_orders': len(open_orders),
     }

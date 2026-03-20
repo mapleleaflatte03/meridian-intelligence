@@ -130,7 +130,7 @@ openclaw cron run "25911223-5a4a-44ae-a089-c1d8527e4e58" --timeout 120000  # del
 | `python3 premium_deliver.py --dry-run --skip-preflight` | Before a fresh brief exists: reports `No brief available for delivery.` After a fresh brief exists: should show dry-run delivery output instead of the no-brief message. |
 | `python3 channel_deliver.py --dry-run --skip-preflight` | Before a fresh brief exists: reports `No brief available for channel delivery.` After a fresh brief exists: should show channel dry-run output instead of the no-brief message. |
 | Telegram @eggsama_bot `/start` | Bot responds |
-| `curl https://app.welliam.codes/api/status` | JSON with institution active |
+| `https://app.welliam.codes/workspace` | Browser prompts for owner auth, then workspace dashboard loads |
 
 ---
 
@@ -138,8 +138,8 @@ openclaw cron run "25911223-5a4a-44ae-a089-c1d8527e4e58" --timeout 120000  # del
 
 - All local services running: caddy, meridian-workspace, soncompany-mcp, openclaw-do-proxy
 - Website serving at https://app.welliam.codes (200 OK)
-- Workspace API: /api/status, /api/treasury, /api/agents all responding
-- Mutating API endpoints: auth-protected (401 without credentials)
+- Workspace dashboard + API: responding after owner auth
+- Workspace API endpoints: 401 without owner credentials
 - Treasury route: /api/treasury/* correctly proxied to workspace server
 - Telegram bot @eggsama_bot: connected and healthy
 - Trial reminders: working (2 owner test accounts, expiring 2026-03-23)

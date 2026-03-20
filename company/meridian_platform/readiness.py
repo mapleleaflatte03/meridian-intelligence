@@ -9,6 +9,7 @@ Usage:
 import argparse
 import datetime as dt
 import glob
+import importlib.util
 import json
 import os
 import subprocess
@@ -23,6 +24,13 @@ WORKSPACE = os.path.dirname(COMPANY_DIR)
 NIGHT_SHIFT_DIR = os.path.join(WORKSPACE, "night-shift")
 SUBSCRIPTIONS_PY = os.path.join(COMPANY_DIR, "subscriptions.py")
 CI_VERTICAL_PY = os.path.join(PLATFORM_DIR, "ci_vertical.py")
+
+_subs_spec = importlib.util.spec_from_file_location(
+    'company_subscriptions', os.path.join(COMPANY_DIR, 'subscriptions.py')
+)
+_subs_mod = importlib.util.module_from_spec(_subs_spec)
+_subs_spec.loader.exec_module(_subs_mod)
+internal_test_ids = _subs_mod.internal_test_ids
 
 
 def _run(cmd, cwd=WORKSPACE, timeout=30):
@@ -66,10 +74,14 @@ def _delivery_targets():
     targets = []
     if result["stdout"]:
         targets = [line.strip() for line in result["stdout"].splitlines() if line.strip()]
+    internal_ids = internal_test_ids()
+    external_targets = [tid for tid in targets if tid not in internal_ids]
     return {
         "ok": result["ok"],
-        "count": len(targets),
+        "count": len(external_targets),
+        "internal_test_count": len([tid for tid in targets if tid in internal_ids]),
         "targets": targets,
+        "external_targets": external_targets,
         "stderr": result["stderr"],
     }
 
@@ -150,6 +162,7 @@ def print_report(report):
     else:
         print("Latest brief: none")
     print(f"Deliverable targets today: {report['delivery_targets']['count']}")
+    print(f"Internal test targets today: {report['delivery_targets']['internal_test_count']}")
 
     if report["verdict"] == "ENGINEERING_BLOCKED_RUNTIME":
         print("Next action: stabilize runtime before attempting pipeline execution.")

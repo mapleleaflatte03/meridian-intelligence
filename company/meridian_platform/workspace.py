@@ -31,9 +31,14 @@ Endpoints:
 Run:
   python3 workspace.py                    # port 18901
   python3 workspace.py --port 18902
+
+When workspace credentials are configured, the dashboard and JSON API are
+owner-authenticated with HTTP Basic auth.
 """
 import argparse
+import base64
 import datetime
+import hmac
 import json
 import os
 import sys
@@ -42,6 +47,13 @@ from urllib.parse import urlparse, parse_qs
 
 PLATFORM_DIR = os.path.dirname(os.path.abspath(__file__))
 WORKSPACE = os.path.dirname(os.path.dirname(PLATFORM_DIR))
+WORKSPACE_CREDENTIALS_FILE = os.environ.get(
+    'MERIDIAN_WORKSPACE_CREDENTIALS_FILE',
+    '/etc/caddy/.workspace_credentials',
+)
+WORKSPACE_AUTH_REQUIRED = os.environ.get('MERIDIAN_WORKSPACE_AUTH_REQUIRED', '').lower() in (
+    '1', 'true', 'yes', 'on'
+)
 sys.path.insert(0, PLATFORM_DIR)
 
 from organizations import (load_orgs, set_charter, set_policy_defaults,
@@ -66,6 +78,25 @@ from ci_vertical import PIPELINE_PHASES, _phase_gate_snapshot, get_agent_remedia
 
 def _now():
     return datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
+
+
+def _load_workspace_credentials():
+    env_user = os.environ.get('MERIDIAN_WORKSPACE_USER')
+    env_password = os.environ.get('MERIDIAN_WORKSPACE_PASS')
+    if env_user and env_password:
+        return env_user, env_password
+    if not os.path.exists(WORKSPACE_CREDENTIALS_FILE):
+        return None, None
+    user = None
+    password = None
+    with open(WORKSPACE_CREDENTIALS_FILE) as f:
+        for raw_line in f:
+            line = raw_line.strip()
+            if line.startswith('user:'):
+                user = line.split(':', 1)[1].strip()
+            elif line.startswith('pass:'):
+                password = line.split(':', 1)[1].strip()
+    return user, password
 
 
 def _get_founding_org():
@@ -689,6 +720,64 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(html.encode())
 
+    def _unauthorized(self, is_api=True):
+        self.send_response(401)
+        self.send_header('WWW-Authenticate', 'Basic realm="Meridian Workspace"')
+        if is_api:
+            self.send_header('Content-Type', 'application/json')
+        else:
+            self.send_header('Content-Type', 'text/plain; charset=utf-8')
+        self.end_headers()
+        if is_api:
+            self.wfile.write(json.dumps({'error': 'Unauthorized'}).encode())
+        else:
+            self.wfile.write(b'Unauthorized')
+
+    def _service_unavailable(self, message, is_api=True):
+        self.send_response(503)
+        if is_api:
+            self.send_header('Content-Type', 'application/json')
+        else:
+            self.send_header('Content-Type', 'text/plain; charset=utf-8')
+        self.end_headers()
+        if is_api:
+            self.wfile.write(json.dumps({'error': message}).encode())
+        else:
+            self.wfile.write(message.encode())
+
+    def _is_authorized(self):
+        user, password = _load_workspace_credentials()
+        if not user or not password:
+            return False
+
+        header = self.headers.get('Authorization', '')
+        if not header.startswith('Basic '):
+            return False
+        try:
+            decoded = base64.b64decode(header.split(' ', 1)[1]).decode('utf-8')
+        except Exception:
+            return False
+        if ':' not in decoded:
+            return False
+        supplied_user, supplied_password = decoded.split(':', 1)
+        return hmac.compare_digest(supplied_user, user) and hmac.compare_digest(supplied_password, password)
+
+    def _require_auth(self, path):
+        protected = path == '/' or path.startswith('/workspace') or path.startswith('/api/')
+        if not protected:
+            return True
+        user, password = _load_workspace_credentials()
+        if not user or not password:
+            if WORKSPACE_AUTH_REQUIRED:
+                self._service_unavailable('Workspace auth is required but credentials are not configured',
+                                          is_api=path.startswith('/api/'))
+                return False
+            return True
+        if self._is_authorized():
+            return True
+        self._unauthorized(is_api=path.startswith('/api/'))
+        return False
+
     def _read_body(self):
         length = int(self.headers.get('Content-Length', 0))
         if length == 0:
@@ -707,6 +796,8 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         path = urlparse(self.path).path
+        if not self._require_auth(path):
+            return
 
         if path == '/' or path == '/workspace':
             return self._html(DASHBOARD_HTML)
@@ -749,6 +840,8 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         path = urlparse(self.path).path
+        if not self._require_auth(path):
+            return
         org_id, org = _get_founding_org()
 
         try:
