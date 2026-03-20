@@ -65,10 +65,10 @@
   <table class="scope-table">
     <thead><tr><th>Deliverable</th><th>Cadence</th><th>Format</th></tr></thead>
     <tbody>
-      <tr><td><strong>Daily Competitor Alert</strong></td><td>Every morning by 06:00 ICT</td><td>Cited findings (400+ words, 5+ sources) covering pricing, launches, API changes, deprecations</td></tr>
+      <tr><td><strong>Daily Competitor Alert</strong></td><td>Agreed cadence during the current pilot</td><td>Cited findings (400+ words, 5+ sources) covering pricing, launches, API changes, deprecations</td></tr>
       <tr><td><strong>Weekly Intelligence Brief</strong></td><td>End of each week</td><td>Curated top competitive moves with action items and risk signals</td></tr>
       <tr><td><strong>Battlecard (on request)</strong></td><td>On demand</td><td>Structured competitor snapshot: recent moves, pricing, product updates, talking points</td></tr>
-      <tr><td><strong>Competitor Watchlist</strong></td><td>Always-on</td><td>Configured per customer. Meridian monitors tracked competitors automatically.</td></tr>
+      <tr><td><strong>Competitor Watchlist</strong></td><td>Configured during onboarding</td><td>Set per customer. The same watchlist becomes an automated monitor again once treasury-gated execution resumes.</td></tr>
     </tbody>
   </table>
 </div>
@@ -78,7 +78,7 @@
 <div class="card">
   <table class="offer-table">
     <tr><td>Primary channel</td><td><strong>Telegram</strong> &mdash; pilot alerts delivered directly as Telegram messages during the manual pilot.</td></tr>
-    <tr><td>Public preview</td><td><a href="https://t.me/MeridianIntelligence">@MeridianIntelligence</a> Telegram channel (abbreviated preview of daily alerts).</td></tr>
+    <tr><td>Public preview</td><td><a href="https://t.me/MeridianIntelligence">@MeridianIntelligence</a> Telegram channel (abbreviated preview when a fresh brief is worth posting).</td></tr>
     <tr><td>Developer API</td><td>MCP protocol at <code>https://app.welliam.codes/sse</code>. Pay-per-call via x402 (USDC on Base L2).</td></tr>
     <tr><td>Email</td><td>Planned. Not yet available.</td></tr>
     <tr><td>Slack</td><td>Planned. Not yet available.</td></tr>
@@ -90,8 +90,7 @@
 <div class="card">
   <table class="offer-table">
     <tr><td>Manual pilot</td><td><strong>7 days by arrangement.</strong> We scope your competitors, run the pilot manually, and review usefulness before paid continuation.</td></tr>
-    <tr><td>Weekly subscription</td><td><strong>$2.99 / week</strong> &mdash; daily alerts + weekly brief + battlecards on request.</td></tr>
-    <tr><td>Monthly subscription</td><td><strong>$9.99 / month</strong> &mdash; same as weekly, lower effective rate.</td></tr>
+    <tr><td>Paid continuation</td><td><strong>By arrangement after the pilot proves useful.</strong> Weekly or monthly structure can be agreed explicitly once the output is useful enough to keep going.</td></tr>
     <tr><td>MCP pay-per-call</td><td>$0.50 (daily alert), $1.50 (weekly digest), $3.00 (battlecard). Settled via x402 USDC on Base L2.</td></tr>
     <tr><td>Custom / enterprise</td><td>Contact us for custom watchlists, dedicated sources, or higher-volume access.</td></tr>
   </table>
@@ -105,23 +104,23 @@
     <tbody>
       <tr>
         <td>Source monitoring (30+ sources)</td>
-        <td><span class="tag tag-auto">Automated</span></td>
-        <td>Nightly pipeline fetches all configured sources automatically.</td>
+        <td><span class="tag tag-planned">Treasury-gated</span></td>
+        <td>Implemented and proven in prior qualified runs, but current nightly execution remains paused by constitutional preflight.</td>
       </tr>
       <tr>
         <td>Finding extraction and deduplication</td>
-        <td><span class="tag tag-auto">Automated</span></td>
-        <td>Keyword-based extraction with relevance scoring and deduplication.</td>
+        <td><span class="tag tag-planned">Treasury-gated</span></td>
+        <td>Implemented in the governed pipeline, but not running nightly until treasury policy allows it again.</td>
       </tr>
       <tr>
         <td>Alert writing</td>
-        <td><span class="tag tag-auto">Automated</span></td>
-        <td>AI-written from findings, framed as competitive intelligence.</td>
+        <td><span class="tag tag-planned">Treasury-gated</span></td>
+        <td>Implemented and previously exercised; current customer path uses founder-led delivery rather than claiming this automation ran tonight.</td>
       </tr>
       <tr>
         <td>Quality assurance</td>
-        <td><span class="tag tag-auto">Automated</span></td>
-        <td>Multi-agent QA: word count, source diversity, freshness, citation check.</td>
+        <td><span class="tag tag-planned">Treasury-gated</span></td>
+        <td>Multi-agent QA remains part of the governed workflow design, but nightly execution is paused until preflight clears.</td>
       </tr>
       <tr>
         <td>Pilot delivery</td>
@@ -184,7 +183,7 @@
   <strong>What blocks normal scaled delivery today:</strong>
   <ul style="margin-top: 0.5rem;">
     <li><strong>Automated budget-gated pipeline:</strong> Treasury is below its reserve floor, so the nightly workflow is intentionally blocked instead of faking execution.</li>
-    <li><strong>Telegram subscription payments:</strong> Require USDC on Base L2. No credit card or PayPal option yet. This is still a blocker for many non-crypto-native customers.</li>
+    <li><strong>Self-serve checkout:</strong> Not live yet. No credit card, PayPal, or bot-native subscription checkout today. Manual payment is the honest path after a useful pilot.</li>
     <li><strong>MCP x402 payments:</strong> Functional via USDC on Base L2, but still unproven with an external customer.</li>
   </ul>
   <p style="margin-top: 0.75rem; color: var(--dim);">

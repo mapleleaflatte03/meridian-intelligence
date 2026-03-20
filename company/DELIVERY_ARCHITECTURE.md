@@ -4,69 +4,75 @@ Last updated: 2026-03-20
 
 ---
 
-## Intended Model
+## Current Delivery Model
 
-The Meridian Telegram system has three distinct surfaces with distinct roles.
-They are not interchangeable.
+The Meridian Telegram system has four distinct surfaces.
+They are not interchangeable, and only one of them is the current customer path.
 
-### 1. @MeridianIntelligence (channel)
+### 1. Founder-led manual pilot
 
-**Role:** Public broadcast. Free preview. Acquisition surface.
+**Role:** Current customer delivery path.
 
-- Anyone can follow without a Telegram account link to the bot.
-- Posts an abbreviated daily brief preview (600 chars) after the night-shift pipeline.
-- Includes a CTA to start a trial via @eggsama_bot.
-- No subscriber interaction. Broadcast only.
-- Managed by `channel_deliver.py`. Runs after `night-shift-write` + `night-shift-qa` complete.
+- New teams are onboarded through a founder-led manual pilot.
+- Delivery happens directly from the founder to the pilot team, usually over Telegram.
+- This is the only honest customer path while treasury-gated automation remains paused.
+- It uses the same category of governed output, but does not pretend the automated loop ran when it did not.
 
-**Who sees it:** Public. Designed to be found via Telegram search or shared links.
+### 2. @MeridianIntelligence (channel)
 
-### 2. @eggsama_bot (subscriber bot)
+**Role:** Public preview surface.
 
-**Role:** Subscriber lifecycle. Trial start. Direct delivery. Subscription management.
+- Broadcast only. No subscriber interaction.
+- Used for public previews when there is a fresh brief worth posting.
+- Managed by `channel_deliver.py`.
+- Not currently on a deterministic cron schedule.
 
-- Users start a 7-day free trial via `/start trial` or `t.me/eggsama_bot?start=trial`.
-- Receives full daily brief as a private DM — separate from the channel preview.
-- Handles: `subscribe`, `cancel`, `status` commands.
-- Trial expiry reminders sent at 2 days, 1 day, and expiry day via `trial_reminder.py`.
-- Paid subscribers (once any exist) receive the premium brief through this same channel.
-- Managed by `premium_deliver.py` for the actual content delivery.
+**Who sees it:** Public. Discovery and proof-of-output surface.
 
-**Who uses it:** Trial users. Paid subscribers. Anyone who started a trial.
+### 3. @eggsama_bot (subscriber bot)
 
-### 3. Owner Telegram (5322393870)
+**Role:** Internal test surface now; future subscriber lifecycle surface later.
+
+- The bot remains a valid technical surface, but it is not the current public onboarding promise.
+- The two active bot subscriptions today are owner-controlled internal tests.
+- `premium_deliver.py` and `trial_reminder.py` still exercise this path for internal verification.
+- Once treasury policy allows honest automated delivery again, this bot can resume lifecycle and direct-delivery duties.
+
+**Who uses it today:** Owner-controlled internal test accounts only.
+
+### 4. Owner Telegram (5322393870)
 
 **Role:** Operator control surface. Morning brief delivery. System alerts.
 
-- The `night-shift-deliver` cron job delivers the full morning brief directly to the owner.
-- Revenue dashboard (`revenue-dashboard` cron) reports weekly to the owner.
-- This is a private channel for Sơn, not a customer channel.
+- `night-shift-deliver` sends the full morning brief to the owner when the pipeline is clear.
+- `revenue-dashboard` reports weekly to the owner.
+- This is a private operator channel, not a customer surface.
 
 ---
 
-## Delivery Flow (Intended)
+## Delivery Flow (Current Truth)
 
 ```
-Night-shift pipeline (22:05 – 05:40 ICT nightly)
+Night-shift pipeline
 │
-├── [05:40 ICT] night-shift-deliver
-│     → Delivers full brief to owner Telegram (5322393870)
-│     → Requires: constitutional preflight PASS
+├── If constitutional preflight is BLOCKED
+│     → no automated customer delivery should happen
+│     → no brief should be pretended into existence
 │
-├── [05:50 ICT] premium-deliver
-│     → Runs premium_deliver.py
-│     → Delivers full brief to all active trial + paid subscribers via @eggsama_bot
-│     → Requires: constitutional preflight PASS + active subscribers
+├── If a fresh brief exists and the founder is running a manual pilot
+│     → founder sends the output manually to pilot participants
 │
-├── [22:45 ICT] channel_deliver.py (run separately or via night-shift)
-│     → Posts abbreviated preview to @MeridianIntelligence
-│     → Requires: brief available + quality PASS
-│     → Not in cron — must be triggered after night-shift-write completes
+├── If a fresh brief exists and the public preview is intentionally posted
+│     → channel_deliver.py can post an abbreviated preview to @MeridianIntelligence
+│     → this is not currently guaranteed by cron
 │
-└── [09:00 ICT daily] trial_reminder.py
-      → Sends expiry nudges to active trial users at days 2, 1, 0 before expiry
-      → Reads subscriptions.json directly
-      → No constitutional preflight required (it's a notification, not a pipeline step)
+├── If treasury policy and preflight later allow automated delivery again
+│     → premium_deliver.py can resume bot/private DM delivery
+│     → @eggsama_bot becomes the active subscriber lifecycle surface again
+│
+└── trial_reminder.py
+      → currently an internal lifecycle-check path for test accounts
+      → not the primary public customer path
 ```
 
 ---
@@ -74,26 +80,29 @@ Night-shift pipeline (22:05 – 05:40 ICT nightly)
 ## Constitutional Preflight in Delivery
 
 Both `channel_deliver.py` and `premium_deliver.py` call `ci_vertical.py preflight`
-before any delivery attempt. If preflight returns non-zero, delivery is blocked.
+before any automated delivery attempt. If preflight returns non-zero, automated
+delivery is blocked.
 
 Preflight blocks when:
 - Treasury balance below reserve floor (currently $48.00 below floor)
 - Kill switch engaged
 - Agent authority blocked
 
-This is by design. Uncontrolled spend requires treasury funding. Manual delivery
-bypasses this via `--skip-preflight` flag — for operator use only during recovery.
+This is by design. Uncontrolled spend requires treasury funding. Manual founder
+delivery does not claim that the automated loop ran; `--skip-preflight` is only
+for explicit operator recovery/testing, not for pretending automated customer
+delivery succeeded.
 
 ---
 
-## Channel vs Bot vs Premium — Summary
+## Surface Summary
 
-| Surface | Content | Audience | Interaction | Gated by |
-|---------|---------|----------|-------------|----------|
-| @MeridianIntelligence | 600-char brief preview | Public | None (broadcast) | Brief quality + channel_deliver.py |
-| @eggsama_bot | Full daily brief | Trial + paid subscribers | Yes — commands | Constitutional preflight + active subs |
-| Owner DM (5322393870) | Full morning brief | Owner only | None | Constitutional preflight |
-| Premium DM | Full brief + QA metadata | Paid/trial subscribers | None | Constitutional preflight + subscriptions |
+| Surface | Current role | Audience | Interaction | Current truth |
+|---------|--------------|----------|-------------|---------------|
+| Founder manual pilot | Real customer delivery path | Pilot teams | Direct | Active when the founder chooses to run a pilot |
+| @MeridianIntelligence | Public preview | Public | None (broadcast) | Optional / manual posting, not deterministic cron |
+| @eggsama_bot | Internal test + future subscriber lifecycle | Owner test accounts today | Yes — commands | Not the active public onboarding promise |
+| Owner DM (5322393870) | Operator brief + alerts | Owner only | None | Active when pipeline clears |
 
 ---
 
@@ -102,15 +111,13 @@ bypasses this via `--skip-preflight` flag — for operator use only during recov
 See `OPERATOR_STATUS.md` for the full breakdown of what is blocked and why.
 
 Short version:
-- `deactivated_workspace` is resolved and current host-level runtime checks are healthy:
-  `openclaw health` returns OK and the canonical PONG probe returns `PONG` 3/3.
+- `deactivated_workspace` is resolved and current host-level runtime checks are healthy.
 - Constitutional preflight is blocked by treasury shortfall ($-48 vs reserve floor).
-- No brief files exist for recent dates — pipeline has not run since treasury block.
-- The two "active" trial subscriptions are owner-controlled internal tests.
-- No external customers exist. No external deliveries have occurred.
-- Manual delivery to the owner is possible using `--skip-preflight` once a brief exists.
-- `channel_deliver.py` is NOT in the cron schedule — it must be triggered manually
-  or integrated into the night-shift pipeline after `night-shift-write` completes.
+- No recent brief files exist because the pipeline has not run since the treasury block.
+- The two "active" bot subscriptions are owner-controlled internal tests, not customers.
+- No external customers exist. No external automated deliveries have occurred.
+- `channel_deliver.py` is not on a deterministic cron schedule and should be treated as an explicit preview-post action.
+- The honest customer path right now is founder-led manual pilot delivery, not bot trial automation.
 
 **Brief source of truth:** `night-shift/brief-YYYY-MM-DD.md` files. Both
 `channel_deliver.py` and `premium_deliver.py` use `get_today_brief()` which checks

@@ -53,8 +53,8 @@ def _get_org():
 PIPELINE_PHASES = [
     {'phase': 'research',    'agent': 'atlas',     'action': 'execute', 'description': 'Fetch 30+ sources, extract findings'},
     {'phase': 'write',       'agent': 'quill',     'action': 'execute', 'description': 'Write cited intelligence brief'},
-    {'phase': 'qa_sentinel', 'agent': 'sentinel',  'action': 'review',  'description': 'Verify sources, check contradictions'},
-    {'phase': 'qa_aegis',    'agent': 'aegis',     'action': 'review',  'description': 'PASS/FAIL acceptance gate'},
+    {'phase': 'qa_sentinel', 'agent': 'sentinel',  'action': 'review',  'description': 'Verify sources and check contradictions'},
+    {'phase': 'qa_aegis',    'agent': 'aegis',     'action': 'review',  'description': 'Run acceptance gate and PASS/FAIL decision'},
     {'phase': 'execute',     'agent': 'forge',     'action': 'execute', 'description': 'Execute bounded improvement task'},
     {'phase': 'compress',    'agent': 'pulse',     'action': 'execute', 'description': 'Compress context for delivery'},
     {'phase': 'deliver',     'agent': 'main',      'action': 'execute', 'description': 'Deliver brief to subscribers'},

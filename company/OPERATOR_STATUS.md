@@ -18,7 +18,7 @@ It is not promotional copy. Every claim is tagged verified, inferred, or unknown
 | Channel delivery (@MeridianIntelligence) | NOT RUNNING — no new briefs (treasury-blocked) | preflight output |
 | Premium delivery (@eggsama_bot) | NOT RUNNING — no new briefs (treasury-blocked) | preflight output |
 | Trial reminders | Would run for 2 active IDs (owner test accounts) | subscriptions.json |
-| Revenue dashboard | Last OK 2026-03-20 (manually triggered) | jobs.json state |
+| Revenue dashboard | Last OK 2026-03-20 (manually triggered) | `scheduler_truth.py --job revenue-dashboard` |
 | External customers | ZERO — all subscription entries are owner test or synthetic residue | subscriptions.json `_meta` |
 | Customer revenue received | $0.00 | ledger.json `total_revenue_usd` |
 | Owner capital in treasury | $2.00 USDC | ledger.json `cash_usd`, transactions.jsonl |
@@ -51,8 +51,11 @@ The `deactivated_workspace` error was caused by upstream OpenAI Codex workspace 
 Owner re-ran `openclaw models auth login --provider openai-codex` and the upstream
 `deactivated_workspace` error disappeared. Host-level verification at closeout now
 shows `openclaw health` returning OK and the canonical PONG probe succeeding 3/3.
-Stale `deactivated_workspace` errors in jobs.json will self-clear on the next scheduled
-run of each job.
+Some embedded state inside `~/.openclaw/cron/jobs.json` still carries old
+`deactivated_workspace` strings. Treat `jobs.json` as schedule config plus an
+embedded last-run cache. Use `company/meridian_platform/scheduler_truth.py` and
+the per-job run logs under `~/.openclaw/cron/runs/` for scheduler truth instead
+of trusting jobs.json state blindly.
 
 ---
 
