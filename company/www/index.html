@@ -5,9 +5,27 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Meridian — AI Competitor Intelligence, Delivered Daily</title>
 <meta name="description" content="Daily cited competitor intelligence delivered via Telegram. Track pricing changes, product launches, and API updates across 30+ monitored sources. 7-day free trial.">
+
+<!-- Brand -->
+<link rel="icon" type="image/png" href="/assets/logo_favicon_64.png">
+<link rel="apple-touch-icon" sizes="192x192" href="/assets/logo_avatar_192.png">
+
+<!-- Open Graph -->
 <meta property="og:title" content="Meridian — AI Competitor Intelligence, Delivered Daily">
 <meta property="og:description" content="Daily cited competitor intelligence delivered via Telegram. Track pricing changes, product launches, and API updates across 30+ monitored sources. 7-day free trial.">
 <meta property="og:type" content="website">
+<meta property="og:url" content="https://app.welliam.codes">
+<meta property="og:image" content="https://app.welliam.codes/assets/logo_banner_1200x630.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:site_name" content="Meridian">
+
+<!-- Twitter -->
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Meridian — AI Competitor Intelligence, Delivered Daily">
+<meta name="twitter:description" content="Daily cited competitor intelligence delivered via Telegram. Track pricing changes, product launches, and API updates across 30+ monitored sources. 7-day free trial.">
+<meta name="twitter:image" content="https://app.welliam.codes/assets/logo_banner_1200x630.jpg">
+
 <script type="application/ld+json">
 {
   "@context": "https://schema.org",
@@ -40,12 +58,29 @@
   body { font-family: 'Inter', system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--fg); line-height: 1.6; }
   .container { max-width: 760px; margin: 0 auto; padding: 2rem 1.5rem; }
 
+  /* Site header */
+  .site-header { position: sticky; top: 0; z-index: 100; background: rgba(10,10,15,0.96); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border-bottom: 1px solid var(--border); }
+  .header-inner { max-width: 960px; margin: 0 auto; padding: 0.65rem 1.5rem; display: flex; justify-content: space-between; align-items: center; }
+  .brand { display: flex; align-items: center; gap: 0.55rem; text-decoration: none; color: inherit; }
+  .brand-mark { width: 28px; height: 28px; border-radius: 50%; flex-shrink: 0; }
+  .brand-name { font-size: 0.95rem; font-weight: 700; color: #fff; letter-spacing: -0.01em; }
+  .site-nav { display: flex; align-items: center; gap: 1.5rem; }
+  .site-nav a { color: var(--dim); text-decoration: none; font-size: 0.875rem; transition: color 0.15s; }
+  .site-nav a:hover { color: var(--fg); }
+  .nav-cta { background: var(--accent) !important; color: #000 !important; padding: 6px 15px; border-radius: 5px; font-weight: 700 !important; transition: background 0.15s !important; }
+  .nav-cta:hover { background: #81d4fa !important; color: #000 !important; }
+  @media (max-width: 640px) { .site-nav a:not(.nav-cta) { display: none; } .header-inner { padding: 0.55rem 1rem; } }
+
   /* Hero */
-  .hero { text-align: center; padding: 3rem 0 2rem; background: linear-gradient(180deg, #0d1020 0%, var(--bg) 100%); }
-  .hero h1 { font-size: 2.2rem; color: #fff; margin-bottom: 0.75rem; line-height: 1.2; }
-  .hero .tagline { font-size: 1.1rem; color: var(--dim); margin-bottom: 2rem; max-width: 580px; margin-left: auto; margin-right: auto; }
+  .hero { text-align: center; padding: 4.5rem 0 2.5rem; background: linear-gradient(180deg, #0c0f1e 0%, #0a0a0f 100%); animation: fadeInUp 0.5s ease-out both; }
+  @keyframes fadeInUp { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0); } }
+  .hero-badge { display: inline-flex; align-items: center; gap: 0.5rem; background: rgba(79,195,247,0.07); border: 1px solid rgba(79,195,247,0.2); border-radius: 20px; padding: 5px 14px; font-size: 0.8rem; color: var(--accent); margin-bottom: 1.5rem; letter-spacing: 0.01em; }
+  .badge-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); flex-shrink: 0; animation: live-pulse 2.4s ease-in-out infinite; }
+  @keyframes live-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+  .hero h1 { font-size: 2.4rem; color: #fff; margin-bottom: 0.9rem; line-height: 1.18; letter-spacing: -0.025em; font-weight: 700; }
+  .hero .tagline { font-size: 1.05rem; color: var(--dim); margin-bottom: 2rem; max-width: 560px; margin-left: auto; margin-right: auto; line-height: 1.65; }
   .cta-group { display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap; margin-bottom: 1rem; }
-  .cta { display: inline-block; padding: 12px 28px; border-radius: 6px; text-decoration: none; font-weight: 700; font-size: 1rem; transition: background 0.2s; }
+  .cta { display: inline-block; padding: 12px 28px; border-radius: 6px; text-decoration: none; font-weight: 700; font-size: 1rem; transition: background 0.15s, border-color 0.15s; }
   .cta-primary { background: var(--accent); color: #000; }
   .cta-primary:hover { background: #81d4fa; }
   .cta-outline { background: transparent; border: 2px solid var(--accent); color: var(--accent); }
@@ -53,12 +88,12 @@
   .cta-note { color: var(--dim); font-size: 0.85rem; }
 
   /* Sections */
-  h2 { font-size: 1.3rem; color: var(--accent); margin: 2.5rem 0 1rem; border-bottom: 1px solid var(--border); padding-bottom: 0.5rem; }
+  h2 { font-size: 1.25rem; color: var(--accent); margin: 2.75rem 0 1rem; padding-bottom: 0.5rem; border-bottom: 1px solid var(--border); letter-spacing: -0.01em; }
   .card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 1.25rem; margin-bottom: 1rem; }
 
   /* Sample brief */
-  .sample-box { background: #0d1117; border: 1px solid var(--border); border-radius: 8px; padding: 1.25rem; margin: 1rem 0; white-space: pre-wrap; font-family: monospace; font-size: 0.9rem; line-height: 1.5; color: #c9d1d9; max-height: 500px; overflow-y: auto; }
-  .sample-meta { color: var(--dim); font-size: 0.85rem; margin-top: 0.5rem; }
+  .sample-box { background: #0d1117; border: 1px solid var(--border); border-radius: 8px; padding: 1.25rem; margin: 1rem 0; white-space: pre-wrap; font-family: 'Menlo', 'Consolas', monospace; font-size: 0.875rem; line-height: 1.55; color: #c9d1d9; max-height: 480px; overflow-y: auto; }
+  .sample-meta { color: var(--dim); font-size: 0.82rem; margin-top: 0.5rem; }
 
   /* Steps */
   .steps { counter-reset: step; list-style: none; margin: 1rem 0; padding: 0; }
@@ -73,61 +108,94 @@
   .price-card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 1.5rem; text-align: center; }
   .price-card.featured { border-color: var(--accent); }
   .price-card h3 { color: #fff; margin-bottom: 0.5rem; }
-  .price-amount { font-size: 1.8rem; color: var(--accent); font-weight: 700; }
+  .price-amount { font-size: 1.8rem; color: var(--accent); font-weight: 700; letter-spacing: -0.02em; }
   .price-period { color: var(--dim); font-size: 0.9rem; }
   .price-features { list-style: none; margin: 1rem 0; text-align: left; font-size: 0.9rem; }
   .price-features li { padding: 0.3rem 0; }
-  .price-features li::before { content: "-> "; color: var(--accent); }
+  .price-features li::before { content: "→ "; color: var(--accent); }
   .tag-free { display: inline-block; background: #1a3a1a; color: var(--green); padding: 3px 10px; border-radius: 4px; font-size: 0.8rem; font-weight: 700; }
   .tag-live { display: inline-block; background: #1a3a1a; color: var(--green); padding: 3px 10px; border-radius: 4px; font-size: 0.75rem; font-weight: 700; }
   .tag-building { display: inline-block; background: #2a2a1a; color: var(--gold); padding: 3px 10px; border-radius: 4px; font-size: 0.75rem; font-weight: 700; }
 
   /* FAQ */
   details { margin-bottom: 0.5rem; }
-  summary { cursor: pointer; padding: 0.75rem 0; color: #fff; font-weight: 600; }
+  summary { cursor: pointer; padding: 0.75rem 0; color: #fff; font-weight: 600; list-style: none; display: flex; justify-content: space-between; align-items: center; }
+  summary::-webkit-details-marker { display: none; }
+  summary::after { content: '+'; color: var(--accent); font-size: 1.1rem; transition: transform 0.2s; }
+  details[open] summary::after { content: '−'; }
   summary:hover { color: var(--accent); }
   details p { padding: 0 0 1rem 0; color: var(--dim); }
 
   /* Footer */
-  .footer { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid var(--border); color: #555; font-size: 0.85rem; text-align: center; }
-  .footer a { color: var(--dim); }
+  .footer { margin-top: 4rem; padding: 2rem 0 1.5rem; border-top: 1px solid var(--border); color: #555; font-size: 0.85rem; text-align: center; }
+  .footer a { color: var(--dim); text-decoration: none; }
+  .footer a:hover { color: var(--fg); }
+  .footer-brand { display: flex; align-items: center; justify-content: center; gap: 0.5rem; margin-bottom: 1rem; }
+  .footer-brand img { width: 22px; height: 22px; border-radius: 50%; }
+  .footer-brand span { color: #555; font-size: 0.85rem; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
+  .footer-links { display: flex; gap: 1.25rem; justify-content: center; flex-wrap: wrap; margin-bottom: 0.75rem; }
 
   /* Feature grid */
   .feature-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin: 1rem 0; }
   @media (max-width: 600px) { .feature-grid { grid-template-columns: 1fr; } }
-  .feature-card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 1rem; }
-  .feature-card h3 { color: #fff; font-size: 1rem; margin-bottom: 0.5rem; }
-  .feature-card p { color: var(--dim); font-size: 0.9rem; }
+  .feature-card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 1.1rem; transition: border-color 0.2s; }
+  .feature-card:hover { border-color: #3a3a5a; }
+  .feature-card h3 { color: #fff; font-size: 0.95rem; margin-bottom: 0.4rem; letter-spacing: -0.01em; }
+  .feature-card p { color: var(--dim); font-size: 0.88rem; line-height: 1.55; }
 
   /* Layer diagram */
-  .layer-stack { margin: 1.5rem 0; font-family: monospace; font-size: 0.85rem; }
-  .layer { background: var(--card); border: 1px solid var(--border); padding: 0.6rem 1rem; margin-bottom: 2px; display: flex; justify-content: space-between; align-items: center; }
+  .layer-stack { margin: 1.25rem 0; font-family: 'Menlo', 'Consolas', monospace; font-size: 0.82rem; }
+  .layer { background: var(--card); border: 1px solid var(--border); padding: 0.65rem 1rem; margin-bottom: 2px; display: flex; justify-content: space-between; align-items: center; transition: background 0.15s; }
+  .layer:hover { background: #1c1c2a; }
   .layer:first-child { border-radius: 8px 8px 0 0; }
-  .layer:last-child { border-radius: 0 0 8px 8px; }
+  .layer:last-child { border-radius: 0 0 8px 8px; margin-bottom: 0; }
   .layer-name { color: #fff; font-weight: 600; }
-  .layer-desc { color: var(--dim); font-size: 0.8rem; }
+  .layer-desc { color: var(--dim); font-size: 0.78rem; }
 
   /* Dev section toggle */
-  .dev-toggle { color: var(--dim); cursor: pointer; font-size: 0.9rem; margin-top: 1rem; }
+  .dev-toggle { color: var(--dim); cursor: pointer; font-size: 0.9rem; margin-top: 1rem; user-select: none; }
+  .dev-toggle:hover { color: var(--fg); }
   .dev-section { display: none; }
   .dev-section.open { display: block; }
-  pre { background: #1a1a2a; padding: 1rem; border-radius: 6px; overflow-x: auto; margin: 0.5rem 0; font-size: 0.85rem; }
-  code { background: #1a1a2a; padding: 2px 6px; border-radius: 3px; font-size: 0.9rem; }
+  pre { background: #0d1117; border: 1px solid var(--border); padding: 1rem; border-radius: 6px; overflow-x: auto; margin: 0.5rem 0; font-size: 0.84rem; line-height: 1.5; }
+  code { background: #1a1a2a; padding: 2px 6px; border-radius: 3px; font-size: 0.88rem; }
   a { color: var(--accent); }
-  .trust { display: flex; gap: 2rem; justify-content: center; flex-wrap: wrap; margin: 1.5rem 0; color: var(--dim); font-size: 0.9rem; }
+  .trust { display: flex; gap: 1.75rem; justify-content: center; flex-wrap: wrap; margin: 1.75rem 0; color: var(--dim); font-size: 0.875rem; }
   .trust span { display: flex; align-items: center; gap: 0.4rem; }
-  .wallet { word-break: break-all; font-family: monospace; color: var(--accent); font-size: 0.85rem; }
+  .trust span::before { content: '·'; color: var(--accent); }
+  .wallet { word-break: break-all; font-family: 'Menlo', 'Consolas', monospace; color: var(--accent); font-size: 0.84rem; }
+  .notice { background: #1a1510; border: 1px solid #3a2a1a; border-radius: 8px; padding: 1rem 1.25rem; margin: 1.5rem 0; font-size: 0.92rem; }
 </style>
 </head>
 <body>
 
+<!-- Site header -->
+<header class="site-header">
+  <div class="header-inner">
+    <a class="brand" href="/">
+      <img src="/assets/logo_avatar_192.png" alt="Meridian" class="brand-mark">
+      <span class="brand-name">Meridian</span>
+    </a>
+    <nav class="site-nav">
+      <a href="#platform">Platform</a>
+      <a href="#pricing">Pricing</a>
+      <a href="#developers">API</a>
+      <a href="https://t.me/eggsama_bot?start=trial" class="nav-cta" target="_blank" rel="noopener">Start Free Trial</a>
+    </nav>
+  </div>
+</header>
+
 <!-- Hero -->
 <div class="hero">
   <div class="container">
+    <div class="hero-badge">
+      <span class="badge-dot"></span>
+      <span>Live pipeline &middot; 7 agents &middot; 30+ monitored sources</span>
+    </div>
     <h1>Daily competitor intelligence,<br>cited and delivered every morning.</h1>
-    <p class="tagline">Meridian monitors 30+ sources — pricing pages, changelogs, API docs, provider blogs — and sends you cited findings every morning via Telegram. Powered by a 7-agent governed pipeline.</p>
+    <p class="tagline">Pricing changes, deprecations, launches — monitored across 30+ sources, synthesized by a 7-agent governed pipeline, and sent to your Telegram each morning with every claim sourced.</p>
     <div class="cta-group">
-      <a class="cta cta-primary" href="https://t.me/eggsama_bot?start=trial">Start Free 7-Day Trial</a>
+      <a class="cta cta-primary" href="https://t.me/eggsama_bot?start=trial" target="_blank" rel="noopener">Start Free 7-Day Trial</a>
       <a class="cta cta-outline" href="pilot.html">See Pilot Offer</a>
     </div>
     <p class="cta-note">No payment needed for the trial. Delivered via Telegram bot. <a href="#why-telegram">Why Telegram?</a></p>
@@ -137,17 +205,17 @@
 <div class="container">
 
   <!-- Delivery status notice -->
-  <div style="background:#1a1510; border:1px solid #3a2a1a; border-radius:8px; padding:1rem 1.25rem; margin:1.5rem 0;">
+  <div class="notice">
     <strong style="color:#ffa726;">Automated delivery currently gated.</strong>
-    <span style="color:var(--dim); font-size:0.92rem;"> The nightly pipeline requires treasury funding to run. Manual pilot delivery is available now — <a href="mailto:nguyensimon186@gmail.com">contact us</a> or <a href="https://t.me/Enhanhsj">DM @Enhanhsj</a> to arrange it.</span>
+    <span style="color:var(--dim);"> The nightly pipeline requires treasury funding to run. Manual pilot delivery is available now — <a href="mailto:nguyensimon186@gmail.com">contact us</a> or <a href="https://t.me/Enhanhsj">DM @Enhanhsj</a> to arrange it.</span>
   </div>
 
   <!-- Why Telegram -->
   <h2 id="why-telegram">Why Telegram?</h2>
-  <p style="color: var(--dim); margin-bottom: 1rem;">Intelligence that sits in an inbox unread is useless. Telegram delivers briefs as direct messages to your phone or desktop, the same way you get important updates from people you trust. There are three surfaces:</p>
+  <p style="color: var(--dim); margin-bottom: 1rem;">Intelligence that sits in an inbox unread is useless. Telegram delivers briefs as direct messages to your phone or desktop, the same way you get important updates from people you trust. Three surfaces:</p>
   <div class="card" style="font-size: 0.93rem;">
-    <p style="margin-bottom: 0.6rem;"><strong style="color:#fff;">@MeridianIntelligence</strong> — public channel. Abbreviated daily brief preview, free to follow. No account needed.</p>
-    <p style="margin-bottom: 0.6rem;"><strong style="color:#fff;">@eggsama_bot</strong> — subscriber bot. Start your trial, manage subscription, receive full daily briefs directly. This is your primary interface.</p>
+    <p style="margin-bottom: 0.7rem;"><strong style="color:#fff;">@MeridianIntelligence</strong> — public channel. Abbreviated daily brief preview, free to follow. No account needed.</p>
+    <p style="margin-bottom: 0.7rem;"><strong style="color:#fff;">@eggsama_bot</strong> — subscriber bot. Start your trial, manage your subscription, receive full daily briefs directly.</p>
     <p><strong style="color:#fff;">Premium DM delivery</strong> — full brief sent directly to paid subscribers each morning after the pipeline completes. Includes QA status and source count.</p>
   </div>
 
@@ -155,14 +223,15 @@
   <h2 id="platform">The Platform Behind It</h2>
   <p style="color: var(--dim); margin-bottom: 1rem;">The intelligence workflow runs on Meridian — a governance layer for autonomous AI agents. Five primitives keep every agent action audited, budgeted, and accountable.</p>
   <div class="layer-stack">
-    <div class="layer"><span class="layer-name">Institution</span> <span><span class="tag-live">LIVE</span> Charter, policy defaults, lifecycle, settings</span></div>
-    <div class="layer"><span class="layer-name">Agent</span> <span><span class="tag-live">LIVE</span> Identity, scopes, budget, risk state, economy participation</span></div>
-    <div class="layer"><span class="layer-name">Authority</span> <span><span class="tag-live">LIVE</span> Approval queues, delegations, kill switch</span></div>
-    <div class="layer"><span class="layer-name">Treasury</span> <span><span class="tag-live">LIVE</span> Balance, runway, reserve floor, spend tracking</span></div>
-    <div class="layer"><span class="layer-name">Court</span> <span><span class="tag-live">LIVE</span> Violations, sanctions, appeals, enforcement</span></div>
+    <div class="layer"><span class="layer-name">Institution</span> <span><span class="tag-live">LIVE</span> &nbsp;Charter, policy defaults, lifecycle, settings</span></div>
+    <div class="layer"><span class="layer-name">Agent</span> <span><span class="tag-live">LIVE</span> &nbsp;Identity, scopes, budget, risk state, economy participation</span></div>
+    <div class="layer"><span class="layer-name">Authority</span> <span><span class="tag-live">LIVE</span> &nbsp;Approval queues, delegations, kill switch</span></div>
+    <div class="layer"><span class="layer-name">Treasury</span> <span><span class="tag-live">LIVE</span> &nbsp;Balance, runway, reserve floor, spend tracking</span></div>
+    <div class="layer"><span class="layer-name">Court</span> <span><span class="tag-live">LIVE</span> &nbsp;Violations, sanctions, appeals, enforcement</span></div>
   </div>
+  <p style="color: var(--dim); font-size: 0.875rem; margin-top: 0.75rem;">The kernel is open-source. <a href="https://github.com/mapleleaflatte03/meridian-kernel" target="_blank" rel="noopener">Meridian Constitutional Kernel →</a></p>
 
-  <!-- Live Workflow: Competitive Intelligence -->
+  <!-- What You Get -->
   <h2>What You Get</h2>
   <p style="color: var(--dim); margin-bottom: 1rem;">A 7-agent governed pipeline monitors 30+ sources nightly and writes a cited brief. Every finding names its source and date. Every agent action is audited.</p>
   <div class="feature-grid">
@@ -188,7 +257,7 @@
   <h2>Sample Output</h2>
   <div id="sample-box" class="sample-box">Loading today's alert...</div>
   <div id="sample-meta" class="sample-meta"></div>
-  <p style="text-align: center; margin-top: 0.75rem;"><a href="demo.html">See full product demo with watchlists, weekly brief, and battlecard &rarr;</a></p>
+  <p style="text-align: center; margin-top: 0.75rem;"><a href="demo.html">See full product demo with watchlists, weekly brief, and battlecard →</a></p>
 
   <!-- How It Works -->
   <h2>How It Works</h2>
@@ -202,17 +271,17 @@
   <!-- Agent Team -->
   <h2>Managed Agent Team</h2>
   <div class="card">
-    <p>Every agent is a registered entity with identity, scopes, budget, and reputation scores.</p>
-    <table style="width: 100%; margin-top: 0.75rem; font-size: 0.9rem; border-collapse: collapse;">
-      <tr style="border-bottom: 1px solid var(--border);"><td style="padding: 0.4rem 0;"><strong style="color: #fff;">Leviathann</strong></td><td style="color: var(--dim);">Manager — orchestrates pipeline, routes work</td></tr>
-      <tr style="border-bottom: 1px solid var(--border);"><td style="padding: 0.4rem 0;"><strong style="color: #fff;">Atlas</strong></td><td style="color: var(--dim);">Research — sourced findings, competitive analysis</td></tr>
-      <tr style="border-bottom: 1px solid var(--border);"><td style="padding: 0.4rem 0;"><strong style="color: #fff;">Quill</strong></td><td style="color: var(--dim);">Writer — structured briefs and deliverables</td></tr>
-      <tr style="border-bottom: 1px solid var(--border);"><td style="padding: 0.4rem 0;"><strong style="color: #fff;">Aegis</strong></td><td style="color: var(--dim);">QA gate — PASS/FAIL acceptance with evidence</td></tr>
-      <tr style="border-bottom: 1px solid var(--border);"><td style="padding: 0.4rem 0;"><strong style="color: #fff;">Sentinel</strong></td><td style="color: var(--dim);">Verifier — contradiction detection, risk review</td></tr>
-      <tr style="border-bottom: 1px solid var(--border);"><td style="padding: 0.4rem 0;"><strong style="color: #fff;">Forge</strong></td><td style="color: var(--dim);">Executor — operational steps, implementation</td></tr>
-      <tr><td style="padding: 0.4rem 0;"><strong style="color: #fff;">Pulse</strong></td><td style="color: var(--dim);">Compressor — triage, context optimization</td></tr>
+    <p style="color: var(--dim); font-size: 0.9rem; margin-bottom: 0.75rem;">Every agent is a registered entity with identity, scopes, budget, and reputation scores. Agents earn and lose standing based on accepted output.</p>
+    <table style="width: 100%; font-size: 0.9rem; border-collapse: collapse;">
+      <tr style="border-bottom: 1px solid var(--border);"><td style="padding: 0.45rem 0; width: 36%;"><strong style="color: #fff;">Leviathann</strong></td><td style="color: var(--dim);">Manager — orchestrates pipeline, routes work</td></tr>
+      <tr style="border-bottom: 1px solid var(--border);"><td style="padding: 0.45rem 0;"><strong style="color: #fff;">Atlas</strong></td><td style="color: var(--dim);">Research — sourced findings, competitive analysis</td></tr>
+      <tr style="border-bottom: 1px solid var(--border);"><td style="padding: 0.45rem 0;"><strong style="color: #fff;">Quill</strong></td><td style="color: var(--dim);">Writer — structured briefs and deliverables</td></tr>
+      <tr style="border-bottom: 1px solid var(--border);"><td style="padding: 0.45rem 0;"><strong style="color: #fff;">Aegis</strong></td><td style="color: var(--dim);">QA gate — PASS/FAIL acceptance with evidence</td></tr>
+      <tr style="border-bottom: 1px solid var(--border);"><td style="padding: 0.45rem 0;"><strong style="color: #fff;">Sentinel</strong></td><td style="color: var(--dim);">Verifier — contradiction detection, risk review</td></tr>
+      <tr style="border-bottom: 1px solid var(--border);"><td style="padding: 0.45rem 0;"><strong style="color: #fff;">Forge</strong></td><td style="color: var(--dim);">Executor — operational steps, implementation</td></tr>
+      <tr><td style="padding: 0.45rem 0;"><strong style="color: #fff;">Pulse</strong></td><td style="color: var(--dim);">Compressor — triage, context optimization</td></tr>
     </table>
-    <p style="margin-top: 0.75rem; color: var(--dim); font-size: 0.85rem;">Agents earn REP (reputation) and AUTH (authority) from accepted output. Sanctions apply for failures. Scores are public in the economy ledger.</p>
+    <p style="margin-top: 0.75rem; color: var(--dim); font-size: 0.84rem;">Agents earn REP (reputation) and AUTH (authority) from accepted output. Sanctions apply for failures. Scores are public in the economy ledger.</p>
   </div>
 
   <!-- Pricing -->
@@ -229,7 +298,7 @@
         <li>Delivered via Telegram bot</li>
         <li>Cancel anytime</li>
       </ul>
-      <a class="cta cta-primary" href="https://t.me/eggsama_bot?start=trial" style="width:100%; text-align:center;">Start Free Trial</a>
+      <a class="cta cta-primary" href="https://t.me/eggsama_bot?start=trial" target="_blank" rel="noopener" style="width:100%; text-align:center; display:block;">Start Free Trial</a>
     </div>
     <div class="price-card">
       <h3>Paid Pilot</h3>
@@ -241,14 +310,14 @@
         <li>Battlecard requests</li>
         <li>Manual payment — bank transfer, Wise, or USDC</li>
       </ul>
-      <a class="cta cta-outline" href="pilot.html" style="width:100%; text-align:center;">See Pilot Details</a>
+      <a class="cta cta-outline" href="pilot.html" style="width:100%; text-align:center; display:block;">See Pilot Details</a>
     </div>
   </div>
   <p style="color: var(--dim); font-size: 0.85rem; text-align: center; margin-top: 0.5rem;">
     Pilot customers: payment is manual for now — <a href="mailto:nguyensimon186@gmail.com">email us</a> or <a href="https://t.me/Enhanhsj">DM @Enhanhsj</a> to start. Automated billing is in development.
   </p>
 
-  <!-- Trust -->
+  <!-- Trust signals -->
   <div class="trust">
     <span>Every finding cited</span>
     <span>Every action audited</span>
@@ -288,7 +357,7 @@
   <p class="dev-toggle" onclick="document.getElementById('dev-details').classList.toggle('open')">Show MCP integration, payment details, and API info &#9662;</p>
   <div id="dev-details" class="dev-section">
     <h3 style="color: #fff; margin: 1rem 0 0.5rem;">MCP Integration</h3>
-    <p>Add to your AI client config:</p>
+    <p style="color: var(--dim); font-size: 0.9rem; margin-bottom: 0.5rem;">Add to your AI client config:</p>
     <pre>{
   "mcpServers": {
     "meridian": {
@@ -298,33 +367,39 @@
 }</pre>
 
     <h3 style="color: #fff; margin: 1.5rem 0 0.5rem;">Available Tools</h3>
-    <div class="card">
-      <p><code>intelligence_latest_brief</code> &mdash; <strong>$0.50</strong> &mdash; Daily intelligence alert with cited findings</p>
-      <p><code>intelligence_on_demand_research</code> &mdash; <strong>$2.00</strong> &mdash; Research any topic with sourced findings</p>
-      <p><code>intelligence_competitor_snapshot</code> &mdash; <strong>$3.00</strong> &mdash; Battlecard-ready competitor snapshot</p>
-      <p><code>intelligence_qa_verify</code> &mdash; <strong>$1.00</strong> &mdash; QA verification of claims or text</p>
-      <p><code>intelligence_weekly_digest</code> &mdash; <strong>$1.50</strong> &mdash; Weekly digest across tracked competitors</p>
-      <p><code>company_info</code> &mdash; <strong>FREE</strong> &mdash; Meridian capabilities and pricing</p>
+    <div class="card" style="font-size: 0.9rem;">
+      <p style="padding: 0.2rem 0;"><code>intelligence_latest_brief</code> &mdash; <strong style="color:#fff;">$0.50</strong> &mdash; Daily intelligence alert with cited findings</p>
+      <p style="padding: 0.2rem 0;"><code>intelligence_on_demand_research</code> &mdash; <strong style="color:#fff;">$2.00</strong> &mdash; Research any topic with sourced findings</p>
+      <p style="padding: 0.2rem 0;"><code>intelligence_competitor_snapshot</code> &mdash; <strong style="color:#fff;">$3.00</strong> &mdash; Battlecard-ready competitor snapshot</p>
+      <p style="padding: 0.2rem 0;"><code>intelligence_qa_verify</code> &mdash; <strong style="color:#fff;">$1.00</strong> &mdash; QA verification of claims or text</p>
+      <p style="padding: 0.2rem 0;"><code>intelligence_weekly_digest</code> &mdash; <strong style="color:#fff;">$1.50</strong> &mdash; Weekly digest across tracked competitors</p>
+      <p style="padding: 0.2rem 0;"><code>company_info</code> &mdash; <strong style="color:#fff;">FREE</strong> &mdash; Meridian capabilities and pricing</p>
     </div>
 
     <h3 style="color: #fff; margin: 1.5rem 0 0.5rem;">Payment</h3>
-    <div class="card">
-      <p><strong>Protocol:</strong> <a href="https://www.x402.org">x402</a> (HTTP 402 Payment Required)</p>
+    <div class="card" style="font-size: 0.9rem;">
+      <p><strong>Protocol:</strong> <a href="https://www.x402.org" target="_blank" rel="noopener">x402</a> (HTTP 402 Payment Required)</p>
       <p><strong>Chain:</strong> Base L2 (Chain ID 8453)</p>
       <p><strong>Token:</strong> USDC</p>
-      <p><strong>Wallet:</strong> <span class="wallet">0x82009D0fa435d490A12e0cBfBE47bf3358e47761</span></p>
+      <p style="margin-top: 0.5rem;"><strong>Wallet:</strong><br><span class="wallet">0x82009D0fa435d490A12e0cBfBE47bf3358e47761</span></p>
     </div>
   </div>
 
+  <!-- Footer -->
   <div class="footer">
-    <p>
-      <a href="demo.html">Product Demo</a> &middot;
-      <a href="pilot.html">Pilot Offer</a> &middot;
-      <a href="https://github.com/mapleleaflatte03/meridian-intelligence">GitHub</a> &middot;
-      <a href="https://t.me/MeridianIntelligence">Telegram Channel</a> &middot;
-      <a href="https://t.me/eggsama_bot">Subscribe</a>
-    </p>
-    <p style="margin-top: 0.5rem;">Meridian &copy; 2026 &mdash; Constitutional Operating System for Autonomous Institutions</p>
+    <div class="footer-brand">
+      <img src="/assets/logo_avatar_192.png" alt="Meridian">
+      <span>Meridian</span>
+    </div>
+    <div class="footer-links">
+      <a href="demo.html">Demo</a>
+      <a href="pilot.html">Pilot</a>
+      <a href="https://github.com/mapleleaflatte03/meridian-intelligence" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://github.com/mapleleaflatte03/meridian-kernel" target="_blank" rel="noopener">OSS Kernel</a>
+      <a href="https://t.me/MeridianIntelligence" target="_blank" rel="noopener">Telegram Channel</a>
+      <a href="https://t.me/eggsama_bot" target="_blank" rel="noopener">Subscribe</a>
+    </div>
+    <p>Constitutional operating system for autonomous AI institutions &copy; 2026</p>
   </div>
 </div>
 
@@ -349,9 +424,9 @@ var FALLBACK_SAMPLE = "Competitor Intelligence Alert \u2014 March 17, 2026\n" +
 "both OpenAI and Anthropic on raw token cost for high-volume workloads.\n" +
 "Source: ai.google.dev/gemini-api/docs/pricing (2026-03-17)\n\n" +
 "Action Items:\n" +
-"-> Review OpenAI regional surcharges for cost impact\n" +
-"-> Update pricing comparisons: Anthropic and Google more competitive\n" +
-"-> Check Gemini deprecation timelines if using preview models\n\n" +
+"\u2192 Review OpenAI regional surcharges for cost impact\n" +
+"\u2192 Update pricing comparisons: Anthropic and Google more competitive\n" +
+"\u2192 Check Gemini deprecation timelines if using preview models\n\n" +
 "Risk: Provider pricing diverging. Update cost models by region.";
 
 fetch('/api/sample-brief')
@@ -364,13 +439,13 @@ fetch('/api/sample-brief')
     } else {
       document.getElementById('sample-box').textContent = FALLBACK_SAMPLE;
       document.getElementById('sample-meta').textContent =
-        'Representative sample from pipeline data (March 2026) | 5 findings, 5 sources | Full demo: demo.html';
+        'Representative sample from pipeline data (March 2026) · 5 findings, 5 sources · Full demo: demo.html';
     }
   })
   .catch(() => {
     document.getElementById('sample-box').textContent = FALLBACK_SAMPLE;
     document.getElementById('sample-meta').textContent =
-      'Representative sample from pipeline data (March 2026) | 5 findings, 5 sources | Full demo: demo.html';
+      'Representative sample from pipeline data (March 2026) · 5 findings, 5 sources · Full demo: demo.html';
   });
 </script>
 </body>
