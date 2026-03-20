@@ -19,7 +19,7 @@ It is not promotional copy. Every claim is tagged verified, inferred, or unknown
 | Trial reminders | Would run for 2 active IDs (owner test accounts) | subscriptions.json |
 | Revenue dashboard | Last OK 2026-03-16; runs weekly, next 2026-03-23 | jobs.json state |
 | External customers | ZERO — all subscription entries are owner test or synthetic residue | subscriptions.json `_meta` |
-| Customer revenue received | $0.00 | ledger.json `revenue_received_usd` |
+| Customer revenue received | $0.00 | ledger.json `total_revenue_usd` |
 | Owner capital in treasury | $2.00 USDC | ledger.json `cash_usd`, transactions.jsonl |
 | Reserve floor | $50.00 | ledger.json `reserve_floor_usd` |
 | Runway | $-48.00 (below floor) | `python3 meridian_platform/treasury.py runway` |
@@ -33,7 +33,7 @@ It is not promotional copy. Every claim is tagged verified, inferred, or unknown
 **Runway:** $-48.00 — treasury is $48 below the reserve floor
 
 **Evidence for the $2.00:**
-- `economy/ledger.json`: `"cash_usd": 2.0`, `"owner_capital_contributed_usd": 2.0`, `"revenue_received_usd": 0.0`
+- `economy/ledger.json`: `"cash_usd": 2.0`, `"owner_capital_contributed_usd": 2.0`, `"total_revenue_usd": 0.0`
 - `economy/transactions.jsonl` (line 35-36): 2.00 USDC received 2026-03-16, initially detected as `customer_payment`, reclassified to `owner_capital` per CLAUDE.md §12 (owner wallet)
 - TX hash: `0xde03d0dc2602b815f2bebd3ee7aae005e8a4d3d44fa23c08ba918512c337db93`
 - Note in ledger: "Clean treasury. $2 USDC owner capital deposit 2026-03-16 reclassified from customer_payment to owner_capital per CLAUDE.md §12."
@@ -205,7 +205,7 @@ These rules apply to this document and any future operator status docs:
 
 1. **Every financial claim must cite a source file or command.**
    Wrong: "Treasury is $0."
-   Right: "Treasury cash_usd=2.0 per economy/ledger.json, revenue_received_usd=0.0."
+   Right: "Treasury cash_usd=2.0 per economy/ledger.json, total_revenue_usd=0.0."
 
 2. **Every command example must be tested before publication.**
    Wrong: `treasury.py deposit --amount 50` (command does not exist)
