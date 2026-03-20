@@ -28,7 +28,7 @@ It is not promotional copy. Every claim is tagged verified, inferred, or unknown
 
 ## Treasury — Verified Facts
 
-**Balance:** $2.00 USD (owner capital only, no customer revenue)
+**Balance:** $2.00 (owner capital only, no customer revenue — originated as 2.00 USDC on Base L2, recorded as USD in ledger)
 **Reserve floor:** $50.00
 **Runway:** $-48.00 — treasury is $48 below the reserve floor
 
