@@ -12,12 +12,13 @@ It is not promotional copy. Every claim is tagged verified, inferred, or unknown
 
 | Component | Status | Source |
 |-----------|--------|--------|
-| Night-shift pipeline | BLOCKED — `deactivated_workspace` | jobs.json consecutiveErrors |
+| Agent runtime | UNSTABLE — current checks fail with gateway 1006 / embedded timeout | `openclaw health`, `openclaw agent --agent main --message "respond with PONG"` |
+| Night-shift pipeline | BLOCKED — treasury $48 below reserve floor | `ci_vertical.py preflight` |
 | Constitutional preflight | BLOCKED — treasury $48 below reserve floor | `treasury.py runway` |
-| Channel delivery (@MeridianIntelligence) | NOT RUNNING — pipeline blocked, no new briefs | preflight output |
-| Premium delivery (@eggsama_bot) | NOT RUNNING — pipeline blocked, workspace error | jobs.json |
+| Channel delivery (@MeridianIntelligence) | NOT RUNNING — no new briefs (treasury-blocked) | preflight output |
+| Premium delivery (@eggsama_bot) | NOT RUNNING — no new briefs (treasury-blocked) | preflight output |
 | Trial reminders | Would run for 2 active IDs (owner test accounts) | subscriptions.json |
-| Revenue dashboard | Last OK 2026-03-16; runs weekly, next 2026-03-23 | jobs.json state |
+| Revenue dashboard | Last OK 2026-03-20 (manually triggered) | jobs.json state |
 | External customers | ZERO — all subscription entries are owner test or synthetic residue | subscriptions.json `_meta` |
 | Customer revenue received | $0.00 | ledger.json `total_revenue_usd` |
 | Owner capital in treasury | $2.00 USDC | ledger.json `cash_usd`, transactions.jsonl |
@@ -42,29 +43,36 @@ It is not promotional copy. Every claim is tagged verified, inferred, or unknown
 
 ---
 
-## Blocker 1: Workspace Deactivated
+## Resolved: Workspace Deactivated (was Blocker 1)
 
-**Status:** VERIFIED
+**Status:** RESOLVED 2026-03-20
 
-All cron jobs with `"agentId": "main"` fail with:
-```
-{"detail":{"code":"deactivated_workspace"}}
-```
-
-**Jobs affected (all at consecutiveErrors: 2):**
-- night-shift-kickoff, night-shift-research, night-shift-execute
-- night-shift-write, night-shift-qa, night-shift-deliver
-- night-shift-score, premium-deliver, gen-sample-brief
-
-**What still runs:**
-- `revenue-dashboard` — last ok 2026-03-16, weekly, no agentId restriction
-
-**Required owner action:** Reactivate the OpenClaw workspace. This is a runtime-level
-state that cannot be changed by editing files in this repo.
+The `deactivated_workspace` error was caused by upstream OpenAI Codex workspace state.
+Owner re-ran `openclaw models auth login --provider openai-codex` and the upstream
+`deactivated_workspace` error disappeared. Earlier 3/3 PONG successes confirmed the
+workspace was no longer deactivated, but the current runtime path is still flaky:
+`openclaw health` and the canonical PONG probe now fail with gateway 1006 and
+embedded timeout. Stale `deactivated_workspace` errors in jobs.json will self-clear
+on the next scheduled run of each job.
 
 ---
 
-## Blocker 2: Constitutional Preflight — Treasury Below Reserve Floor
+## Blocker 1 (engineering): Runtime Instability
+
+**Status:** VERIFIED
+
+Current direct checks fail:
+- `openclaw health` → gateway closed (1006 abnormal closure)
+- `openclaw agent --agent main --message "respond with PONG" --timeout 15000`
+  → gateway 1006, then embedded timeout
+
+This is no longer the old workspace-deactivation issue. It is a current runtime/
+gateway stability issue. The pipeline preflight path itself is not blocked by this,
+but operator/runtime health is not currently stable enough to call healthy.
+
+---
+
+## Blocker 2 (owner): Constitutional Preflight — Treasury Below Reserve Floor
 
 **Status:** VERIFIED
 **Command:** `python3 company/meridian_platform/ci_vertical.py preflight`
@@ -97,38 +105,35 @@ Document the reason. Only the owner should make this call.
 
 ---
 
-## Blocker 3: No Recent Brief Files
+## Blocker 3 (consequence): No Recent Brief Files
 
-**Status:** VERIFIED (consequence of Blocker 1)
+**Status:** VERIFIED (consequence of treasury block)
 
-Because the night-shift pipeline has not run since the workspace was deactivated,
+Because the night-shift pipeline has not run since the treasury fell below reserve floor,
 there are no brief files at `night-shift/brief-YYYY-MM-DD.md` for recent dates.
 
 Manual pilot delivery requires an existing brief. Without one, premium_deliver.py
 and channel_deliver.py have nothing to send.
 
-**Path to unblock:** Resolve Blocker 1 and Blocker 2, then allow the pipeline to
+**Path to unblock:** Resolve the treasury blocker, then allow the pipeline to
 run one full cycle.
 
 ---
 
-## Sentinel Zero-Authority State (Additional Preflight Note)
+## Sentinel State (Resolved)
 
-**Status:** VERIFIED
+**Status:** FIXED 2026-03-20
 
-Sentinel has `zero_authority: true` (AUTH=0). This was last applied 2026-03-19T23:10:01Z
-when AUTH reached 0 through scoring. Preflight includes a remediation note:
+Sentinel was in `zero_authority` (AUTH=0) due to a bug in `sanctions.py lift()`:
+when lifting `zero_authority`, the function cleared the flag but did not restore AUTH.
+The `auth_zero` auto-rule then immediately re-sanctioned the agent on the next scoring run,
+overwriting the owner's explicit remediation lift from 2026-03-19T14:38:46Z.
 
-```
-NOTE: Sentinel remediation path active
-  - Run a remediation-only task and record the evidence in court/audit.
-  - Recover AUTH above 15 or manually lift zero_authority before execute rights return.
-  - Current restrictions to clear: assign, execute, lead.
-```
+**Fix:** `lift_sanction()` now grants AUTH = `auth_decay_per_epoch + 1` when lifting
+`zero_authority` if AUTH is 0. This prevents the auto-rule from immediately re-sanctioning.
 
-Sentinel in zero_authority does not block the full pipeline — research, write, execute,
-deliver, score phases use other agents. Only `qa_sentinel` is affected.
-The treasury blocker is the binding constraint, not Sentinel's state.
+Sentinel current state: REP=35, AUTH=6, zero_authority=False.
+Sentinel can now participate in QA and earn AUTH through normal scoring.
 
 ---
 
@@ -166,16 +171,16 @@ These reminders go to owner-controlled accounts. Not funnel activity.
 
 ## Required Owner Actions (Priority Order)
 
-1. **Reactivate the OpenClaw workspace** — nothing automated runs without this.
-   Cannot be done by editing files.
-
-2. **Resolve the treasury blocker** — choose one:
+1. **Resolve the treasury blocker** — choose one:
    - Contribute $48+ to clear the reserve floor, OR
    - Lower the reserve floor for pre-revenue operating mode.
-   See command examples in Blocker 2 section above.
+   See command examples in the treasury blocker section above.
 
-3. **Acquire first external customer** — zero external traction exists.
+2. **Acquire first external customer** — zero external traction exists.
    Manual pilot path is available via email or Telegram DM (see pilot.html).
+
+Engineering still needs to stabilize the runtime path before operator health can be
+called green. That is not an owner-only action.
 
 ---
 

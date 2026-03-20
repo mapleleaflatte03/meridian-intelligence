@@ -77,7 +77,7 @@ Both `channel_deliver.py` and `premium_deliver.py` call `ci_vertical.py prefligh
 before any delivery attempt. If preflight returns non-zero, delivery is blocked.
 
 Preflight blocks when:
-- Treasury balance below reserve floor (currently $-48.00 below floor)
+- Treasury balance below reserve floor (currently $48.00 below floor)
 - Kill switch engaged
 - Agent authority blocked
 
@@ -97,14 +97,22 @@ bypasses this via `--skip-preflight` flag — for operator use only during recov
 
 ---
 
-## Current Operational Truth (2026-03-20)
+## Current Operational Truth (2026-03-20, updated)
 
 See `OPERATOR_STATUS.md` for the full breakdown of what is blocked and why.
 
 Short version:
-- All automated cron jobs are failing with `deactivated_workspace` error.
+- `deactivated_workspace` is resolved, but direct runtime checks are currently unstable:
+  `openclaw health` fails with gateway 1006, and the canonical PONG probe falls
+  back to embedded timeout.
 - Constitutional preflight is blocked by treasury shortfall ($-48 vs reserve floor).
+- No brief files exist for recent dates — pipeline has not run since treasury block.
 - The two "active" trial subscriptions are owner-controlled internal tests.
 - No external customers exist. No external deliveries have occurred.
-- Manual delivery to the owner is possible using `--skip-preflight` if the workspace
-  is reactivated and a brief file exists.
+- Manual delivery to the owner is possible using `--skip-preflight` once a brief exists.
+- `channel_deliver.py` is NOT in the cron schedule — it must be triggered manually
+  or integrated into the night-shift pipeline after `night-shift-write` completes.
+
+**Brief source of truth:** `night-shift/brief-YYYY-MM-DD.md` files. Both
+`channel_deliver.py` and `premium_deliver.py` use `get_today_brief()` which checks
+today's date first, then falls back to the most recent brief file.

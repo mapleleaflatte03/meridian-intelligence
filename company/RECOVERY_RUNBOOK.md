@@ -1,16 +1,17 @@
 # Meridian Recovery Runbook
 
-**Date:** 2026-03-20
-**Status:** Operationally blocked — two owner actions required
+**Date:** 2026-03-20 (updated)
+**Status:** Operationally blocked — one engineering blocker plus one owner treasury action
 
 ---
 
 ## What Is Broken
 
-Two independent blockers prevent the Meridian pipeline from running:
+Two blockers currently matter:
 
-1. **OpenAI Codex workspace deactivated** — the upstream model provider (openai-codex) rejects all agent requests with `{"detail":{"code":"deactivated_workspace"}}`
-2. **Treasury below reserve floor** — $2.00 cash vs $50.00 reserve floor = $-48.00 runway, blocking all budget-gated pipeline phases
+1. ~~**OpenAI Codex workspace deactivated**~~ — **RESOLVED** 2026-03-20. Owner re-ran `openclaw models auth login --provider openai-codex`. Agent health verified 3/3 PONG.
+2. **Runtime instability remains** — current direct verification still shows `openclaw health` failing with gateway 1006, and the canonical PONG probe falling back to embedded timeout.
+3. **Treasury below reserve floor** — $2.00 cash vs $50.00 reserve floor = $-48.00 runway, blocking all budget-gated pipeline phases
 
 ## What Was Repaired (Engineering-Owned)
 
@@ -26,33 +27,30 @@ Two independent blockers prevent the Meridian pipeline from running:
 | Tests rewritten | `unittest.TestCase` — 5/5 pass (workspace), 4/4 pass (kernel) |
 | Pipeline bootstrap files | Created `night-shift/BACKLOG.md` and `night-shift/LAST_HANDOFF.md` |
 | Caddy credentials | Stored at `/etc/caddy/.workspace_credentials` (mode 0600) |
+| Sentinel authority drift | `lift_sanction()` now restores minimum AUTH when lifting `zero_authority`; Sentinel reconciled to AUTH=6 |
+
+## What Still Requires Engineering Work
+
+### Runtime stabilization
+
+`deactivated_workspace` is resolved, but runtime health is not yet stable at closeout time.
+Current direct verification still shows:
+
+- `openclaw health` → gateway closed (1006 abnormal closure)
+- `openclaw agent --agent main --message "respond with PONG" --timeout 15000`
+  → gateway 1006, then embedded timeout
+
+Do not call the runtime healthy until those direct checks pass again at closeout time.
 
 ## What Still Requires Owner Action
 
-### Action 1: Reactivate OpenAI Codex Workspace
+### ~~Action 1: Reactivate OpenAI Codex Workspace~~ — DONE
 
-**What:** The OpenAI Codex API workspace associated with your OAuth login is deactivated. The error is visible in scheduler state after roughly 2026-03-19T19:34Z. The exact upstream cause is not locally provable from this repo alone.
+Resolved 2026-03-20. Owner re-ran `openclaw models auth login --provider openai-codex`.
+This removed the upstream `deactivated_workspace` blocker. It did not fully stabilize
+the current runtime path.
 
-**Where:** This appears to be upstream workspace/account state on the OpenAI Codex side, not a local code or file-state issue inside this repo.
-
-**Operator investigation path:**
-1. Open the same OpenAI Codex account/workspace used by `openclaw configure`
-2. Check whether the workspace is deactivated, suspended, or blocked by billing/usage limits
-3. Reactivate or re-enable that workspace if the UI offers it
-4. If there is no reactivation control, resolve billing/account issues first or re-bind this machine with `openclaw configure`
-
-**If the workspace was permanently removed or the account changed:**
-```bash
-openclaw configure   # re-run OAuth flow
-```
-
-**Verify it worked:**
-```bash
-openclaw agent --agent main --message "respond with PONG" --timeout 15000
-```
-Expected: agent responds with "PONG" (not `deactivated_workspace`)
-
-### Action 2: Unblock Treasury Gating
+### Action 2 (sole remaining blocker): Unblock Treasury Gating
 
 **What:** The reserve floor is $50 but treasury only has $2 of owner capital and $0 revenue. Pipeline is correctly blocked.
 
@@ -82,7 +80,7 @@ Expected: `PREFLIGHT: OK` (no BLOCKED phases except possibly sentinel zero-autho
 
 ---
 
-## After Both Actions — Controlled Verification Ladder
+## After Runtime Stabilization And Treasury Action — Controlled Verification Ladder
 
 Run these in order to confirm the system is fully operational:
 
@@ -121,7 +119,7 @@ openclaw cron run "25911223-5a4a-44ae-a089-c1d8527e4e58" --timeout 120000  # del
 
 | Check | Expected |
 |-------|----------|
-| `openclaw agent --agent main --message "respond with PONG" --timeout 15000` | Agent responds (no `deactivated_workspace`) |
+| `openclaw agent --agent main --message "respond with PONG" --timeout 15000` | Agent responds cleanly (no gateway 1006, no embedded timeout) |
 | `python3 company/meridian_platform/ci_vertical.py preflight` | `PREFLIGHT: OK` |
 | `python3 company/meridian_platform/treasury.py runway` | `Runway: $X.XX` (positive number) |
 | `ls night-shift/brief-YYYY-MM-DD.md` | File exists after one pipeline cycle |
@@ -142,6 +140,6 @@ openclaw cron run "25911223-5a4a-44ae-a089-c1d8527e4e58" --timeout 120000  # del
 - Telegram bot @eggsama_bot: connected and healthy
 - Trial reminders: working (2 owner test accounts, expiring 2026-03-23)
 - Economy tests: 5/5 passing
-- Git repos: clean and pushed (workspace + kernel)
+- Git repos: clean and pushed after final packaging
 - Pipeline bootstrap files: created
 - Cron scheduler: enabled, 12 jobs configured
