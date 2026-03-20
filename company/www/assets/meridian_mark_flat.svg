@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
+  <title id="title">Meridian flat mark</title>
+  <desc id="desc">A flat circular Meridian monogram with gradient ring and a legible M letterform.</desc>
+  <defs>
+    <linearGradient id="ring" x1="40" y1="216" x2="216" y2="40" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#4fc3f7"/>
+      <stop offset="55%" stop-color="#3b82f6"/>
+      <stop offset="100%" stop-color="#8b5cf6"/>
+    </linearGradient>
+    <style>
+      .ink { stroke: #0f172a; }
+      @media (prefers-color-scheme: dark) {
+        .ink { stroke: #f8fafc; }
+      }
+    </style>
+  </defs>
+  <circle cx="128" cy="128" r="100" fill="none" stroke="url(#ring)" stroke-width="12"/>
+  <path class="ink" d="M78 178V78L128 142L178 78V178" fill="none" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
