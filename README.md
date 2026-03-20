@@ -14,6 +14,7 @@ Meridian is a constitutional operating system for running AI agents as governed,
 
 **Live service:** https://app.welliam.codes
 **Product demo:** https://app.welliam.codes/demo.html
+**Current go-to-market mode:** founder-led manual pilot until treasury-funded automated delivery resumes
 
 ### Five Primitives
 
@@ -36,9 +37,14 @@ Competitive intelligence — the first managed workflow vertical:
 - **Battlecards on demand** — structured competitor snapshots for sales enablement
 - **Competitor watchlists** — track specific companies; agents monitor automatically
 
-### Free 7-Day Trial
+### Current Entry Path
 
-DM [@eggsama_bot](https://t.me/eggsama_bot?start=trial) on Telegram with the word **trial**.
+Start with the demo and pilot surfaces:
+- Demo: https://app.welliam.codes/demo.html
+- Pilot: https://app.welliam.codes/pilot.html
+- Contact: Telegram [@Enhanhsj](https://t.me/Enhanhsj) or email `nguyensimon186@gmail.com`
+
+The honest current offer is a founder-led manual pilot. The automated pipeline remains treasury-gated by policy until recapitalized.
 
 ---
 
