@@ -45,9 +45,11 @@ Competitive intelligence — the first managed workflow vertical:
 Start with the demo and pilot surfaces:
 - Demo: https://app.welliam.codes/demo.html
 - Pilot: https://app.welliam.codes/pilot.html
+- Support the work: https://app.welliam.codes/support.html
 - Contact: Telegram [@Enhanhsj](https://t.me/Enhanhsj) or email `nguyensimon186@gmail.com`
 
 The honest current offer is a founder-led manual pilot. The automated pipeline remains treasury-gated by policy until recapitalized.
+If you want to back Meridian without pretending that support equals customer delivery, use the dedicated support path instead of the pilot flow.
 
 If you are confused about support vs pilot vs customer revenue vs future contributor payouts, read:
 - [Meridian Doctrine](company/MERIDIAN_DOCTRINE.md)
@@ -85,6 +87,7 @@ Every MCP tool call is audited and metered per organization.
 
 - **MCP tool calls:** [x402](https://x402.org) over USDC on Base L2
 - **Pilot subscriptions:** manual activation currently available via bank transfer, Wise, or stablecoin while card checkout is not live
+- **Support / sponsorship:** use the support page for non-customer backing of the build, infra, and open kernel
 - **Chain:** Base L2 (Chain ID 8453)
 - **Token:** USDC (`0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`)
 - **Wallet:** `0x82009D0fa435d490A12e0cBfBE47bf3358e47761`

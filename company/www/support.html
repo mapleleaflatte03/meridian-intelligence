@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Support Meridian</title>
+<meta name="description" content="Support Meridian's open kernel, infra, and founder-led build without pretending it is the same thing as buying customer delivery.">
+<link rel="icon" type="image/svg+xml" href="/assets/meridian_mark_flat.svg">
+<link rel="alternate icon" type="image/png" href="/assets/logo_favicon_64.png">
+<style>
+  :root { --bg: #0a0a0f; --fg: #e0e0e0; --accent: #4fc3f7; --card: #151520; --border: #2a2a3a; --dim: #8b8ea1; --green: #4caf50; --gold: #ffd54f; --warn: #ffa726; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Inter', system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--fg); line-height: 1.65; }
+  a { color: var(--accent); }
+  .site-header { position: sticky; top: 0; z-index: 100; background: rgba(10,10,15,0.96); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border-bottom: 1px solid var(--border); }
+  .header-inner { max-width: 960px; margin: 0 auto; padding: 0.65rem 1.5rem; display: flex; justify-content: space-between; align-items: center; }
+  .brand { display: flex; align-items: center; gap: 0.55rem; text-decoration: none; color: inherit; }
+  .brand-mark { width: 28px; height: 28px; border-radius: 50%; }
+  .brand-name { font-size: 0.95rem; font-weight: 700; color: #fff; letter-spacing: -0.01em; }
+  .site-nav { display: flex; align-items: center; gap: 1.25rem; }
+  .site-nav a { color: var(--dim); text-decoration: none; font-size: 0.875rem; }
+  .site-nav a:hover, .site-nav a.current { color: var(--fg); }
+  .nav-cta { background: var(--accent); color: #000 !important; padding: 6px 15px; border-radius: 5px; font-weight: 700; }
+  .container { max-width: 820px; margin: 0 auto; padding: 2rem 1.5rem 3rem; }
+  .hero { padding: 4.25rem 0 2rem; }
+  .eyebrow { display: inline-flex; align-items: center; gap: 0.5rem; border: 1px solid rgba(79,195,247,0.25); background: rgba(79,195,247,0.08); color: var(--accent); border-radius: 999px; padding: 5px 14px; font-size: 0.8rem; margin-bottom: 1.25rem; }
+  .eyebrow-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+  h1 { color: #fff; font-size: 2.35rem; line-height: 1.14; letter-spacing: -0.03em; margin-bottom: 0.9rem; max-width: 700px; }
+  .subtitle { color: var(--dim); font-size: 1.04rem; max-width: 640px; }
+  h2 { color: var(--accent); font-size: 1.2rem; margin: 2.5rem 0 0.85rem; padding-bottom: 0.45rem; border-bottom: 1px solid var(--border); }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 1rem; }
+  @media (max-width: 680px) { .grid { grid-template-columns: 1fr; } .site-nav a:not(.nav-cta) { display: none; } .header-inner { padding: 0.55rem 1rem; } }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 1.25rem; }
+  .card h3 { color: #fff; font-size: 1rem; margin-bottom: 0.55rem; }
+  .card p { color: var(--dim); font-size: 0.93rem; }
+  .notice { background: #1a1510; border: 1px solid #3a2a1a; border-radius: 10px; padding: 1rem 1.15rem; margin-top: 1.15rem; }
+  .notice strong { color: var(--warn); }
+  .rule-list, .next-steps { margin: 0.75rem 0 0 1.2rem; color: var(--fg); }
+  .rule-list li, .next-steps li { padding: 0.22rem 0; }
+  .wallet { word-break: break-all; font-family: 'Menlo', 'Consolas', monospace; color: var(--accent); font-size: 0.9rem; }
+  .channel-list { display: grid; gap: 0.85rem; margin-top: 1rem; }
+  .channel { background: #0d1117; border: 1px solid var(--border); border-radius: 10px; padding: 1rem 1.1rem; }
+  .channel strong { color: #fff; display: block; margin-bottom: 0.35rem; }
+  .channel p { color: var(--dim); font-size: 0.92rem; }
+  .cta-row { display: flex; gap: 0.75rem; flex-wrap: wrap; margin-top: 1.25rem; }
+  .cta { display: inline-block; padding: 12px 22px; border-radius: 6px; text-decoration: none; font-weight: 700; }
+  .cta-primary { background: var(--accent); color: #000; }
+  .cta-outline { border: 2px solid var(--accent); color: var(--accent); background: transparent; }
+  .footer { margin-top: 3rem; padding-top: 1.25rem; border-top: 1px solid var(--border); text-align: center; color: #555; font-size: 0.85rem; }
+  .footer a { color: var(--dim); text-decoration: none; }
+  .footer-links { display: flex; justify-content: center; gap: 1rem; flex-wrap: wrap; margin-bottom: 0.65rem; }
+</style>
+</head>
+<body>
+<header class="site-header">
+  <div class="header-inner">
+    <a class="brand" href="index.html">
+      <img src="/assets/meridian_mark_flat.svg" alt="Meridian" class="brand-mark">
+      <span class="brand-name">Meridian</span>
+    </a>
+    <nav class="site-nav">
+      <a href="index.html">Home</a>
+      <a href="demo.html">Demo</a>
+      <a href="pilot.html">Pilot</a>
+      <a href="support.html" class="current nav-cta">Support</a>
+    </nav>
+  </div>
+</header>
+
+<div class="container">
+  <section class="hero">
+    <div class="eyebrow">
+      <span class="eyebrow-dot"></span>
+      <span>Support the work, not a fake product promise</span>
+    </div>
+    <h1>Support Meridian without pretending support is the same thing as buying delivery.</h1>
+    <p class="subtitle">Meridian is still in the founder-led stage: the kernel is public, the runtime is real, and the first vertical works. Support helps fund infra, founder time, and open progress while the automated customer path remains treasury-gated by policy.</p>
+    <div class="cta-row">
+      <a class="cta cta-primary" href="pilot.html">Need the product now? Start a pilot</a>
+      <a class="cta cta-outline" href="https://github.com/mapleleaflatte03/meridian-kernel" target="_blank" rel="noopener">See the OSS kernel</a>
+    </div>
+  </section>
+
+  <div class="notice">
+    <strong>Important boundary:</strong>
+    Support is not a purchase order, not customer revenue, and not a promise of automated delivery today. If you want Meridian evaluated as a workflow, use the <a href="pilot.html">manual pilot path</a> instead.
+  </div>
+
+  <h2>What support actually funds</h2>
+  <div class="grid">
+    <div class="card">
+      <h3>Infra and runtime health</h3>
+      <p>Keeping the hosted runtime, monitoring surfaces, MCP server, and recovery tooling online without pretending the treasury is already mature.</p>
+    </div>
+    <div class="card">
+      <h3>Founder time</h3>
+      <p>The real work of building, documenting, operating, and hardening the system before it can responsibly make bigger promises.</p>
+    </div>
+    <div class="card">
+      <h3>Open kernel progress</h3>
+      <p>The public Meridian Constitutional Kernel, its documentation, and the contributor economy groundwork Meridian wants to reach honestly.</p>
+    </div>
+    <div class="card">
+      <h3>Future proof, not fake traction</h3>
+      <p>Support keeps the build moving. It does not get counted as customer traction or as proof that the current hosted path is production-ready.</p>
+    </div>
+  </div>
+
+  <h2>What support is not</h2>
+  <div class="card">
+    <ul class="rule-list">
+      <li>Not a subscription.</li>
+      <li>Not a hidden checkout for delivery.</li>
+      <li>Not a guarantee of contributor payout today.</li>
+      <li>Not proof that Meridian has customer revenue.</li>
+      <li>Not a shortcut around the manual pilot or treasury rules.</li>
+    </ul>
+  </div>
+
+  <h2>Ways to support</h2>
+  <div class="channel-list">
+    <div class="channel">
+      <strong>1. On-chain support via USDC on Base</strong>
+      <p>If you want the simplest direct route, send support to the Meridian company wallet on Base L2. Use this only if your intent is to support the build, not buy a service contract.</p>
+      <p style="margin-top: 0.55rem;"><span class="wallet">0x82009D0fa435d490A12e0cBfBE47bf3358e47761</span></p>
+    </div>
+    <div class="channel">
+      <strong>2. Sponsorship or partnership conversation</strong>
+      <p>If you want to support Meridian at a larger level, talk directly with the founder about sponsorship, infra backing, or future collaboration. That conversation stays separate from the customer pilot path.</p>
+      <p style="margin-top: 0.55rem;"><a href="mailto:nguyensimon186@gmail.com?subject=Support Meridian">nguyensimon186@gmail.com</a> · <a href="https://t.me/Enhanhsj">Telegram DM @Enhanhsj</a></p>
+    </div>
+    <div class="channel">
+      <strong>3. Open-source support</strong>
+      <p>Read, share, or contribute to the Meridian Constitutional Kernel. Attention, feedback, and code review are also support when the project is still early.</p>
+      <p style="margin-top: 0.55rem;"><a href="https://github.com/mapleleaflatte03/meridian-kernel" target="_blank" rel="noopener">github.com/mapleleaflatte03/meridian-kernel</a></p>
+    </div>
+  </div>
+
+  <h2>If you want to use Meridian, not just support it</h2>
+  <div class="card">
+    <p>If you need cited competitor intelligence for your team right now, the honest customer path is still the <a href="pilot.html">founder-led manual pilot</a>. Meridian keeps support, pilot, and customer revenue separate on purpose.</p>
+    <ol class="next-steps">
+      <li><a href="demo.html">Review the demo</a> to judge the output.</li>
+      <li><a href="pilot.html">Start a 7-day pilot</a> if the output looks useful.</li>
+      <li>Only discuss paid continuation if the pilot proves useful enough to keep going.</li>
+    </ol>
+  </div>
+
+  <div class="footer">
+    <div class="footer-links">
+      <a href="index.html">Home</a>
+      <a href="demo.html">Demo</a>
+      <a href="pilot.html">Pilot</a>
+      <a href="https://github.com/mapleleaflatte03/meridian-intelligence" target="_blank" rel="noopener">Company Repo</a>
+      <a href="https://github.com/mapleleaflatte03/meridian-kernel" target="_blank" rel="noopener">OSS Kernel</a>
+    </div>
+    <p>Meridian &copy; 2026 — build honestly, separate the money paths, keep the promises narrow enough to honor.</p>
+  </div>
+</div>
+</body>
+</html>
