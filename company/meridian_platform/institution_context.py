@@ -184,9 +184,15 @@ CLI_BOUNDARY = ServiceBoundary(
     'CLI tools — credential-based, institution-bound per invocation',
 )
 
+FEDERATION_GATEWAY_BOUNDARY = ServiceBoundary(
+    'federation_gateway', 'signed_host_service', 'federation_gateway',
+    'Cross-host federation gateway — signed host-service identity',
+)
+
 SERVICE_BOUNDARIES = {
     boundary.name: boundary for boundary in (
         WORKSPACE_BOUNDARY,
+        FEDERATION_GATEWAY_BOUNDARY,
         MCP_SERVICE_BOUNDARY,
         PAYMENT_MONITOR_BOUNDARY,
         SUBSCRIPTIONS_BOUNDARY,

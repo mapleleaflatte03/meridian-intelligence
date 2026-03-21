@@ -224,12 +224,16 @@ which exposes:
 - the bound institution context
 - the serving host identity
 - the current boundary identity model
-- the live boundary registry (`workspace`, `mcp_service`, `payment_monitor`, `subscriptions`, `accounting`, `cli`)
+- the live boundary registry (`workspace`, `federation_gateway`, `mcp_service`, `payment_monitor`, `subscriptions`, `accounting`, `cli`)
 - the live admission model
+- the live federation-gateway state
 
 That admission model is explicitly `single_institution_deployment`. The live
 workspace is institution-bound, but this deployment does not admit additional
-institutions beyond the founding Meridian org.
+institutions beyond the founding Meridian org. The live federation gateway is
+also explicit now: the boundary exists in surfaced state, but this deployment
+keeps it disabled until a real peer transport, signing secret, and trusted
+peer registry are configured.
 
 ### Hard numbers:
 - Treasury: $2.00 (owner capital, not customer revenue)

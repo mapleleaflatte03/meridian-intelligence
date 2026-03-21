@@ -13,6 +13,7 @@ Endpoints:
   GET  /api/authority             → Authority state (kill switch, approvals, delegations)
   GET  /api/treasury              → Treasury snapshot
   GET  /api/court                 → Court records
+  GET  /api/federation            → Federation gateway state
   POST /api/authority/kill-switch → Engage/disengage kill switch
   POST /api/authority/approve     → Decide an approval
   POST /api/authority/request     → Request approval
@@ -25,6 +26,7 @@ Endpoints:
   POST /api/court/remediate       → Lift lingering sanctions after review
   POST /api/treasury/contribute   → Record owner capital contribution
   POST /api/treasury/reserve-floor → Update reserve floor policy
+  POST /api/federation/receive    → Validate and consume a federation envelope
   POST /api/institution/charter   → Set charter
   POST /api/institution/lifecycle → Transition lifecycle
 
@@ -61,6 +63,17 @@ RUNTIME_ADMISSION_FILE = os.environ.get(
     'MERIDIAN_RUNTIME_ADMISSION_FILE',
     os.path.join(PLATFORM_DIR, 'institution_admissions.json'),
 )
+FEDERATION_PEERS_FILE = os.environ.get(
+    'MERIDIAN_FEDERATION_PEERS_FILE',
+    os.path.join(PLATFORM_DIR, 'federation_peers.json'),
+)
+FEDERATION_REPLAY_FILE = os.environ.get(
+    'MERIDIAN_FEDERATION_REPLAY_FILE',
+    os.path.join(PLATFORM_DIR, '.federation_replay'),
+)
+FEDERATION_SIGNING_SECRET = (
+    os.environ.get('MERIDIAN_FEDERATION_SIGNING_SECRET', '').strip() or None
+)
 WORKSPACE_ORG_ID = (os.environ.get('MERIDIAN_WORKSPACE_ORG_ID') or '').strip() or None
 WORKSPACE_AUTH_REQUIRED = os.environ.get('MERIDIAN_WORKSPACE_AUTH_REQUIRED', '').lower() in (
     '1', 'true', 'yes', 'on'
@@ -89,6 +102,14 @@ from court import (file_violation, get_violations, resolve_violation,
                    file_appeal, decide_appeal, get_agent_record, auto_review,
                    get_restrictions, remediate, _load_records, VIOLATION_TYPES)
 from session import SessionAuthority
+from federation import (
+    FederationAuthority,
+    ReplayStore,
+    load_peer_registry,
+    FederationUnavailable,
+    FederationValidationError,
+    FederationReplayError,
+)
 from capsule import capsule_dir
 from ci_vertical import PIPELINE_PHASES, _phase_gate_snapshot, get_agent_remediation
 from institution_context import InstitutionContext, WORKSPACE_BOUNDARY, runtime_core_snapshot
@@ -205,6 +226,7 @@ def _runtime_host_state(bound_org_id):
         supported_boundaries=[
             'workspace',
             'cli',
+            'federation_gateway',
             'mcp_service',
             'payment_monitor',
             'subscriptions',
@@ -220,6 +242,40 @@ def _runtime_host_state(bound_org_id):
     )
     ensure_org_admitted(bound_org_id, admission_registry)
     return host_identity, admission_registry
+
+
+def _federation_authority(host_identity):
+    return FederationAuthority(
+        host_identity,
+        signing_secret=FEDERATION_SIGNING_SECRET,
+        peer_registry=load_peer_registry(FEDERATION_PEERS_FILE, host_identity=host_identity),
+        replay_store=ReplayStore(FEDERATION_REPLAY_FILE),
+    )
+
+
+def _federation_snapshot(bound_org_id, host_identity=None, admission_registry=None):
+    if host_identity is None or admission_registry is None:
+        host_identity, admission_registry = _runtime_host_state(bound_org_id)
+    return _federation_authority(host_identity).snapshot(
+        bound_org_id=bound_org_id,
+        admission_registry=admission_registry,
+    )
+
+
+def _accept_federation_request(bound_org_id, envelope, payload=None):
+    host_identity, admission_registry = _runtime_host_state(bound_org_id)
+    authority = _federation_authority(host_identity)
+    claims = authority.accept(
+        envelope,
+        payload=payload,
+        expected_target_host_id=host_identity.host_id,
+        expected_target_org_id=bound_org_id,
+        expected_boundary_name='federation_gateway',
+    )
+    return claims, authority.snapshot(
+        bound_org_id=bound_org_id,
+        admission_registry=admission_registry,
+    )
 
 
 def _requested_org_override(parsed_url, headers):
@@ -431,7 +487,7 @@ def api_status(context_source='founding_default', institution_context=None):
         if d.get('expires_at', '') > _now() and d.get('org_id') in (None, '', org_id)
     ]
 
-    return {
+    result = {
         'context': {
             'mode': 'process_bound',
             'bound_org_id': org_id,
@@ -488,6 +544,12 @@ def api_status(context_source='founding_default', institution_context=None):
         'remediations': remediations,
         'timestamp': _now(),
     }
+    result['runtime_core']['federation'] = _federation_snapshot(
+        org_id,
+        host_identity=host_identity,
+        admission_registry=admission_registry,
+    )
+    return result
 
 
 def _ci_vertical_status(reg, lead_id, org_id):
@@ -1203,7 +1265,7 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
             return self._json(api_status(institution_context=inst_ctx))
         elif path == '/api/context':
             host_identity, admission_registry = _runtime_host_state(org_id)
-            return self._json({
+            response = {
                 **request_context,
                 'auth': auth_context,
                 'permissions': _permission_snapshot(auth_context),
@@ -1219,7 +1281,13 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                     host_identity=host_identity,
                     admission_registry=admission_registry,
                 ),
-            })
+            }
+            response['runtime_core']['federation'] = _federation_snapshot(
+                org_id,
+                host_identity=host_identity,
+                admission_registry=admission_registry,
+            )
+            return self._json(response)
         elif path == '/api/institution':
             return self._json(org or {})
         elif path == '/api/agents':
@@ -1236,6 +1304,13 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
             })
         elif path == '/api/treasury':
             return self._json(treasury_snapshot(org_id))
+        elif path == '/api/federation':
+            host_identity, admission_registry = _runtime_host_state(org_id)
+            return self._json(_federation_snapshot(
+                org_id,
+                host_identity=host_identity,
+                admission_registry=admission_registry,
+            ))
         elif path == '/api/session/validate':
             qs = parse_qs(parsed.query)
             token = None
@@ -1273,6 +1348,52 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         parsed = urlparse(self.path)
         path = parsed.path
+        if path == '/api/federation/receive':
+            try:
+                inst_ctx = _resolve_workspace_context()
+                body = self._read_body()
+                envelope = (body.get('envelope') or '').strip()
+                if not envelope:
+                    return self._json({'error': 'Federation envelope is required'}, 400)
+                claims, federation_state = _accept_federation_request(
+                    inst_ctx.org_id,
+                    envelope,
+                    payload=body.get('payload'),
+                )
+                log_event(
+                    inst_ctx.org_id,
+                    claims.actor_id or f'peer:{claims.source_host_id}',
+                    'federation_envelope_received',
+                    resource=claims.message_type,
+                    outcome='accepted',
+                    actor_type='service',
+                    details={
+                        'envelope_id': claims.envelope_id,
+                        'source_host_id': claims.source_host_id,
+                        'source_institution_id': claims.source_institution_id,
+                        'target_host_id': claims.target_host_id,
+                        'nonce': claims.nonce,
+                        'boundary_name': claims.boundary_name,
+                    },
+                )
+                return self._json({
+                    'message': 'Federation envelope accepted',
+                    'claims': claims.to_dict(),
+                    'runtime_core': {
+                        'federation': federation_state,
+                    },
+                })
+            except FederationUnavailable as e:
+                return self._json({'error': str(e)}, 503)
+            except FederationReplayError as e:
+                return self._json({'error': str(e)}, 409)
+            except FederationValidationError as e:
+                return self._json({'error': str(e)}, 403)
+            except RuntimeError as e:
+                return self._service_unavailable(str(e), is_api=True)
+            except ValueError as e:
+                return self._json({'error': str(e)}, 400)
+
         if not self._require_auth(path):
             return
         try:

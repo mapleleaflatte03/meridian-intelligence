@@ -27,6 +27,9 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.orig_workspace_org_id = self.workspace.WORKSPACE_ORG_ID
         self.orig_runtime_host_identity_file = self.workspace.RUNTIME_HOST_IDENTITY_FILE
         self.orig_runtime_admission_file = self.workspace.RUNTIME_ADMISSION_FILE
+        self.orig_federation_peers_file = self.workspace.FEDERATION_PEERS_FILE
+        self.orig_federation_replay_file = self.workspace.FEDERATION_REPLAY_FILE
+        self.orig_federation_signing_secret = self.workspace.FEDERATION_SIGNING_SECRET
         self.orig_get_founding_org = self.workspace._get_founding_org
         self.orig_load_orgs = self.workspace.load_orgs
         self.orig_load_workspace_credentials = self.workspace._load_workspace_credentials
@@ -37,6 +40,9 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.workspace.WORKSPACE_ORG_ID = self.orig_workspace_org_id
         self.workspace.RUNTIME_HOST_IDENTITY_FILE = self.orig_runtime_host_identity_file
         self.workspace.RUNTIME_ADMISSION_FILE = self.orig_runtime_admission_file
+        self.workspace.FEDERATION_PEERS_FILE = self.orig_federation_peers_file
+        self.workspace.FEDERATION_REPLAY_FILE = self.orig_federation_replay_file
+        self.workspace.FEDERATION_SIGNING_SECRET = self.orig_federation_signing_secret
         self.workspace._get_founding_org = self.orig_get_founding_org
         self.workspace.load_orgs = self.orig_load_orgs
         self.workspace._load_workspace_credentials = self.orig_load_workspace_credentials
@@ -187,9 +193,68 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         status = self.workspace.api_status(institution_context=ctx)
         self.assertEqual(status['runtime_core']['institution_context']['org_id'], 'org_founding')
         self.assertFalse(status['runtime_core']['admission']['additional_institutions_allowed'])
+        self.assertTrue(status['runtime_core']['service_registry']['federation_gateway']['supports_institution_routing'])
         self.assertFalse(status['runtime_core']['service_registry']['mcp_service']['supports_institution_routing'])
         self.assertEqual(status['runtime_core']['host_identity']['host_id'], 'host_live')
         self.assertEqual(status['runtime_core']['admission']['admitted_org_ids'], ['org_founding'])
+        self.assertIn('federation', status['runtime_core'])
+        self.assertFalse(status['runtime_core']['federation']['enabled'])
+
+    def test_federation_snapshot_reports_disabled_live_host(self):
+        from runtime_host import default_host_identity
+        host = default_host_identity(
+            host_id='host_live',
+            label='Meridian Live Host',
+            federation_enabled=False,
+            supported_boundaries=['workspace', 'cli', 'federation_gateway'],
+        )
+        snap = self.workspace._federation_snapshot(
+            'org_founding',
+            host_identity=host,
+            admission_registry={'admitted_org_ids': ['org_founding']},
+        )
+        self.assertFalse(snap['enabled'])
+        self.assertEqual(snap['disabled_reason'], 'host_federation_disabled')
+
+    def test_accept_federation_request_fails_closed_when_disabled(self):
+        from federation import FederationAuthority, FederationUnavailable
+        from runtime_host import default_host_identity
+
+        self.workspace.FEDERATION_SIGNING_SECRET = 'alpha-secret'
+        self.workspace.load_host_identity = lambda *args, **kwargs: default_host_identity(
+            host_id='host_live',
+            label='Meridian Live Host',
+            federation_enabled=False,
+            peer_transport='none',
+            supported_boundaries=['workspace', 'cli', 'federation_gateway'],
+        )
+        self.workspace.load_admission_registry = lambda *args, **kwargs: {
+            'source': 'derived_bound_default',
+            'host_id': 'host_live',
+            'institutions': {'org_founding': {'status': 'admitted'}},
+            'admitted_org_ids': ['org_founding'],
+        }
+        sender = FederationAuthority(
+            default_host_identity(
+                host_id='host_live',
+                federation_enabled=True,
+                peer_transport='https',
+            ),
+            signing_secret='alpha-secret',
+        )
+        envelope = sender.issue(
+            'org_founding',
+            'host_live',
+            'org_founding',
+            'execution_request',
+            payload={'task': 'demo'},
+        )
+        with self.assertRaises(FederationUnavailable):
+            self.workspace._accept_federation_request(
+                'org_founding',
+                envelope,
+                payload={'task': 'demo'},
+            )
 
 
 if __name__ == '__main__':
