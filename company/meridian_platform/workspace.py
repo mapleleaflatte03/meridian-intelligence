@@ -80,8 +80,18 @@ from treasury import (treasury_snapshot, get_balance, get_runway, check_budget,
 from court import (file_violation, get_violations, resolve_violation,
                    file_appeal, decide_appeal, get_agent_record, auto_review,
                    get_restrictions, remediate, _load_records, VIOLATION_TYPES)
+from session import SessionAuthority
 from capsule import capsule_dir
 from ci_vertical import PIPELINE_PHASES, _phase_gate_snapshot, get_agent_remediation
+
+# Process-level session authority (tokens do not survive restarts unless
+# MERIDIAN_SESSION_SECRET is set in the environment).
+_session_revocation_file = (
+    os.environ.get('MERIDIAN_SESSION_REVOCATIONS_FILE', '').strip() or None
+)
+if not _session_revocation_file and os.environ.get('MERIDIAN_SESSION_SECRET', '').strip():
+    _session_revocation_file = os.path.join(PLATFORM_DIR, '.session_revocations')
+_session_authority = SessionAuthority(revocation_file=_session_revocation_file)
 
 
 def _now():
@@ -111,6 +121,8 @@ MUTATION_ROLE_REQUIREMENTS = {
     '/api/treasury/reserve-floor': 'owner',
     '/api/institution/charter': 'admin',
     '/api/institution/lifecycle': 'owner',
+    '/api/session/issue': 'member',
+    '/api/session/revoke': 'admin',
 }
 
 
@@ -243,6 +255,30 @@ def _resolve_auth_context(bound_org_id):
         'role': role,
         'actor_id': actor_id,
         'actor_source': actor_source or 'basic_user',
+    }
+
+
+def _resolve_auth_context_from_session(claims, bound_org_id):
+    """Build auth context from validated session claims.
+
+    The session records the role at issuance, but we re-check live membership
+    so that removed or downgraded members lose access immediately.
+    """
+    if claims.org_id != bound_org_id:
+        raise ValueError(
+            f"Session is bound to institution '{claims.org_id}', "
+            f"but workspace is bound to '{bound_org_id}'"
+        )
+    current_role = _member_role(bound_org_id, claims.user_id)
+    return {
+        'enabled': True,
+        'mode': 'session_bound',
+        'org_id': bound_org_id,
+        'user_id': claims.user_id,
+        'role': current_role,
+        'actor_id': claims.user_id,
+        'actor_source': 'session',
+        'session_id': claims.session_id,
     }
 
 
@@ -1012,11 +1048,15 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
             self.wfile.write(message.encode())
 
     def _is_authorized(self):
+        header = self.headers.get('Authorization', '')
+        # Bearer (session) auth — always available
+        if header.startswith('Bearer '):
+            token = header.split(' ', 1)[1].strip()
+            return _session_authority.validate(token) is not None
+        # Basic auth
         user, password, _credential_org_id, _credential_user_id = _load_workspace_credentials()
         if not user or not password:
             return False
-
-        header = self.headers.get('Authorization', '')
         if not header.startswith('Basic '):
             return False
         try:
@@ -1029,8 +1069,12 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
         return hmac.compare_digest(supplied_user, user) and hmac.compare_digest(supplied_password, password)
 
     def _require_auth(self, path):
-        protected = path == '/' or path.startswith('/workspace') or path.startswith('/api/')
+        # Session validate is a passive introspection endpoint — the token is the proof.
+        protected = (path == '/' or path.startswith('/workspace') or path.startswith('/api/')) \
+            and path != '/api/session/validate'
         if not protected:
+            return True
+        if self._is_authorized():
             return True
         user, password, _credential_org_id, _credential_user_id = _load_workspace_credentials()
         if not user or not password:
@@ -1039,10 +1083,16 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                                           is_api=path.startswith('/api/'))
                 return False
             return True
-        if self._is_authorized():
-            return True
         self._unauthorized(is_api=path.startswith('/api/'))
         return False
+
+    def _session_claims_from_request(self, expected_org_id=None):
+        """Extract and validate session claims from a Bearer token."""
+        header = self.headers.get('Authorization', '')
+        if not header.startswith('Bearer '):
+            return None
+        token = header.split(' ', 1)[1].strip()
+        return _session_authority.validate(token, expected_org_id=expected_org_id)
 
     def _read_body(self):
         length = int(self.headers.get('Content-Length', 0))
@@ -1057,7 +1107,7 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header('Access-Control-Allow-Origin', '*')
         self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-        self.send_header('Access-Control-Allow-Headers', 'Content-Type, X-Meridian-Org-Id')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Meridian-Org-Id')
         self.end_headers()
 
     def do_GET(self):
@@ -1068,7 +1118,11 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
         try:
             org_id, org, context_source = _resolve_workspace_context()
             request_context = _enforce_request_context(parsed, self.headers, org_id)
-            auth_context = _resolve_auth_context(org_id)
+            session_claims = self._session_claims_from_request(expected_org_id=org_id)
+            if session_claims:
+                auth_context = _resolve_auth_context_from_session(session_claims, org_id)
+            else:
+                auth_context = _resolve_auth_context(org_id)
         except RuntimeError as e:
             return self._service_unavailable(str(e), is_api=path.startswith('/api/'))
         except ValueError as e:
@@ -1103,6 +1157,22 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
             })
         elif path == '/api/treasury':
             return self._json(treasury_snapshot(org_id))
+        elif path == '/api/session/validate':
+            qs = parse_qs(parsed.query)
+            token = None
+            token_list = qs.get('token', [])
+            if token_list:
+                token = token_list[0]
+            else:
+                auth_header = self.headers.get('Authorization', '')
+                if auth_header.startswith('Bearer '):
+                    token = auth_header.split(' ', 1)[1].strip()
+            if not token:
+                return self._json({'error': 'No token provided — pass ?token= or Authorization: Bearer'}, 400)
+            claims = _session_authority.validate(token, expected_org_id=org_id)
+            if claims is None:
+                return self._json({'valid': False})
+            return self._json({'valid': True, 'claims': claims.to_dict()})
         elif path == '/api/court':
             records = _load_records(org_id)
             return self._json({
@@ -1129,7 +1199,11 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
         try:
             org_id, org, _context_source = _resolve_workspace_context()
             _enforce_request_context(parsed, self.headers, org_id)
-            auth_context = _resolve_auth_context(org_id)
+            session_claims = self._session_claims_from_request(expected_org_id=org_id)
+            if session_claims:
+                auth_context = _resolve_auth_context_from_session(session_claims, org_id)
+            else:
+                auth_context = _resolve_auth_context(org_id)
             _enforce_mutation_authorization(auth_context, org_id, path)
         except RuntimeError as e:
             return self._service_unavailable(str(e), is_api=path.startswith('/api/'))
@@ -1144,18 +1218,20 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
             return self._json({'error': 'Invalid JSON'}, 400)
 
         by = auth_context.get('actor_id') or 'owner'  # server-enforced — never trust client-supplied actor identity
+        _sid = auth_context.get('session_id')  # session traceability for audit
 
         try:
             if path == '/api/authority/kill-switch':
                 if body.get('engage'):
                     engage_kill_switch(by, body.get('reason', ''), org_id=org_id)
                     log_event(org_id, by, 'kill_switch_engaged', outcome='success',
-                              details={'by': by, 'reason': body.get('reason')})
+                              details={'by': by, 'reason': body.get('reason')},
+                              session_id=_sid)
                     return self._json({'message': 'Kill switch ENGAGED'})
                 else:
                     disengage_kill_switch(by, org_id=org_id)
                     log_event(org_id, by, 'kill_switch_disengaged', outcome='success',
-                              details={'by': by})
+                              details={'by': by}, session_id=_sid)
                     return self._json({'message': 'Kill switch disengaged'})
 
             elif path == '/api/authority/approve':
@@ -1163,27 +1239,28 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                 decide_approval(body['approval_id'], decision,
                                by, body.get('reason', ''), org_id=org_id)
                 log_event(org_id, by, 'approval_decided', resource=body['approval_id'],
-                          outcome='success', details={'decision': decision, 'reason': body.get('reason', '')})
+                          outcome='success', details={'decision': decision, 'reason': body.get('reason', '')},
+                          session_id=_sid)
                 return self._json({'message': f'Approval {body["approval_id"]}: {decision}'})
 
             elif path == '/api/authority/request':
                 aid = request_approval(body['agent'], body['action'],
                                        body['resource'], body.get('cost', 0), org_id=org_id)
                 log_event(org_id, body['agent'], 'approval_requested', resource=aid,
-                          outcome='success', details=body)
+                          outcome='success', details=body, session_id=_sid)
                 return self._json({'message': f'Approval requested: {aid}', 'approval_id': aid})
 
             elif path == '/api/authority/delegate':
                 scopes = [s.strip() for s in body['scopes'].split(',') if s.strip()]
                 did = delegate(body['from'], body['to'], scopes, body.get('hours', 24), org_id=org_id)
                 log_event(org_id, body['from'], 'delegation_created', resource=did,
-                          outcome='success', details=body)
+                          outcome='success', details=body, session_id=_sid)
                 return self._json({'message': f'Delegation created: {did}', 'delegation_id': did})
 
             elif path == '/api/authority/revoke':
                 revoke_delegation(body['delegation_id'], org_id=org_id)
                 log_event(org_id, by, 'delegation_revoked', resource=body['delegation_id'],
-                          outcome='success')
+                          outcome='success', session_id=_sid)
                 return self._json({'message': f'Delegation revoked: {body["delegation_id"]}'})
 
             elif path == '/api/court/file':
@@ -1195,18 +1272,21 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
             elif path == '/api/court/resolve':
                 resolve_violation(body['violation_id'], body['note'], org_id=org_id)
                 log_event(org_id, by, 'violation_resolved', resource=body['violation_id'],
-                          outcome='success', details={'note': body['note']})
+                          outcome='success', details={'note': body['note']},
+                          session_id=_sid)
                 return self._json({'message': f'Violation resolved: {body["violation_id"]}'})
 
             elif path == '/api/court/appeal':
                 aid = file_appeal(body['violation_id'], body['agent'], body['grounds'], org_id=org_id)
-                log_event(org_id, body['agent'], 'appeal_filed', resource=aid, outcome='success')
+                log_event(org_id, body['agent'], 'appeal_filed', resource=aid,
+                          outcome='success', session_id=_sid)
                 return self._json({'message': f'Appeal filed: {aid}', 'appeal_id': aid})
 
             elif path == '/api/court/decide-appeal':
                 decide_appeal(body['appeal_id'], body['decision'], by, org_id=org_id)
                 log_event(org_id, by, 'appeal_decided', resource=body['appeal_id'],
-                          outcome='success', details={'decision': body['decision']})
+                          outcome='success', details={'decision': body['decision']},
+                          session_id=_sid)
                 return self._json({'message': f'Appeal {body["appeal_id"]}: {body["decision"]}'})
 
             elif path == '/api/court/auto-review':
@@ -1218,7 +1298,8 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                 lifted = remediate(body['agent_id'], by,
                                    body.get('note', ''), org_id=org_id)
                 log_event(org_id, by, 'court_remediation', resource=body['agent_id'],
-                          outcome='success', details={'lifted': lifted, 'note': body.get('note', '')})
+                          outcome='success', details={'lifted': lifted, 'note': body.get('note', '')},
+                          session_id=_sid)
                 return self._json({'message': f'Remediation complete: lifted {lifted}',
                                    'lifted': lifted})
 
@@ -1226,7 +1307,7 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                 result = contribute_owner_capital(body['amount'], body.get('note', ''),
                                                   by, org_id=org_id)
                 log_event(org_id, by, 'treasury_owner_capital', outcome='success',
-                          details=result)
+                          details=result, session_id=_sid)
                 return self._json({
                     'message': f'Owner capital recorded: +${result["amount_usd"]:.2f}',
                     'snapshot': treasury_snapshot(org_id),
@@ -1236,21 +1317,55 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                 result = set_reserve_floor_policy(body['amount'], body.get('note', ''),
                                                   by, org_id=org_id)
                 log_event(org_id, by, 'treasury_reserve_floor_updated',
-                          outcome='success', details=result)
+                          outcome='success', details=result, session_id=_sid)
                 return self._json({
                     'message': 'Reserve floor updated',
                     'snapshot': treasury_snapshot(org_id),
                 })
 
+            elif path == '/api/session/issue':
+                user_id = auth_context.get('user_id')
+                role = auth_context.get('role')
+                if not user_id or not role:
+                    return self._json({
+                        'error': 'Cannot issue session: actor is not a member of this institution'
+                    }, 403)
+                ttl = body.get('ttl_seconds')
+                token = _session_authority.issue(org_id, user_id, role, ttl_seconds=ttl)
+                claims = _session_authority.validate(token)
+                log_event(org_id, by, 'session_issued', outcome='success',
+                          details={'session_id': claims.session_id,
+                                   'user_id': user_id, 'role': role},
+                          session_id=_sid)
+                return self._json({
+                    'token': token,
+                    'session_id': claims.session_id,
+                    'org_id': org_id,
+                    'user_id': user_id,
+                    'role': role,
+                    'expires_at': claims.expires_at,
+                })
+
+            elif path == '/api/session/revoke':
+                session_id = body.get('session_id')
+                if not session_id:
+                    return self._json({'error': 'session_id is required'}, 400)
+                _session_authority.revoke(session_id)
+                log_event(org_id, by, 'session_revoked', outcome='success',
+                          details={'session_id': session_id},
+                          session_id=_sid)
+                return self._json({'message': f'Session revoked: {session_id}'})
+
             elif path == '/api/institution/charter':
                 set_charter(org_id, body['text'])
-                log_event(org_id, by, 'charter_set', outcome='success')
+                log_event(org_id, by, 'charter_set', outcome='success',
+                          session_id=_sid)
                 return self._json({'message': 'Charter saved'})
 
             elif path == '/api/institution/lifecycle':
                 org_transition_lifecycle(org_id, body['state'])
                 log_event(org_id, by, 'lifecycle_transitioned', outcome='success',
-                          details={'new_state': body['state']})
+                          details={'new_state': body['state']}, session_id=_sid)
                 return self._json({'message': f'Lifecycle transitioned to {body["state"]}'})
 
             else:

@@ -31,8 +31,13 @@ def _now():
 
 
 def log_event(org_id, agent_id, action, resource='', outcome='success',
-              actor_type='agent', details=None, policy_ref=''):
-    """Append an audit event to the log."""
+              actor_type='agent', details=None, policy_ref='',
+              session_id=None):
+    """Append an audit event to the log.
+
+    When session_id is provided, it is recorded as a top-level field
+    so that the audit trail traces which session authorized the action.
+    """
     event = {
         'id': f'evt_{uuid.uuid4().hex[:10]}',
         'timestamp': _now(),
@@ -45,6 +50,8 @@ def log_event(org_id, agent_id, action, resource='', outcome='success',
         'details': details or {},
         'policy_ref': policy_ref,
     }
+    if session_id:
+        event['session_id'] = session_id
 
     # Rotate if file is too large
     if os.path.exists(AUDIT_FILE) and os.path.getsize(AUDIT_FILE) > MAX_LOG_SIZE:
