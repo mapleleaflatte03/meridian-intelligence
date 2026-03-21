@@ -256,6 +256,15 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.assertFalse(snap['enabled'])
         self.assertFalse(snap['send_enabled'])
         self.assertEqual(snap['disabled_reason'], 'host_federation_disabled')
+        self.assertEqual(snap['management_mode'], 'founding_locked')
+        self.assertFalse(snap['mutation_enabled'])
+
+    def test_mutate_federation_peer_is_rejected_on_live(self):
+        with self.assertRaises(PermissionError):
+            self.workspace._mutate_federation_peer('org_founding', 'upsert', {
+                'peer_host_id': 'host_beta',
+                'shared_secret': 'beta-secret',
+            })
 
     def test_admission_snapshot_reports_founding_lock(self):
         from runtime_host import default_host_identity
