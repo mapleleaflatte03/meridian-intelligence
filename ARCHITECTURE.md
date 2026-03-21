@@ -222,6 +222,7 @@ membership and enforce role-based mutation guards on top of Basic auth.
 bound actor. `/api/context` and `/api/status` now also surface `runtime_core`,
 which exposes:
 - the bound institution context
+- the serving host identity
 - the current boundary identity model
 - the live boundary registry (`workspace`, `mcp_service`, `payment_monitor`, `subscriptions`, `accounting`, `cli`)
 - the live admission model

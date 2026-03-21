@@ -30,12 +30,15 @@ IDENTITY_MODELS = (
     'credential',
     'x402_payment',
     'daemon',
+    'signed_host_service',
     'none',
 )
 
 BOUNDARY_SCOPES = (
     'institution_bound',
+    'federation_gateway',
     'founding_service_only',
+    'daemon_only',
     'unscoped',
 )
 
@@ -120,8 +123,8 @@ class InstitutionContext:
         if status == 'suspended':
             raise RuntimeError(f'Institution {self.org_id} is suspended')
         lifecycle = self.org.get('lifecycle_state', 'active')
-        if lifecycle == 'dissolved':
-            raise RuntimeError(f'Institution {self.org_id} is dissolved')
+        if lifecycle in ('suspended', 'dissolved'):
+            raise RuntimeError(f'Institution {self.org_id} is {lifecycle}')
         return True
 
     def admits_org(self, other_org_id):
@@ -195,8 +198,11 @@ SERVICE_BOUNDARIES = {
 
 def describe_boundary(boundary):
     data = boundary.to_dict()
-    data['supports_institution_routing'] = boundary.scope == 'institution_bound'
-    data['requires_admitted_institution'] = boundary.scope != 'unscoped'
+    data['supports_institution_routing'] = boundary.scope in (
+        'institution_bound',
+        'federation_gateway',
+    )
+    data['requires_admitted_institution'] = boundary.scope not in ('unscoped', 'daemon_only')
     return data
 
 
@@ -208,13 +214,31 @@ def service_boundary_registry():
 
 
 def admission_state(context, additional_institutions_allowed=False,
-                    second_institution_path=''):
+                    second_institution_path='', host_identity=None,
+                    admission_registry=None):
+    admitted_org_ids = [context.org_id] if context.is_admitted else []
+    admission_source = 'implicit_context'
+    host_id = ''
+    host_role = ''
+    federation_enabled = False
+    if host_identity:
+        host_id = getattr(host_identity, 'host_id', '') or ''
+        host_role = getattr(host_identity, 'role', '') or ''
+        federation_enabled = bool(getattr(host_identity, 'federation_enabled', False))
+    if admission_registry:
+        admitted_org_ids = list(admission_registry.get('admitted_org_ids', admitted_org_ids))
+        admission_source = admission_registry.get('source', admission_source)
+        if not host_id:
+            host_id = admission_registry.get('host_id', '') or ''
+    additional_institutions_allowed = bool(
+        additional_institutions_allowed or len(admitted_org_ids) > 1
+    )
     if not second_institution_path:
         if additional_institutions_allowed:
             second_institution_path = (
-                'Bind a separate process to another admitted institution via '
-                '--org-id or credential-scoped org binding. Shared request-level '
-                'org hopping remains disallowed.'
+                'Admit the institution on this host, then bind a separate process '
+                'to that admitted institution via --org-id or credential-scoped '
+                'org binding. Shared request-level org hopping remains disallowed.'
             )
         else:
             second_institution_path = (
@@ -228,22 +252,30 @@ def admission_state(context, additional_institutions_allowed=False,
             'single_institution_deployment'
         ),
         'bound_org_id': context.org_id,
-        'admitted_org_ids': [context.org_id] if context.is_admitted else [],
+        'admitted_org_ids': admitted_org_ids,
         'additional_institutions_allowed': bool(additional_institutions_allowed),
         'shared_request_routing': False,
+        'admission_source': admission_source,
+        'host_id': host_id,
+        'host_role': host_role,
+        'federation_enabled': federation_enabled,
         'second_institution_path': second_institution_path,
     }
 
 
 def runtime_core_snapshot(context, additional_institutions_allowed=False,
-                          second_institution_path=''):
+                          second_institution_path='', host_identity=None,
+                          admission_registry=None):
     return {
         'institution_context': context.to_dict(),
+        'host_identity': host_identity.to_dict() if host_identity else {},
         'current_boundary': describe_boundary(context.boundary),
         'service_registry': service_boundary_registry(),
         'admission': admission_state(
             context,
             additional_institutions_allowed=additional_institutions_allowed,
             second_institution_path=second_institution_path,
+            host_identity=host_identity,
+            admission_registry=admission_registry,
         ),
     }

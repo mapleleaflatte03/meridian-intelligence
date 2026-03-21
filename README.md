@@ -32,10 +32,11 @@ explicitly credential-bound to the founding org. When credentials also carry a
 institution membership instead of being treated as a generic Basic-auth user.
 `/api/context` also exposes the effective mutation permission snapshot for the
 bound actor. `/api/context` and `/api/status` now also expose `runtime_core`,
-which surfaces the bound institution context, the current boundary identity
-model, the live boundary registry, and the admission state for this deployment.
-That admission state is intentionally strict: this live runtime remains a
-single-institution deployment for the founding Meridian org.
+which surfaces the bound institution context, the serving host identity, the
+current boundary identity model, the live boundary registry, and the admission
+state for this deployment. That admission state is intentionally strict: this
+live runtime remains a single-institution deployment for the founding Meridian
+org, with the admitted institution list containing only that org.
 
 **Live service:** https://app.welliam.codes
 **Product demo:** https://app.welliam.codes/demo.html

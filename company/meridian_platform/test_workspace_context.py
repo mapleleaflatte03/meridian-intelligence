@@ -25,15 +25,23 @@ class LiveWorkspaceContextTests(unittest.TestCase):
     def setUp(self):
         self.workspace = _load_workspace('live_workspace_context_test')
         self.orig_workspace_org_id = self.workspace.WORKSPACE_ORG_ID
+        self.orig_runtime_host_identity_file = self.workspace.RUNTIME_HOST_IDENTITY_FILE
+        self.orig_runtime_admission_file = self.workspace.RUNTIME_ADMISSION_FILE
         self.orig_get_founding_org = self.workspace._get_founding_org
         self.orig_load_orgs = self.workspace.load_orgs
         self.orig_load_workspace_credentials = self.workspace._load_workspace_credentials
+        self.orig_load_host_identity = self.workspace.load_host_identity
+        self.orig_load_admission_registry = self.workspace.load_admission_registry
 
     def tearDown(self):
         self.workspace.WORKSPACE_ORG_ID = self.orig_workspace_org_id
+        self.workspace.RUNTIME_HOST_IDENTITY_FILE = self.orig_runtime_host_identity_file
+        self.workspace.RUNTIME_ADMISSION_FILE = self.orig_runtime_admission_file
         self.workspace._get_founding_org = self.orig_get_founding_org
         self.workspace.load_orgs = self.orig_load_orgs
         self.workspace._load_workspace_credentials = self.orig_load_workspace_credentials
+        self.workspace.load_host_identity = self.orig_load_host_identity
+        self.workspace.load_admission_registry = self.orig_load_admission_registry
 
     def test_live_workspace_rejects_non_founding_configured_org(self):
         self.workspace._load_workspace_credentials = lambda: (None, None, None, None)
@@ -136,6 +144,7 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.assertFalse(permissions['/api/treasury/contribute']['allowed'])
 
     def test_api_status_exposes_runtime_core(self):
+        from runtime_host import default_host_identity
         self.workspace._load_workspace_credentials = lambda: ('owner', 'secret', 'org_founding', 'user_owner')
         self.workspace._get_founding_org = lambda: (
             'org_founding',
@@ -163,11 +172,24 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.workspace._ci_vertical_status = lambda reg, lead_id, org_id: {}
         self.workspace.get_agent_remediation = lambda economy_key, reg, org_id=None: None
         self.workspace.capsule_dir = lambda org_id: f'/tmp/capsules/{org_id}'
+        self.workspace.load_host_identity = lambda *args, **kwargs: default_host_identity(
+            host_id='host_live',
+            label='Meridian Live Host',
+            supported_boundaries=['workspace', 'cli', 'mcp_service'],
+        )
+        self.workspace.load_admission_registry = lambda *args, **kwargs: {
+            'source': 'derived_bound_default',
+            'host_id': 'host_live',
+            'institutions': {'org_founding': {'status': 'admitted'}},
+            'admitted_org_ids': ['org_founding'],
+        }
         ctx = self.workspace._resolve_workspace_context()
         status = self.workspace.api_status(institution_context=ctx)
         self.assertEqual(status['runtime_core']['institution_context']['org_id'], 'org_founding')
         self.assertFalse(status['runtime_core']['admission']['additional_institutions_allowed'])
         self.assertFalse(status['runtime_core']['service_registry']['mcp_service']['supports_institution_routing'])
+        self.assertEqual(status['runtime_core']['host_identity']['host_id'], 'host_live')
+        self.assertEqual(status['runtime_core']['admission']['admitted_org_ids'], ['org_founding'])
 
 
 if __name__ == '__main__':
