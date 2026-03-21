@@ -16,6 +16,7 @@ import subprocess
 import sys
 
 from treasury import treasury_snapshot
+from organizations import load_orgs
 
 
 PLATFORM_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -92,15 +93,23 @@ def _delivery_targets():
     }
 
 
+def _founding_org_id():
+    for oid, org in load_orgs().get('organizations', {}).items():
+        if org.get('slug') == 'meridian':
+            return oid
+    return None
+
+
 def collect():
+    org_id = _founding_org_id()
     runtime_health = _run(["openclaw", "health"], timeout=20)
     pong = _run(
         ["openclaw", "agent", "--agent", "main", "--message", "respond with PONG", "--timeout", "15000"],
         timeout=25,
     )
     preflight = _run([sys.executable, CI_VERTICAL_PY, "preflight"], timeout=20)
-    treasury = treasury_snapshot()
-    phase_num, phase_details = _phase_mod.evaluate()
+    treasury = treasury_snapshot(org_id)
+    phase_num, phase_details = _phase_mod.evaluate(org_id)
     brief = _latest_brief()
     targets = _delivery_targets()
 

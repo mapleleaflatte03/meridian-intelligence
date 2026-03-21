@@ -53,26 +53,37 @@ def _now():
     return datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
 
 
+def _default_org_id():
+    try:
+        from organizations import load_orgs
+        for oid, org in load_orgs().get('organizations', {}).items():
+            if org.get('slug') == 'meridian':
+                return oid
+    except Exception:
+        pass
+    return None
+
+
 # ── Core functions ───────────────────────────────────────────────────────────
 
-def get_balance():
+def get_balance(org_id=None):
     """Read treasury.cash_usd from ledger.json."""
     ledger = load_ledger()
     return ledger['treasury']['cash_usd']
 
 
-def get_reserve_floor():
+def get_reserve_floor(org_id=None):
     """Read treasury.reserve_floor_usd from ledger.json."""
     ledger = load_ledger()
     return ledger['treasury'].get('reserve_floor_usd', 50.0)
 
 
-def get_runway():
+def get_runway(org_id=None):
     """Balance minus reserve floor. Negative means below reserve."""
-    return get_balance() - get_reserve_floor()
+    return get_balance(org_id) - get_reserve_floor(org_id)
 
 
-def get_revenue_summary():
+def get_revenue_summary(org_id=None):
     """Read revenue state from economy/revenue.py."""
     rev = load_revenue()
     ledger = load_ledger()
@@ -103,17 +114,17 @@ def get_spend_summary(org_id, period_days=30):
     }
 
 
-def contribute_owner_capital(amount_usd, note='', by='owner'):
+def contribute_owner_capital(amount_usd, note='', by='owner', org_id=None):
     """Record owner capital contribution via the accounting layer."""
     return _owner_contribute_capital(amount_usd, note, actor=by)
 
 
-def set_reserve_floor_policy(amount_usd, note='', by='owner'):
+def set_reserve_floor_policy(amount_usd, note='', by='owner', org_id=None):
     """Update reserve floor policy via the accounting layer."""
     return _update_reserve_floor(amount_usd, note, actor=by)
 
 
-def check_budget(agent_id, cost_usd):
+def check_budget(agent_id, cost_usd, org_id=None):
     """Check agent budget + treasury runway. Returns (allowed, reason)."""
     # Try economy_key → registry ID mapping first
     from agent_registry import get_agent_by_economy_key
@@ -125,7 +136,7 @@ def check_budget(agent_id, cost_usd):
     if not allowed:
         return False, reason
     # Then check treasury runway — negative runway blocks all spending
-    runway = get_runway()
+    runway = get_runway(org_id)
     if runway < 0:
         return False, f'Treasury below reserve floor (runway ${runway:.2f}). Recapitalize before spending.'
     if runway < cost_usd:
@@ -148,32 +159,27 @@ def record_expense(org_id, agent_id, amount_usd, category, description):
                  details={'description': description})
 
 
-def can_payout(amount_usd):
+def can_payout(amount_usd, org_id=None):
     """Check if a payout is possible (balance > reserve_floor + amount)."""
-    balance = get_balance()
-    floor = get_reserve_floor()
+    balance = get_balance(org_id)
+    floor = get_reserve_floor(org_id)
     return balance >= floor + amount_usd
 
 
-def treasury_snapshot():
+def treasury_snapshot(org_id=None):
     """Combined view: balance, revenue, spend, runway, reserve status."""
     ledger = load_ledger()
     t = ledger['treasury']
-    rev_summary = get_revenue_summary()
+    rev_summary = get_revenue_summary(org_id)
 
     # Try to get default org for spend
     spend_usd = 0.0
-    org_id = None
-    try:
-        from organizations import load_orgs
-        for oid, org in load_orgs().get('organizations', {}).items():
-            if org.get('slug') == 'meridian':
-                org_id = oid
-                break
-        if org_id:
-            spend_usd = get_spend_summary(org_id, 30)['total_spend_usd']
-    except Exception:
-        pass
+    spend_org_id = org_id or _default_org_id()
+    if spend_org_id:
+        try:
+            spend_usd = get_spend_summary(spend_org_id, 30)['total_spend_usd']
+        except Exception:
+            pass
 
     balance = t['cash_usd']
     floor = t.get('reserve_floor_usd', 50.0)

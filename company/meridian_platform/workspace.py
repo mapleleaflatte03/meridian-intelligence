@@ -118,8 +118,8 @@ def api_status():
     org_id, org = _get_founding_org()
     reg = load_registry()
     queue = _load_queue()
-    snap = treasury_snapshot()
-    phase_num, phase_details = _phase_mod.evaluate()
+    snap = treasury_snapshot(org_id)
+    phase_num, phase_details = _phase_mod.evaluate(org_id)
     records = _load_records()
     lead_id, lead_auth = get_sprint_lead()
 
@@ -849,7 +849,8 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                 'sprint_lead': {'agent_id': lead_id, 'auth': lead_auth},
             })
         elif path == '/api/treasury':
-            return self._json(treasury_snapshot())
+            org_id, _ = _get_founding_org()
+            return self._json(treasury_snapshot(org_id))
         elif path == '/api/court':
             records = _load_records()
             return self._json({
@@ -960,22 +961,22 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
 
             elif path == '/api/treasury/contribute':
                 result = contribute_owner_capital(body['amount'], body.get('note', ''),
-                                                  by)
+                                                  by, org_id=org_id)
                 log_event(org_id, 'system', 'treasury_owner_capital', outcome='success',
                           details=result)
                 return self._json({
                     'message': f'Owner capital recorded: +${result["amount_usd"]:.2f}',
-                    'snapshot': treasury_snapshot(),
+                    'snapshot': treasury_snapshot(org_id),
                 })
 
             elif path == '/api/treasury/reserve-floor':
                 result = set_reserve_floor_policy(body['amount'], body.get('note', ''),
-                                                  by)
+                                                  by, org_id=org_id)
                 log_event(org_id, 'system', 'treasury_reserve_floor_updated',
                           outcome='success', details=result)
                 return self._json({
                     'message': 'Reserve floor updated',
-                    'snapshot': treasury_snapshot(),
+                    'snapshot': treasury_snapshot(org_id),
                 })
 
             elif path == '/api/institution/charter':

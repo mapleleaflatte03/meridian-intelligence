@@ -59,7 +59,7 @@ def _order_client_id(order):
     return order.get('client_id') or order.get('client') or ''
 
 
-def evaluate():
+def evaluate(org_id=None):
     """Evaluate Meridian's current phase. Returns (phase_num, details)."""
     ledger = _load_ledger()
     revenue = _load_revenue()
