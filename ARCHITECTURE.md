@@ -192,7 +192,7 @@ institution, not the live source of truth.
 - Five constitutional primitives (Institution, Agent, Authority, Treasury, Court)
 - Healthy runtime on the live host
 - Governed CI workflow logic and reference pipeline
-- MCP server with 5 paid tools + x402 payment gating
+- MCP server with 5 paid tools + x402 payment gating for the founding Meridian service
 - 3-ledger economy (REP/AUTH/CASH) with auto-scoring
 - Court auto-review wired into scoring pipeline
 - Authority checks wired into MCP tool calls
@@ -205,6 +205,7 @@ institution, not the live source of truth.
 ### What is intentionally not claimed as live:
 - Automated subscriber delivery for external customers
 - Broad self-serve trial or paid subscription flow
+- Institution-scoped subscription storage or MCP session routing
 - Telegram bot/channel as the honest default customer path
 - Multi-institution isolation with zero founding-org shared state in the live system
 - Treasury registries fully cut over from founding ledger pointers into capsule-owned state

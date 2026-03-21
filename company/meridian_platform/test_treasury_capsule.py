@@ -22,6 +22,7 @@ class TreasuryCapsuleTests(unittest.TestCase):
         self._capsules_dir = os.path.join(self._tmp, 'capsules')
         self._legacy_ledger = os.path.join(self._tmp, 'ledger.json')
         self._legacy_revenue = os.path.join(self._tmp, 'revenue.json')
+        self._legacy_transactions = os.path.join(self._tmp, 'transactions.jsonl')
         self.org_id = 'org_live'
 
         with open(self._legacy_ledger, 'w') as f:
@@ -73,15 +74,19 @@ class TreasuryCapsuleTests(unittest.TestCase):
                 },
                 'receivables_usd': 0.0,
             }, f, indent=2)
+        with open(self._legacy_transactions, 'w') as f:
+            f.write('')
 
         self._orig_capsules_dir = capsule.CAPSULES_DIR
         self._orig_legacy_ledger = capsule.LEGACY_LEDGER_FILE
         self._orig_legacy_revenue = capsule.LEGACY_REVENUE_FILE
+        self._orig_legacy_transactions = capsule.LEGACY_TRANSACTIONS_FILE
         self._orig_default_org = capsule.default_org_id
 
         capsule.CAPSULES_DIR = self._capsules_dir
         capsule.LEGACY_LEDGER_FILE = self._legacy_ledger
         capsule.LEGACY_REVENUE_FILE = self._legacy_revenue
+        capsule.LEGACY_TRANSACTIONS_FILE = self._legacy_transactions
         capsule.default_org_id = lambda: self.org_id
 
         self._orig_treasury_default = treasury._default_org_id
@@ -90,8 +95,8 @@ class TreasuryCapsuleTests(unittest.TestCase):
         self._orig_treasury_revenue_path = treasury.capsule_revenue_path
         self._orig_accounting_ensure = accounting.ensure_treasury_aliases
         self._orig_accounting_ledger_path = accounting.capsule_ledger_path
+        self._orig_accounting_tx_path = accounting.capsule_transactions_path
         self._orig_accounting_owner = accounting.OWNER_LEDGER
-        self._orig_accounting_transactions = accounting.TRANSACTIONS
         self._orig_registry_ensure = agent_registry.ensure_treasury_aliases
         self._orig_registry_ledger_path = agent_registry.capsule_ledger_path
         self._orig_registry_file = agent_registry.REGISTRY_FILE
@@ -109,8 +114,8 @@ class TreasuryCapsuleTests(unittest.TestCase):
 
         accounting.ensure_treasury_aliases = capsule.ensure_treasury_aliases
         accounting.capsule_ledger_path = capsule.ledger_path
+        accounting.capsule_transactions_path = capsule.transactions_path
         accounting.OWNER_LEDGER = os.path.join(self._tmp, 'owner_ledger.json')
-        accounting.TRANSACTIONS = os.path.join(self._tmp, 'transactions.jsonl')
 
         agent_registry.ensure_treasury_aliases = capsule.ensure_treasury_aliases
         agent_registry.capsule_ledger_path = capsule.ledger_path
@@ -158,6 +163,7 @@ class TreasuryCapsuleTests(unittest.TestCase):
         capsule.CAPSULES_DIR = self._orig_capsules_dir
         capsule.LEGACY_LEDGER_FILE = self._orig_legacy_ledger
         capsule.LEGACY_REVENUE_FILE = self._orig_legacy_revenue
+        capsule.LEGACY_TRANSACTIONS_FILE = self._orig_legacy_transactions
         capsule.default_org_id = self._orig_default_org
 
         treasury._default_org_id = self._orig_treasury_default
@@ -167,8 +173,8 @@ class TreasuryCapsuleTests(unittest.TestCase):
 
         accounting.ensure_treasury_aliases = self._orig_accounting_ensure
         accounting.capsule_ledger_path = self._orig_accounting_ledger_path
+        accounting.capsule_transactions_path = self._orig_accounting_tx_path
         accounting.OWNER_LEDGER = self._orig_accounting_owner
-        accounting.TRANSACTIONS = self._orig_accounting_transactions
 
         agent_registry.ensure_treasury_aliases = self._orig_registry_ensure
         agent_registry.capsule_ledger_path = self._orig_registry_ledger_path
@@ -188,8 +194,10 @@ class TreasuryCapsuleTests(unittest.TestCase):
         aliases = capsule.ensure_treasury_aliases(self.org_id)
         self.assertTrue(os.path.islink(aliases['ledger']))
         self.assertTrue(os.path.islink(aliases['revenue']))
+        self.assertTrue(os.path.islink(aliases['transactions']))
         self.assertEqual(os.path.realpath(aliases['ledger']), self._legacy_ledger)
         self.assertEqual(os.path.realpath(aliases['revenue']), self._legacy_revenue)
+        self.assertEqual(os.path.realpath(aliases['transactions']), self._legacy_transactions)
 
     def test_matching_regular_file_is_replaced_with_symlink(self):
         org_dir = os.path.join(self._capsules_dir, self.org_id)
@@ -218,6 +226,9 @@ class TreasuryCapsuleTests(unittest.TestCase):
             ledger = json.load(f)
         self.assertEqual(ledger['treasury']['cash_usd'], 8.5)
         self.assertEqual(ledger['treasury']['owner_capital_contributed_usd'], 3.0)
+        with open(self._legacy_transactions) as f:
+            entries = [json.loads(line) for line in f if line.strip()]
+        self.assertTrue(any(entry.get('deposit_type') == 'owner_capital' for entry in entries))
 
     def test_agent_registry_sync_reads_capsule_alias(self):
         capsule.ensure_treasury_aliases(self.org_id)

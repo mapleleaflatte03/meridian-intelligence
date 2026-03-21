@@ -83,7 +83,8 @@ def bootstrap():
         aliases = ensure_treasury_aliases(founding_org_id)
         print(
             f"  Treasury aliases ready: {os.path.relpath(aliases['ledger'], WORKSPACE)}, "
-            f"{os.path.relpath(aliases['revenue'], WORKSPACE)}"
+            f"{os.path.relpath(aliases['revenue'], WORKSPACE)}, "
+            f"{os.path.relpath(aliases['transactions'], WORKSPACE)}"
         )
     except FileNotFoundError:
         print(f'No ledger at {LEGACY_LEDGER_FILE}, skipping agent registration')

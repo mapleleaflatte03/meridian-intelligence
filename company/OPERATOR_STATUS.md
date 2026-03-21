@@ -181,8 +181,10 @@ These reminders go to owner-controlled accounts. Not funnel activity.
 2. **Acquire first external customer** — zero external traction exists.
    Manual pilot path is available via email or Telegram DM (see pilot.html).
 
-No active engineering blocker remains at closeout. The system is currently owner-blocked
-by treasury policy and, as a consequence, by the absence of a fresh brief.
+No tracked public-repo engineering blocker remains at closeout. The remaining
+live runtime modules are intentionally founding-service-only, and the system is
+currently owner-blocked by treasury policy and, as a consequence, by the
+absence of a fresh brief.
 
 ---
 

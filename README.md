@@ -85,7 +85,8 @@ Connect via SSE: `https://app.welliam.codes/sse`
 | `intelligence_weekly_digest` | **$1.50 USDC** | Weekly digest across tracked competitors |
 | `company_info` | **FREE** | Meridian capabilities and pricing |
 
-Every MCP tool call is audited and metered per organization.
+On the live host today, every MCP tool call is audited and metered for the
+founding Meridian institution only. Multi-institution MCP routing is not live.
 
 ---
 

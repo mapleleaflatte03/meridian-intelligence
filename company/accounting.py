@@ -7,10 +7,10 @@ Institution scope:
   Founding-service-only module.  Ledger reads/writes go through capsule
   aliases (ensure_treasury_aliases, capsule_ledger_path) which resolve to
   economy/ledger.json for the founding institution.  Transaction appends
-  go directly to economy/transactions.jsonl — the same file the capsule
-  would resolve to, but the write path is intentionally direct since this
-  module serves exactly one institution.  This module does not support
-  multi-institution operation and is not part of the OSS kernel.
+  also resolve through the founding institution's capsule alias, which
+  points at the canonical economy/transactions.jsonl file.  This module
+  does not support multi-institution operation and is not part of the
+  OSS kernel.
 
 Usage:
   python3 accounting.py contribute --amount <USD> --note "..."
@@ -25,12 +25,11 @@ COMPANY_DIR      = os.path.dirname(os.path.abspath(__file__))
 ECONOMY_DIR      = os.path.join(COMPANY_DIR, '..', 'economy')
 MERIDIAN_PLATFORM_DIR = os.path.join(COMPANY_DIR, 'meridian_platform')
 OWNER_LEDGER     = os.path.join(COMPANY_DIR, 'owner_ledger.json')
-TRANSACTIONS     = os.path.join(ECONOMY_DIR, 'transactions.jsonl')
-
 if MERIDIAN_PLATFORM_DIR not in sys.path:
     sys.path.insert(0, MERIDIAN_PLATFORM_DIR)
 
 from capsule import ensure_treasury_aliases, ledger_path as capsule_ledger_path
+from capsule import transactions_path as capsule_transactions_path
 
 def now_ts():
     return datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
@@ -58,7 +57,8 @@ def save_ledger(data):
 
 def append_tx(entry):
     entry['ts'] = now_ts()
-    with open(TRANSACTIONS, 'a') as f:
+    ensure_treasury_aliases()
+    with open(capsule_transactions_path(), 'a') as f:
         f.write(json.dumps(entry) + '\n')
 
 def load_owner():

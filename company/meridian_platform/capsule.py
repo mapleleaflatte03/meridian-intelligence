@@ -16,6 +16,7 @@ CAPSULES_DIR = os.path.join(WORKSPACE, 'economy', 'capsules')
 ORGS_FILE = os.path.join(PLATFORM_DIR, 'organizations.json')
 LEGACY_LEDGER_FILE = os.path.join(WORKSPACE, 'economy', 'ledger.json')
 LEGACY_REVENUE_FILE = os.path.join(WORKSPACE, 'economy', 'revenue.json')
+LEGACY_TRANSACTIONS_FILE = os.path.join(WORKSPACE, 'economy', 'transactions.jsonl')
 
 
 def _load_orgs():
@@ -58,9 +59,12 @@ def capsule_path(org_id, filename):
     return os.path.join(capsule_dir(org_id), filename)
 
 
-def _load_json(path):
+def _load_alias_content(path):
     if not os.path.exists(path):
         return None
+    if path.endswith('.jsonl'):
+        with open(path) as f:
+            return f.read()
     with open(path) as f:
         return json.load(f)
 
@@ -75,8 +79,8 @@ def _ensure_alias(path, target):
         return path
 
     if os.path.exists(path):
-        current = _load_json(path)
-        target_data = _load_json(target)
+        current = _load_alias_content(path)
+        target_data = _load_alias_content(target)
         if current != target_data:
             raise ValueError(
                 f'Capsule alias collision at {path}: existing file diverges from {target}'
@@ -92,14 +96,19 @@ def ensure_treasury_aliases(org_id=None):
         raise FileNotFoundError(f'Missing live ledger: {LEGACY_LEDGER_FILE}')
     if not os.path.exists(LEGACY_REVENUE_FILE):
         raise FileNotFoundError(f'Missing live revenue state: {LEGACY_REVENUE_FILE}')
+    if not os.path.exists(LEGACY_TRANSACTIONS_FILE):
+        open(LEGACY_TRANSACTIONS_FILE, 'a').close()
 
     ledger_alias = capsule_path(resolved_org_id, 'ledger.json')
     revenue_alias = capsule_path(resolved_org_id, 'revenue.json')
+    transactions_alias = capsule_path(resolved_org_id, 'transactions.jsonl')
     _ensure_alias(ledger_alias, LEGACY_LEDGER_FILE)
     _ensure_alias(revenue_alias, LEGACY_REVENUE_FILE)
+    _ensure_alias(transactions_alias, LEGACY_TRANSACTIONS_FILE)
     return {
         'ledger': ledger_alias,
         'revenue': revenue_alias,
+        'transactions': transactions_alias,
     }
 
 
@@ -109,3 +118,7 @@ def ledger_path(org_id=None):
 
 def revenue_path(org_id=None):
     return ensure_treasury_aliases(org_id)['revenue']
+
+
+def transactions_path(org_id=None):
+    return ensure_treasury_aliases(org_id)['transactions']
