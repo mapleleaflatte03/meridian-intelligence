@@ -214,6 +214,7 @@ class LiveWorkspaceContextTests(unittest.TestCase):
             admission_registry={'admitted_org_ids': ['org_founding']},
         )
         self.assertFalse(snap['enabled'])
+        self.assertFalse(snap['send_enabled'])
         self.assertEqual(snap['disabled_reason'], 'host_federation_disabled')
 
     def test_accept_federation_request_fails_closed_when_disabled(self):
