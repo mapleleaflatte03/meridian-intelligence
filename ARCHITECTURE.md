@@ -213,7 +213,9 @@ institution, not the live source of truth.
 The owner-facing workspace API is process-bound to the founding Meridian
 institution. `/api/context` reports that bound context, and request-level
 `org_id` or `X-Meridian-Org-Id` hints are only accepted on exact match. This is
-an explicit single-org boundary, not live multi-institution routing.
+an explicit single-org boundary, not live multi-institution routing. When
+workspace credentials carry an explicit `org_id` scope, startup rejects any
+mismatch with the founding Meridian institution.
 
 ### Hard numbers:
 - Treasury: $2.00 (owner capital, not customer revenue)

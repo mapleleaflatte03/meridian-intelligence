@@ -91,12 +91,14 @@ def _now():
 def _load_workspace_credentials():
     env_user = os.environ.get('MERIDIAN_WORKSPACE_USER')
     env_password = os.environ.get('MERIDIAN_WORKSPACE_PASS')
+    env_org_id = (os.environ.get('MERIDIAN_WORKSPACE_AUTH_ORG_ID') or '').strip() or None
     if env_user and env_password:
-        return env_user, env_password
+        return env_user, env_password, env_org_id
     if not os.path.exists(WORKSPACE_CREDENTIALS_FILE):
-        return None, None
+        return None, None, None
     user = None
     password = None
+    org_id = None
     with open(WORKSPACE_CREDENTIALS_FILE) as f:
         for raw_line in f:
             line = raw_line.strip()
@@ -104,7 +106,9 @@ def _load_workspace_credentials():
                 user = line.split(':', 1)[1].strip()
             elif line.startswith('pass:'):
                 password = line.split(':', 1)[1].strip()
-    return user, password
+            elif line.startswith('org_id:'):
+                org_id = line.split(':', 1)[1].strip() or None
+    return user, password, org_id
 
 
 def _get_founding_org():
@@ -119,9 +123,15 @@ def _resolve_workspace_context():
     """Bind this live workspace process to the founding Meridian institution."""
     founding_org_id, founding_org = _get_founding_org()
     configured_org_id = WORKSPACE_ORG_ID
+    cred_user, cred_password, credential_org_id = _load_workspace_credentials()
+    credential_scope_active = bool(cred_user and cred_password and credential_org_id)
     if configured_org_id and configured_org_id != founding_org_id:
         raise RuntimeError(
             f"Live workspace only supports founding org '{founding_org_id}', got '{configured_org_id}'"
+        )
+    if credential_scope_active and credential_org_id != founding_org_id:
+        raise RuntimeError(
+            f"Live workspace credentials must scope to founding org '{founding_org_id}', got '{credential_org_id}'"
         )
     return founding_org_id, founding_org, ('configured_org' if configured_org_id else 'founding_default')
 
@@ -149,6 +159,32 @@ def _enforce_request_context(parsed_url, headers, bound_org_id):
         'bound_org_id': bound_org_id,
         'request_override': 'exact-match-only',
         'requested_org_id': requested_org_id,
+    }
+
+
+def _resolve_auth_context(bound_org_id):
+    user, password, credential_org_id = _load_workspace_credentials()
+    auth_enabled = bool(user and password)
+    if credential_org_id and auth_enabled and credential_org_id != bound_org_id:
+        raise RuntimeError(
+            f"Live workspace credentials must scope to bound org '{bound_org_id}', got '{credential_org_id}'"
+        )
+    if not auth_enabled:
+        return {
+            'enabled': False,
+            'mode': 'required_missing' if WORKSPACE_AUTH_REQUIRED else 'disabled',
+            'org_id': None,
+        }
+    if credential_org_id:
+        return {
+            'enabled': True,
+            'mode': 'credential_bound',
+            'org_id': credential_org_id,
+        }
+    return {
+        'enabled': True,
+        'mode': 'process_bound_basic',
+        'org_id': bound_org_id,
     }
 
 
@@ -205,6 +241,7 @@ def api_status(context_source='founding_default'):
             'bound_org_id': org_id,
             'source': context_source,
             'request_override': 'exact-match-only',
+            'auth': _resolve_auth_context(org_id),
         },
         'institution': {
             'id': org_id,
@@ -831,7 +868,7 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
             self.wfile.write(message.encode())
 
     def _is_authorized(self):
-        user, password = _load_workspace_credentials()
+        user, password, _credential_org_id = _load_workspace_credentials()
         if not user or not password:
             return False
 
@@ -851,7 +888,7 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
         protected = path == '/' or path.startswith('/workspace') or path.startswith('/api/')
         if not protected:
             return True
-        user, password = _load_workspace_credentials()
+        user, password, _credential_org_id = _load_workspace_credentials()
         if not user or not password:
             if WORKSPACE_AUTH_REQUIRED:
                 self._service_unavailable('Workspace auth is required but credentials are not configured',
@@ -887,6 +924,7 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
         try:
             org_id, org, context_source = _resolve_workspace_context()
             request_context = _enforce_request_context(parsed, self.headers, org_id)
+            auth_context = _resolve_auth_context(org_id)
         except RuntimeError as e:
             return self._service_unavailable(str(e), is_api=path.startswith('/api/'))
         except ValueError as e:
@@ -899,6 +937,7 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
         elif path == '/api/context':
             return self._json({
                 **request_context,
+                'auth': auth_context,
                 'source': context_source,
                 'institution_name': org.get('name', '') if org else '',
                 'institution_slug': org.get('slug', '') if org else '',
