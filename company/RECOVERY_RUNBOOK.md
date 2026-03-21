@@ -32,7 +32,7 @@ python3 company/meridian_platform/readiness.py
 | Premium delivery dedup | `brief_date` field for reliable dedup; `record_delivery()` returns success/failure |
 | Tests rewritten | `unittest.TestCase` coverage now includes economy integrity plus company money-integrity checks |
 | Pipeline bootstrap files | Created `night-shift/BACKLOG.md` and `night-shift/LAST_HANDOFF.md` |
-| Caddy credentials | Stored at `/etc/caddy/.workspace_credentials` (mode 0600) |
+| Caddy credentials | Stored at `/etc/caddy/.workspace_credentials` (mode 0600, `org_id` pinned to founding Meridian org) |
 | Sentinel authority drift | `lift_sanction()` now restores minimum AUTH when lifting `zero_authority`; Sentinel reconciled to AUTH=6 |
 
 ## What Still Requires Engineering Work
