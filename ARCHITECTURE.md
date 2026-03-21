@@ -82,7 +82,7 @@ Institution {
     auto_sanctions_enabled: bool
     auth_decay_per_epoch: int
   }
-  treasury_id: string               # Pointer to treasury state
+  treasury_id: string               # Current treasury pointer until treasury registry cutover
   lifecycle_state: founding|active|suspended|dissolved
   settings: object
 }
@@ -131,6 +131,10 @@ Read facade — no state file. Reads from:
 - `economy/revenue.json` (orders, receivables)
 - `meridian_platform/metering.jsonl` (spend)
 
+On the live host today, treasury is still ledger-backed for the founding
+institution. Authority and court state have already moved behind the founding
+institution capsule boundary.
+
 ### Court (court.py)
 ```
 CourtRecords {
@@ -155,13 +159,17 @@ Severity-to-sanction mapping (CLAUDE.md §9):
 |------|-------|---------|
 | `meridian_platform/organizations.json` | Institution | Org/institution state |
 | `meridian_platform/agent_registry.json` | Agent | Agent registry |
-| `meridian_platform/authority_queue.json` | Authority | Approvals, delegations, kill switch |
-| `meridian_platform/court_records.json` | Court | Violations, appeals |
+| `economy/capsules/<org_id>/authority_queue.json` | Authority | Approvals, delegations, kill switch |
+| `economy/capsules/<org_id>/court_records.json` | Court | Violations, appeals |
 | `meridian_platform/audit_log.jsonl` | Audit | Event stream (append-only) |
 | `meridian_platform/metering.jsonl` | Metering | Usage meters (append-only) |
 | `economy/ledger.json` | Economy | 3-ledger (REP/AUTH/CASH) |
 | `economy/revenue.json` | Economy | Orders, clients, receivables |
 | `economy/transactions.jsonl` | Economy | Transaction log |
+
+Legacy `meridian_platform/authority_queue.json` and
+`meridian_platform/court_records.json` are now migration inputs for the founding
+institution, not the live source of truth.
 
 ## Workflow Verticals
 
@@ -190,12 +198,14 @@ Severity-to-sanction mapping (CLAUDE.md §9):
 - Public web surface (landing, demo, pilot, support pages)
 - Founder-led manual pilot path
 - Support path separated from customer revenue in doctrine and public surfaces
+- Founding-org authority and court state moved behind capsule-backed paths
 
 ### What is intentionally not claimed as live:
 - Automated subscriber delivery for external customers
 - Broad self-serve trial or paid subscription flow
 - Telegram bot/channel as the honest default customer path
 - Multi-institution isolation with zero founding-org shared state in the live system
+- Treasury registries fully cut over from founding ledger pointers into capsule-owned state
 
 ### Hard numbers:
 - Treasury: $2.00 (owner capital, not customer revenue)

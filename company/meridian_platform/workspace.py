@@ -78,6 +78,7 @@ from treasury import (treasury_snapshot, get_balance, get_runway, check_budget,
 from court import (file_violation, get_violations, resolve_violation,
                    file_appeal, decide_appeal, get_agent_record, auto_review,
                    get_restrictions, remediate, _load_records, VIOLATION_TYPES)
+from capsule import capsule_dir
 from ci_vertical import PIPELINE_PHASES, _phase_gate_snapshot, get_agent_remediation
 
 
@@ -169,6 +170,7 @@ def api_status():
             'policy_defaults': org.get('policy_defaults', {}),
             'plan': org.get('plan', ''),
             'owner_id': org.get('owner_id', ''),
+            'state_capsule': os.path.relpath(capsule_dir(org_id), WORKSPACE) if org_id else None,
             'treasury_id': org.get('treasury_id'),
         } if org else None,
         'agents': agents,
@@ -354,7 +356,8 @@ function render(data) {
     ic += '<div class="form-row"><label>Lifecycle</label> <span class="tag tag-live">' + inst.lifecycle_state.toUpperCase() + '</span></div>';
     ic += '<div class="form-row"><label>Plan</label> ' + inst.plan + '</div>';
     ic += '<div class="form-row"><label>Owner</label> ' + inst.owner_id + '</div>';
-    ic += '<div class="form-row"><label>Treasury</label> ' + (inst.treasury_id || 'none') + '</div>';
+    ic += '<div class="form-row"><label>State Capsule</label> ' + (inst.state_capsule || 'none') + '</div>';
+    ic += '<div class="form-row"><label>Treasury Pointer</label> ' + (inst.treasury_id || 'none') + '</div>';
     ic += '</div><div>';
     ic += '<div class="form-row"><label>Charter</label></div>';
     ic += '<textarea id="charter-text" placeholder="Set institution charter...">' + (inst.charter || '') + '</textarea>';

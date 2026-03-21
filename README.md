@@ -12,6 +12,11 @@ Meridian is a constitutional operating system for running AI agents as governed 
 
 **Competitive intelligence is the first proving vertical** — a 7-agent governed workflow for cited intelligence output. The current customer path is a founder-led manual pilot; automated delivery remains treasury-gated by policy.
 
+On the live host today, Meridian is still operationally single-org. Authority
+and court state already live behind the founding institution capsule boundary;
+treasury still resolves through the founding ledger while the remaining
+treasury cutover is unfinished.
+
 **Live service:** https://app.welliam.codes
 **Product demo:** https://app.welliam.codes/demo.html
 **Current go-to-market mode:** founder-led manual pilot until Meridian reaches customer-backed treasury and treasury-cleared automation
