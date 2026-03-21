@@ -79,6 +79,9 @@ class ReadinessVerdictTests(unittest.TestCase):
         )
         self.assertEqual(report["verdict"], "OWNER_BLOCKED_TREASURY")
         self.assertEqual(report["phase"]["number"], 0)
+        self.assertEqual(report["treasury"]["customer_revenue_usd"], 0.0)
+        self.assertEqual(report["treasury"]["support_received_usd"], 0.0)
+        self.assertEqual(report["treasury"]["owner_capital_usd"], 0.0)
 
     def test_phase_blocked_automation_requires_phase_four_even_if_cash_is_clear(self):
         report = self._collect(
@@ -95,6 +98,7 @@ class ReadinessVerdictTests(unittest.TestCase):
         )
         self.assertEqual(report["verdict"], "PHASE_BLOCKED_AUTOMATION")
         self.assertEqual(report["phase"]["name"], "Customer-Validated Pilot")
+        self.assertEqual(report["treasury"]["customer_revenue_usd"], 0.0)
 
     def test_constitution_blocked_preflight_only_after_automation_phase(self):
         report = self._collect(

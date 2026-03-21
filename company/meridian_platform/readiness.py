@@ -137,6 +137,9 @@ def collect():
             "runway_usd": round(treasury["runway_usd"], 2),
             "blocked": treasury_blocked,
             "shortfall_usd": round(treasury["shortfall_usd"], 2),
+            "customer_revenue_usd": round(treasury.get("total_revenue_usd", 0.0), 2),
+            "support_received_usd": round(treasury.get("support_received_usd", 0.0), 2),
+            "owner_capital_usd": round(treasury.get("owner_capital_usd", 0.0), 2),
         },
         "phase": {
             "number": phase_num,
@@ -170,6 +173,12 @@ def print_report(report):
             if report["treasury"]["blocked"]
             else f"OK runway ${report['treasury']['runway_usd']:.2f}"
         )
+    )
+    print(
+        "Treasury mix: "
+        f"customer ${report['treasury']['customer_revenue_usd']:.2f} | "
+        f"support ${report['treasury']['support_received_usd']:.2f} | "
+        f"owner capital ${report['treasury']['owner_capital_usd']:.2f}"
     )
     print(f"Phase: {report['phase']['number']} — {report['phase']['name']}")
     print(

@@ -47,6 +47,7 @@ from urllib.parse import urlparse, parse_qs
 
 PLATFORM_DIR = os.path.dirname(os.path.abspath(__file__))
 WORKSPACE = os.path.dirname(os.path.dirname(PLATFORM_DIR))
+PHASE_MACHINE_FILE = os.path.join(WORKSPACE, 'company', 'phase_machine.py')
 WORKSPACE_CREDENTIALS_FILE = os.environ.get(
     'MERIDIAN_WORKSPACE_CREDENTIALS_FILE',
     '/etc/caddy/.workspace_credentials',
@@ -62,6 +63,10 @@ from agent_registry import load_registry, sync_from_economy
 from audit import log_event, tail_events
 
 import importlib.util
+
+_phase_spec = importlib.util.spec_from_file_location('company_phase_machine', PHASE_MACHINE_FILE)
+_phase_mod = importlib.util.module_from_spec(_phase_spec)
+_phase_spec.loader.exec_module(_phase_mod)
 
 # Import authority, treasury, court via their public APIs
 from authority import (check_authority, request_approval, decide_approval,
@@ -114,6 +119,7 @@ def api_status():
     reg = load_registry()
     queue = _load_queue()
     snap = treasury_snapshot()
+    phase_num, phase_details = _phase_mod.evaluate()
     records = _load_records()
     lead_id, lead_auth = get_sprint_lead()
 
@@ -166,6 +172,13 @@ def api_status():
             'sprint_lead': {'agent_id': lead_id, 'auth': lead_auth},
         },
         'treasury': snap,
+        'phase_machine': {
+            'number': phase_num,
+            'name': phase_details['name'],
+            'next_phase': phase_details.get('next_phase'),
+            'next_phase_name': phase_details.get('next_phase_name'),
+            'next_unlock': phase_details.get('next_unlock'),
+        },
         'court': {
             'open_violations': open_violations,
             'pending_appeals': pending_appeals,
@@ -451,9 +464,25 @@ function render(data) {
   tc += ' | Spend (30d): $' + tr.spend_30d_usd.toFixed(4);
   tc += ' | ' + (tr.above_reserve ? '<span style="color:var(--green)">Above reserve</span>' : '<span style="color:var(--red)">BELOW reserve</span>');
   tc += '</div>';
+  if (data.phase_machine) {
+    tc += '<div style="margin-top:0.75rem;font-size:0.85rem;color:var(--dim)">';
+    tc += 'Institution phase: <strong style="color:#fff">' + data.phase_machine.number + ' — ' + data.phase_machine.name + '</strong>';
+    if (data.phase_machine.next_phase_name) {
+      tc += ' | Next: ' + data.phase_machine.next_phase + ' — ' + data.phase_machine.next_phase_name;
+    }
+    tc += '</div>';
+    if (data.phase_machine.next_unlock) {
+      tc += '<div style="margin-top:0.35rem;font-size:0.8rem;color:var(--dim)">Next unlock: ' + data.phase_machine.next_unlock + '</div>';
+    }
+  }
   if (!tr.above_reserve) {
     tc += '<div style="margin-top:0.75rem;padding:0.75rem;border:1px solid var(--red);border-radius:6px;background:#241414">';
     tc += '<strong style="color:var(--red)">Operating below reserve.</strong> Clear the reserve gate before any budget-gated phase can proceed, but do not treat that alone as automation-ready state.';
+    tc += '</div>';
+  }
+  if (data.phase_machine && data.phase_machine.number < 4) {
+    tc += '<div style="margin-top:0.75rem;padding:0.75rem;border:1px solid var(--orange);border-radius:6px;background:#2b2011">';
+    tc += '<strong style="color:var(--orange)">Automation still phase-blocked.</strong> Support or owner cash can clear reserve pressure, but automated delivery still waits for customer-backed treasury, treasury-cleared automation, and constitutional preflight.';
     tc += '</div>';
   }
   if (tr.remediation && tr.remediation.blocked) {
