@@ -18,6 +18,11 @@ import sys
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 _WORKSPACE = os.path.dirname(_THIS_DIR)
 ECONOMY_DIR = os.path.join(_WORKSPACE, 'economy')
+_PLATFORM_DIR = os.path.join(_WORKSPACE, 'company', 'meridian_platform')
+if _PLATFORM_DIR not in sys.path:
+    sys.path.insert(0, _PLATFORM_DIR)
+
+from capsule import ensure_treasury_aliases, ledger_path as capsule_ledger_path, revenue_path as capsule_revenue_path
 
 # -- Known internal test Telegram IDs (must never count as external traction) --
 INTERNAL_TEST_IDS = frozenset({
@@ -35,11 +40,13 @@ def _load_json(path):
 
 
 def _load_ledger():
-    return _load_json(os.path.join(ECONOMY_DIR, 'ledger.json'))
+    ensure_treasury_aliases()
+    return _load_json(capsule_ledger_path())
 
 
 def _load_revenue():
-    return _load_json(os.path.join(ECONOMY_DIR, 'revenue.json'))
+    ensure_treasury_aliases()
+    return _load_json(capsule_revenue_path())
 
 
 def _default_org_id():
@@ -163,11 +170,11 @@ def evaluate(org_id=None):
         'next_phase_name': PHASES.get(highest + 1) if highest < 6 else None,
         'next_unlock': next_unlock,
         'treasury': {
-            'cash_usd': t.get('cash_usd', 0),
-            'reserve_floor_usd': t.get('reserve_floor_usd', 50),
-            'total_revenue_usd': total_rev,
-            'support_received_usd': support,
-            'owner_capital_usd': owner_cap,
+            'cash_usd': round(t.get('cash_usd', 0.0), 2),
+            'reserve_floor_usd': round(t.get('reserve_floor_usd', 50.0), 2),
+            'total_revenue_usd': round(total_rev, 2),
+            'support_received_usd': round(support, 2),
+            'owner_capital_usd': round(owner_cap, 2),
         },
         'checks': checks,
     }

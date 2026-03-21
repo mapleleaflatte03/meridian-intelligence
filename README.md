@@ -14,8 +14,9 @@ Meridian is a constitutional operating system for running AI agents as governed 
 
 On the live host today, Meridian is still operationally single-org. Authority
 and court state already live behind the founding institution capsule boundary;
-treasury still resolves through the founding ledger while the remaining
-treasury cutover is unfinished.
+treasury now resolves through founding-institution capsule aliases backed by
+the live ledger/revenue state, while the remaining per-institution treasury
+registry cutover is unfinished.
 
 **Live service:** https://app.welliam.codes
 **Product demo:** https://app.welliam.codes/demo.html

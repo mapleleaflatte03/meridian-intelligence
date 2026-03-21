@@ -2,9 +2,10 @@
 """
 Treasury primitive for Meridian Constitutional OS.
 
-Read facade over economy/ledger.json treasury section + economy/revenue.py +
-meridian_platform/metering.py. Does NOT duplicate ledger writes — reads from
-authoritative sources.
+Read facade over the founding institution treasury state. On the live host
+today that means capsule-backed aliases pointing at the authoritative
+economy/ledger.json and economy/revenue.json files; writes still happen through
+the existing accounting and revenue paths.
 
 Usage:
   python3 treasury.py balance
@@ -31,7 +32,6 @@ _spec = importlib.util.spec_from_file_location('econ_revenue', os.path.join(ECON
 _econ_revenue_mod = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_econ_revenue_mod)
 load_revenue = _econ_revenue_mod.load_revenue
-load_ledger = _econ_revenue_mod.load_ledger
 customer_client_ids = _econ_revenue_mod.customer_client_ids
 customer_orders = _econ_revenue_mod.customer_orders
 
@@ -51,6 +51,7 @@ from agent_registry import (
     get_agent,
     get_agent_by_economy_key,
 )
+from capsule import ensure_treasury_aliases, ledger_path as capsule_ledger_path, revenue_path as capsule_revenue_path
 
 
 def _now():
@@ -77,41 +78,55 @@ def _resolve_org_id(org_id=None):
     return org_id or founding_org_id
 
 
+def _load_json(path):
+    with open(path) as f:
+        return json.load(f)
+
+
+def _load_ledger(org_id=None):
+    _resolve_org_id(org_id)
+    ensure_treasury_aliases(org_id)
+    return _load_json(capsule_ledger_path(org_id))
+
+
+def _load_revenue(org_id=None):
+    _resolve_org_id(org_id)
+    ensure_treasury_aliases(org_id)
+    return _load_json(capsule_revenue_path(org_id))
+
+
 # ── Core functions ───────────────────────────────────────────────────────────
 
 def get_balance(org_id=None):
     """Read treasury.cash_usd from ledger.json."""
-    _resolve_org_id(org_id)
-    ledger = load_ledger()
-    return ledger['treasury']['cash_usd']
+    ledger = _load_ledger(org_id)
+    return round(ledger['treasury']['cash_usd'], 2)
 
 
 def get_reserve_floor(org_id=None):
     """Read treasury.reserve_floor_usd from ledger.json."""
-    _resolve_org_id(org_id)
-    ledger = load_ledger()
-    return ledger['treasury'].get('reserve_floor_usd', 50.0)
+    ledger = _load_ledger(org_id)
+    return round(ledger['treasury'].get('reserve_floor_usd', 50.0), 2)
 
 
 def get_runway(org_id=None):
     """Balance minus reserve floor. Negative means below reserve."""
-    return get_balance(org_id) - get_reserve_floor(org_id)
+    return round(get_balance(org_id) - get_reserve_floor(org_id), 2)
 
 
 def get_revenue_summary(org_id=None):
     """Read revenue state from economy/revenue.py."""
-    _resolve_org_id(org_id)
-    rev = load_revenue()
-    ledger = load_ledger()
+    rev = _load_revenue(org_id)
+    ledger = _load_ledger(org_id)
     t = ledger['treasury']
     orders = customer_orders(rev)
     paid = [o for o in orders.values() if o['status'] == 'paid']
     open_orders = [o for o in orders.values() if o['status'] not in ('paid', 'rejected')]
     return {
-        'total_revenue_usd': t.get('total_revenue_usd', 0.0),
-        'support_received_usd': t.get('support_received_usd', 0.0),
-        'owner_capital_contributed_usd': t.get('owner_capital_contributed_usd', 0.0),
-        'receivables_usd': rev.get('receivables_usd', 0.0),
+        'total_revenue_usd': round(t.get('total_revenue_usd', 0.0), 2),
+        'support_received_usd': round(t.get('support_received_usd', 0.0), 2),
+        'owner_capital_contributed_usd': round(t.get('owner_capital_contributed_usd', 0.0), 2),
+        'receivables_usd': round(rev.get('receivables_usd', 0.0), 2),
         'clients': len(customer_client_ids(rev)),
         'paid_orders': len(paid),
         'open_orders': len(open_orders),
@@ -133,13 +148,17 @@ def get_spend_summary(org_id, period_days=30):
 def contribute_owner_capital(amount_usd, note='', by='owner', org_id=None):
     """Record owner capital contribution via the accounting layer."""
     _resolve_org_id(org_id)
-    return _owner_contribute_capital(amount_usd, note, actor=by)
+    result = _owner_contribute_capital(amount_usd, note, actor=by)
+    ensure_treasury_aliases(org_id)
+    return result
 
 
 def set_reserve_floor_policy(amount_usd, note='', by='owner', org_id=None):
     """Update reserve floor policy via the accounting layer."""
     _resolve_org_id(org_id)
-    return _update_reserve_floor(amount_usd, note, actor=by)
+    result = _update_reserve_floor(amount_usd, note, actor=by)
+    ensure_treasury_aliases(org_id)
+    return result
 
 
 def check_budget(agent_id, cost_usd, org_id=None):
@@ -190,7 +209,7 @@ def can_payout(amount_usd, org_id=None):
 def treasury_snapshot(org_id=None):
     """Combined view: balance, revenue, spend, runway, reserve status."""
     org_id = _resolve_org_id(org_id)
-    ledger = load_ledger()
+    ledger = _load_ledger(org_id)
     t = ledger['treasury']
     rev_summary = get_revenue_summary(org_id)
 
@@ -203,15 +222,15 @@ def treasury_snapshot(org_id=None):
         except Exception:
             pass
 
-    balance = t['cash_usd']
-    floor = t.get('reserve_floor_usd', 50.0)
-    runway = balance - floor
-    shortfall = max(0.0, floor - balance)
+    balance = round(t['cash_usd'], 2)
+    floor = round(t.get('reserve_floor_usd', 50.0), 2)
+    runway = round(balance - floor, 2)
+    shortfall = round(max(0.0, floor - balance), 2)
     remediation = {
         'blocked': runway < 0,
         'shortfall_usd': shortfall,
         'recommended_owner_capital_usd': shortfall,
-        'recommended_reserve_floor_usd': max(0.0, balance),
+        'recommended_reserve_floor_usd': round(max(0.0, balance), 2),
         'next_steps': [],
     }
     if shortfall > 0:
@@ -231,10 +250,10 @@ def treasury_snapshot(org_id=None):
         'runway_usd': runway,
         'shortfall_usd': shortfall,
         'above_reserve': runway >= 0,
-        'total_revenue_usd': t.get('total_revenue_usd', 0.0),
-        'support_received_usd': t.get('support_received_usd', 0.0),
-        'owner_capital_usd': t.get('owner_capital_contributed_usd', 0.0),
-        'owner_draws_usd': t.get('owner_draws_usd', 0.0),
+        'total_revenue_usd': round(t.get('total_revenue_usd', 0.0), 2),
+        'support_received_usd': round(t.get('support_received_usd', 0.0), 2),
+        'owner_capital_usd': round(t.get('owner_capital_contributed_usd', 0.0), 2),
+        'owner_draws_usd': round(t.get('owner_draws_usd', 0.0), 2),
         'receivables_usd': rev_summary['receivables_usd'],
         'spend_30d_usd': spend_usd,
         'clients': rev_summary['clients'],

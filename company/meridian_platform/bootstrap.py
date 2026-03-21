@@ -19,7 +19,7 @@ from organizations import load_orgs, save_orgs, create_org, _now, DEFAULT_POLICY
 from agent_registry import (load_registry, save_registry, _now as _reg_now,
                             INCIDENT_ELEVATED_THRESHOLD, INCIDENT_CRITICAL_THRESHOLD)
 from audit import log_event
-from capsule import ensure_capsule, capsule_path
+from capsule import ensure_capsule, capsule_path, ensure_treasury_aliases
 
 WORKSPACE = os.path.dirname(os.path.dirname(PLATFORM_DIR))
 LEDGER_FILE = os.path.join(WORKSPACE, 'economy', 'ledger.json')
@@ -58,8 +58,9 @@ def bootstrap():
     if 'policy_defaults' not in org:
         org['policy_defaults'] = dict(DEFAULT_POLICY_DEFAULTS)
         backfilled_org = True
-    if 'treasury_id' not in org:
-        org['treasury_id'] = 'economy/ledger.json:treasury'
+    expected_treasury_pointer = f'economy/capsules/{founding_org_id}/ledger.json:treasury'
+    if org.get('treasury_id') != expected_treasury_pointer:
+        org['treasury_id'] = expected_treasury_pointer
         backfilled_org = True
     if 'lifecycle_state' not in org:
         org['lifecycle_state'] = 'active'
@@ -239,6 +240,11 @@ def bootstrap():
 
     # ── 2c. Initialize capsule-backed authority/court state ───────────────
     ensure_capsule(founding_org_id)
+    aliases = ensure_treasury_aliases(founding_org_id)
+    print(
+        f"  Treasury aliases ready: {os.path.relpath(aliases['ledger'], WORKSPACE)}, "
+        f"{os.path.relpath(aliases['revenue'], WORKSPACE)}"
+    )
 
     authority_queue_file = capsule_path(founding_org_id, 'authority_queue.json')
     legacy_authority_queue_file = os.path.join(PLATFORM_DIR, 'authority_queue.json')

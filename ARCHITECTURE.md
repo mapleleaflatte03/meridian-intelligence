@@ -131,9 +131,9 @@ Read facade — no state file. Reads from:
 - `economy/revenue.json` (orders, receivables)
 - `meridian_platform/metering.jsonl` (spend)
 
-On the live host today, treasury is still ledger-backed for the founding
-institution. Authority and court state have already moved behind the founding
-institution capsule boundary.
+On the live host today, treasury resolves through founding-institution capsule
+aliases backed by the live ledger and revenue state. Authority and court state
+have already moved behind the founding institution capsule boundary.
 
 ### Court (court.py)
 ```
@@ -161,6 +161,8 @@ Severity-to-sanction mapping (CLAUDE.md §9):
 | `meridian_platform/agent_registry.json` | Agent | Agent registry |
 | `economy/capsules/<org_id>/authority_queue.json` | Authority | Approvals, delegations, kill switch |
 | `economy/capsules/<org_id>/court_records.json` | Court | Violations, appeals |
+| `economy/capsules/<org_id>/ledger.json` | Treasury pointer | Live treasury alias to current ledger state |
+| `economy/capsules/<org_id>/revenue.json` | Treasury pointer | Live treasury alias to current revenue state |
 | `meridian_platform/audit_log.jsonl` | Audit | Event stream (append-only) |
 | `meridian_platform/metering.jsonl` | Metering | Usage meters (append-only) |
 | `economy/ledger.json` | Economy | 3-ledger (REP/AUTH/CASH) |

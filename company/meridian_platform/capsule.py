@@ -14,6 +14,8 @@ PLATFORM_DIR = os.path.dirname(os.path.abspath(__file__))
 WORKSPACE = os.path.dirname(os.path.dirname(PLATFORM_DIR))
 CAPSULES_DIR = os.path.join(WORKSPACE, 'economy', 'capsules')
 ORGS_FILE = os.path.join(PLATFORM_DIR, 'organizations.json')
+LEGACY_LEDGER_FILE = os.path.join(WORKSPACE, 'economy', 'ledger.json')
+LEGACY_REVENUE_FILE = os.path.join(WORKSPACE, 'economy', 'revenue.json')
 
 
 def _load_orgs():
@@ -54,3 +56,56 @@ def ensure_capsule(org_id=None):
 
 def capsule_path(org_id, filename):
     return os.path.join(capsule_dir(org_id), filename)
+
+
+def _load_json(path):
+    if not os.path.exists(path):
+        return None
+    with open(path) as f:
+        return json.load(f)
+
+
+def _ensure_alias(path, target):
+    ensure_capsule(os.path.basename(os.path.dirname(path)))
+    if os.path.islink(path):
+        current = os.path.realpath(path)
+        if os.path.realpath(target) != current:
+            os.unlink(path)
+            os.symlink(target, path)
+        return path
+
+    if os.path.exists(path):
+        current = _load_json(path)
+        target_data = _load_json(target)
+        if current != target_data:
+            raise ValueError(
+                f'Capsule alias collision at {path}: existing file diverges from {target}'
+            )
+        os.unlink(path)
+    os.symlink(target, path)
+    return path
+
+
+def ensure_treasury_aliases(org_id=None):
+    resolved_org_id = resolve_org_id(org_id)
+    if not os.path.exists(LEGACY_LEDGER_FILE):
+        raise FileNotFoundError(f'Missing live ledger: {LEGACY_LEDGER_FILE}')
+    if not os.path.exists(LEGACY_REVENUE_FILE):
+        raise FileNotFoundError(f'Missing live revenue state: {LEGACY_REVENUE_FILE}')
+
+    ledger_alias = capsule_path(resolved_org_id, 'ledger.json')
+    revenue_alias = capsule_path(resolved_org_id, 'revenue.json')
+    _ensure_alias(ledger_alias, LEGACY_LEDGER_FILE)
+    _ensure_alias(revenue_alias, LEGACY_REVENUE_FILE)
+    return {
+        'ledger': ledger_alias,
+        'revenue': revenue_alias,
+    }
+
+
+def ledger_path(org_id=None):
+    return ensure_treasury_aliases(org_id)['ledger']
+
+
+def revenue_path(org_id=None):
+    return ensure_treasury_aliases(org_id)['revenue']
