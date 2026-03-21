@@ -131,6 +131,12 @@ class FederationPeer:
             return ''
         return self.endpoint_url + '/api/federation/receive'
 
+    @property
+    def manifest_url(self):
+        if not self.endpoint_url:
+            return ''
+        return self.endpoint_url + '/api/federation/manifest'
+
 
 def _normalize_host_id(host_id, *, field_name='host_id'):
     host_id = (host_id or '').strip()
@@ -601,7 +607,7 @@ class FederationAuthority:
     def deliver(self, peer_host_id, source_institution_id, target_institution_id,
                 message_type, payload=None, *, actor_type='host_service',
                 actor_id='', session_id='', warrant_id='', commitment_id='',
-                ttl_seconds=None, http_post=None):
+                ttl_seconds=None, http_post=None, http_get=None):
         self.ensure_enabled()
         peer = self.peer_registry.get('peers', {}).get(peer_host_id)
         if not peer:
@@ -614,6 +620,11 @@ class FederationAuthority:
             raise FederationDeliveryError(
                 f"Peer host '{peer_host_id}' does not declare endpoint_url"
             )
+        manifest = self.preflight_delivery(
+            peer_host_id,
+            target_institution_id,
+            http_get=http_get,
+        )
         envelope = self.issue(
             source_institution_id,
             peer.host_id,
@@ -656,10 +667,110 @@ class FederationAuthority:
             ) from exc
         return {
             'peer': peer.to_dict(),
+            'peer_manifest': manifest,
             'envelope': envelope,
             'claims': claims.to_dict(),
             'response': response,
         }
+
+    def fetch_peer_manifest(self, peer_host_id, *, http_get=None):
+        peer = self.peer_registry.get('peers', {}).get(peer_host_id)
+        if not peer:
+            raise FederationDeliveryError(f"Peer host '{peer_host_id}' is not in peer registry")
+        if peer.trust_state != 'trusted':
+            raise FederationDeliveryError(
+                f"Peer host '{peer_host_id}' is not trusted (state={peer.trust_state})"
+            )
+        if not peer.manifest_url:
+            raise FederationDeliveryError(
+                f"Peer host '{peer_host_id}' does not declare endpoint_url"
+            )
+        getter = http_get or _default_http_get_json
+        try:
+            manifest = getter(peer.manifest_url)
+        except FederationError as exc:
+            raise FederationDeliveryError(
+                str(exc),
+                peer_host_id=peer.host_id,
+            ) from exc
+        except Exception as exc:
+            raise FederationDeliveryError(
+                f"Failed fetching federation manifest from '{peer.host_id}': {exc}",
+                peer_host_id=peer.host_id,
+            ) from exc
+        if not isinstance(manifest, dict):
+            raise FederationDeliveryError(
+                f"Peer host '{peer.host_id}' returned a non-object federation manifest",
+                peer_host_id=peer.host_id,
+                response=manifest,
+            )
+        return peer, manifest
+
+    def preflight_delivery(self, peer_host_id, target_institution_id, *, http_get=None):
+        peer, manifest = self.fetch_peer_manifest(peer_host_id, http_get=http_get)
+        host_identity = manifest.get('host_identity', {}) or {}
+        if host_identity.get('host_id') != peer.host_id:
+            raise FederationDeliveryError(
+                f"Peer manifest host_id '{host_identity.get('host_id', '')}' does not match "
+                f"trusted peer '{peer.host_id}'",
+                peer_host_id=peer.host_id,
+                response=manifest,
+            )
+
+        federation = manifest.get('federation', {}) or {}
+        if federation.get('boundary_name') != 'federation_gateway':
+            raise FederationDeliveryError(
+                f"Peer host '{peer.host_id}' does not surface federation_gateway boundary truth",
+                peer_host_id=peer.host_id,
+                response=manifest,
+            )
+        if federation.get('identity_model') != 'signed_host_service':
+            raise FederationDeliveryError(
+                f"Peer host '{peer.host_id}' federation identity model is "
+                f"{federation.get('identity_model', '')!r}, not 'signed_host_service'",
+                peer_host_id=peer.host_id,
+                response=manifest,
+            )
+        if not federation.get('enabled'):
+            raise FederationDeliveryError(
+                f"Peer host '{peer.host_id}' federation gateway is not enabled",
+                peer_host_id=peer.host_id,
+                response=manifest,
+            )
+
+        service_registry = manifest.get('service_registry', {}) or {}
+        gateway = service_registry.get('federation_gateway', {}) or {}
+        if not gateway:
+            raise FederationDeliveryError(
+                f"Peer host '{peer.host_id}' manifest does not declare federation_gateway service",
+                peer_host_id=peer.host_id,
+                response=manifest,
+            )
+        if not gateway.get('supports_institution_routing'):
+            raise FederationDeliveryError(
+                f"Peer host '{peer.host_id}' does not advertise institution-routable federation gateway",
+                peer_host_id=peer.host_id,
+                response=manifest,
+            )
+
+        if peer.admitted_org_ids and target_institution_id not in peer.admitted_org_ids:
+            raise FederationDeliveryError(
+                f"Peer host '{peer.host_id}' registry does not admit target institution "
+                f"'{target_institution_id}'",
+                peer_host_id=peer.host_id,
+                response=manifest,
+            )
+
+        admission = manifest.get('admission', {}) or {}
+        admitted_org_ids = list(admission.get('admitted_org_ids', []) or [])
+        if admitted_org_ids and target_institution_id not in admitted_org_ids:
+            raise FederationDeliveryError(
+                f"Peer host '{peer.host_id}' manifest does not admit target institution "
+                f"'{target_institution_id}'",
+                peer_host_id=peer.host_id,
+                response=manifest,
+            )
+        return manifest
 
     def snapshot(self, *, bound_org_id='', admission_registry=None):
         enabled, reason = self._enabled_state()
@@ -712,6 +823,19 @@ def _default_http_post_json(url, data):
         headers={'Content-Type': 'application/json'},
         method='POST',
     )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            payload = resp.read().decode('utf-8')
+            return json.loads(payload) if payload else {}
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode('utf-8', errors='replace')
+        raise FederationDeliveryError(
+            f'Peer returned HTTP {exc.code}: {detail or exc.reason}'
+        ) from exc
+
+
+def _default_http_get_json(url):
+    req = urllib.request.Request(url, method='GET')
     try:
         with urllib.request.urlopen(req, timeout=10) as resp:
             payload = resp.read().decode('utf-8')
