@@ -1121,6 +1121,10 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
             session_claims = self._session_claims_from_request(expected_org_id=org_id)
             if session_claims:
                 auth_context = _resolve_auth_context_from_session(session_claims, org_id)
+            elif self.headers.get('Authorization', '').startswith('Bearer '):
+                return self._json({
+                    'error': 'Session token is not valid for this institution'
+                }, 403)
             else:
                 auth_context = _resolve_auth_context(org_id)
         except RuntimeError as e:
@@ -1202,6 +1206,10 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
             session_claims = self._session_claims_from_request(expected_org_id=org_id)
             if session_claims:
                 auth_context = _resolve_auth_context_from_session(session_claims, org_id)
+            elif self.headers.get('Authorization', '').startswith('Bearer '):
+                return self._json({
+                    'error': 'Session token is not valid for this institution'
+                }, 403)
             else:
                 auth_context = _resolve_auth_context(org_id)
             _enforce_mutation_authorization(auth_context, org_id, path)
