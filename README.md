@@ -36,8 +36,11 @@ which surfaces the bound institution context, the serving host identity, the
 current boundary identity model, the live boundary registry, and the admission
 state for this deployment. That admission state is intentionally strict: this
 live runtime remains a single-institution deployment for the founding Meridian
-org, with the admitted institution list containing only that org. The same
-surface now also exposes `runtime_core.federation`: on live today that
+org, with the admitted institution list containing only that org.
+`/api/admission` now exposes that founding-only admission state directly, and
+the corresponding `POST /api/admission/admit|suspend|revoke` routes fail closed
+with a structural rejection instead of pretending live multi-institution
+admission exists. The same surface now also exposes `runtime_core.federation`: on live today that
 federation gateway stays explicitly disabled unless the host is configured with
 peer transport, a signing secret, and trusted peers.
 

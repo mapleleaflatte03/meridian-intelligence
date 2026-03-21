@@ -234,6 +234,9 @@ institutions beyond the founding Meridian org. The live federation gateway is
 also explicit now: the boundary exists in surfaced state, but this deployment
 keeps it disabled until a real peer transport, signing secret, and trusted
 peer registry are configured.
+`/api/admission` now exposes that founding-only admission state directly, and
+the matching `POST /api/admission/admit|suspend|revoke` routes fail closed with
+an explicit `founding_locked` rejection instead of implying shared admission.
 
 ### Hard numbers:
 - Treasury: $2.00 (owner capital, not customer revenue)
