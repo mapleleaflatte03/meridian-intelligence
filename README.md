@@ -23,6 +23,8 @@ endpoint now also reports whether Basic auth is simply process-bound or
 explicitly credential-bound to the founding org. When credentials also carry a
 `user_id`, workspace mutations are role-checked against the founding
 institution membership instead of being treated as a generic Basic-auth user.
+`/api/context` also exposes the effective mutation permission snapshot for the
+bound actor.
 
 **Live service:** https://app.welliam.codes
 **Product demo:** https://app.welliam.codes/demo.html

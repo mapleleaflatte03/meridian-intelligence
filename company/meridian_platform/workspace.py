@@ -95,16 +95,22 @@ ROLE_RANK = {
     'owner': 3,
 }
 
-MEMBER_MUTATION_PATHS = {
-    '/api/authority/request',
-    '/api/court/file',
-    '/api/court/appeal',
-}
-
-OWNER_ONLY_MUTATION_PATHS = {
-    '/api/treasury/contribute',
-    '/api/treasury/reserve-floor',
-    '/api/institution/lifecycle',
+MUTATION_ROLE_REQUIREMENTS = {
+    '/api/authority/kill-switch': 'admin',
+    '/api/authority/approve': 'admin',
+    '/api/authority/request': 'member',
+    '/api/authority/delegate': 'admin',
+    '/api/authority/revoke': 'admin',
+    '/api/court/file': 'member',
+    '/api/court/resolve': 'admin',
+    '/api/court/appeal': 'member',
+    '/api/court/decide-appeal': 'admin',
+    '/api/court/auto-review': 'admin',
+    '/api/court/remediate': 'admin',
+    '/api/treasury/contribute': 'owner',
+    '/api/treasury/reserve-floor': 'owner',
+    '/api/institution/charter': 'admin',
+    '/api/institution/lifecycle': 'owner',
 }
 
 
@@ -253,11 +259,7 @@ def _member_role(org_id, user_id):
 
 
 def _required_mutation_role(path):
-    if path in OWNER_ONLY_MUTATION_PATHS:
-        return 'owner'
-    if path in MEMBER_MUTATION_PATHS:
-        return 'member'
-    return 'admin'
+    return MUTATION_ROLE_REQUIREMENTS.get(path, 'admin')
 
 
 def _enforce_mutation_authorization(auth_context, org_id, path):
@@ -276,10 +278,29 @@ def _enforce_mutation_authorization(auth_context, org_id, path):
     return required_role
 
 
+def _permission_snapshot(auth_context):
+    role = auth_context.get('role')
+    permissions = {}
+    for path, required_role in MUTATION_ROLE_REQUIREMENTS.items():
+        permissions[path] = {
+            'required_role': required_role,
+            'allowed': bool(
+                auth_context.get('enabled')
+                and role
+                and ROLE_RANK.get(role, -1) >= ROLE_RANK.get(required_role, 99)
+            ),
+        }
+    return {
+        'read_allowed': bool(auth_context.get('enabled') or not WORKSPACE_AUTH_REQUIRED),
+        'mutation_paths': permissions,
+    }
+
+
 # ── API data builders ────────────────────────────────────────────────────────
 
 def api_status(context_source='founding_default'):
     org_id, org, context_source = _resolve_workspace_context()
+    auth_context = _resolve_auth_context(org_id)
     reg = load_registry()
     queue = _load_queue(org_id)
     snap = treasury_snapshot(org_id)
@@ -329,7 +350,8 @@ def api_status(context_source='founding_default'):
             'bound_org_id': org_id,
             'source': context_source,
             'request_override': 'exact-match-only',
-            'auth': _resolve_auth_context(org_id),
+            'auth': auth_context,
+            'permissions': _permission_snapshot(auth_context),
         },
         'institution': {
             'id': org_id,
@@ -496,6 +518,21 @@ function api(method, path, body) {
   return fetch(path, opts).then(function(r) { return r.json(); });
 }
 
+var currentContext = null;
+function can(path) {
+  var perms = currentContext && currentContext.permissions && currentContext.permissions.mutation_paths;
+  return !!(perms && perms[path] && perms[path].allowed);
+}
+function requiredRole(path) {
+  var perms = currentContext && currentContext.permissions && currentContext.permissions.mutation_paths;
+  return perms && perms[path] ? perms[path].required_role : 'admin';
+}
+function requirePermission(path) {
+  if (can(path)) return true;
+  toast('This action requires ' + requiredRole(path) + ' role.');
+  return false;
+}
+
 function riskTag(state) {
   if (state === 'critical') return '<span class="tag tag-crit">CRITICAL</span>';
   if (state === 'elevated') return '<span class="tag tag-warn">ELEVATED</span>';
@@ -504,6 +541,7 @@ function riskTag(state) {
 }
 
 function render(data) {
+  currentContext = data.context || null;
   // Status bar
   var ks = data.authority.kill_switch;
   var sb = '';
@@ -515,6 +553,9 @@ function render(data) {
   sb += '<span class="item">Violations: <strong>' + data.court.open_violations.length + ' open</strong></span>';
   sb += '<span class="item">Approvals: <strong>' + data.authority.pending_approvals.length + ' pending</strong></span>';
   sb += '<span class="item">Lead: <strong>' + (data.authority.sprint_lead.agent_id || 'none') + '</strong></span>';
+  if (data.context && data.context.auth && data.context.auth.actor_id) {
+    sb += '<span class="item">Actor: <strong>' + data.context.auth.actor_id + '</strong> (' + (data.context.auth.role || 'unbound') + ')</span>';
+  }
   document.getElementById('status-bar').innerHTML = sb;
 
   // Institution
@@ -779,19 +820,22 @@ function render(data) {
 // ── Action handlers ─────────────────────────────────────────────────────────
 
 function killSwitch(engage) {
+  if (!requirePermission('/api/authority/kill-switch')) return;
   var reason = engage ? prompt('Reason for engaging kill switch:') : '';
   if (engage && !reason) return;
-  api('POST', '/api/authority/kill-switch', { engage: engage, by: 'owner', reason: reason })
+  api('POST', '/api/authority/kill-switch', { engage: engage, reason: reason })
     .then(function(r) { toast(r.message); refresh(); });
 }
 
 function decideApproval(id, decision) {
+  if (!requirePermission('/api/authority/approve')) return;
   var reason = prompt('Reason (' + decision + '):') || '';
-  api('POST', '/api/authority/approve', { approval_id: id, decision: decision, by: 'owner', reason: reason })
+  api('POST', '/api/authority/approve', { approval_id: id, decision: decision, reason: reason })
     .then(function(r) { toast(r.message); refresh(); });
 }
 
 function requestApproval() {
+  if (!requirePermission('/api/authority/request')) return;
   api('POST', '/api/authority/request', {
     agent: document.getElementById('apr-agent').value,
     action: document.getElementById('apr-action').value,
@@ -801,6 +845,7 @@ function requestApproval() {
 }
 
 function createDelegation() {
+  if (!requirePermission('/api/authority/delegate')) return;
   api('POST', '/api/authority/delegate', {
     from: document.getElementById('dlg-from').value,
     to: document.getElementById('dlg-to').value,
@@ -810,12 +855,14 @@ function createDelegation() {
 }
 
 function revokeDelegation(id) {
+  if (!requirePermission('/api/authority/revoke')) return;
   if (!confirm('Revoke delegation ' + id + '?')) return;
   api('POST', '/api/authority/revoke', { delegation_id: id })
     .then(function(r) { toast(r.message); refresh(); });
 }
 
 function fileViolation() {
+  if (!requirePermission('/api/court/file')) return;
   api('POST', '/api/court/file', {
     agent: document.getElementById('vio-agent').value,
     type: document.getElementById('vio-type').value,
@@ -826,6 +873,7 @@ function fileViolation() {
 }
 
 function resolveViolation(id) {
+  if (!requirePermission('/api/court/resolve')) return;
   var note = prompt('Resolution note:');
   if (!note) return;
   api('POST', '/api/court/resolve', { violation_id: id, note: note })
@@ -833,6 +881,7 @@ function resolveViolation(id) {
 }
 
 function fileAppeal(vid, agent) {
+  if (!requirePermission('/api/court/appeal')) return;
   var grounds = prompt('Appeal grounds:');
   if (!grounds) return;
   api('POST', '/api/court/appeal', { violation_id: vid, agent: agent, grounds: grounds })
@@ -840,45 +889,52 @@ function fileAppeal(vid, agent) {
 }
 
 function decideAppealAction(id, decision) {
-  api('POST', '/api/court/decide-appeal', { appeal_id: id, decision: decision, by: 'owner' })
+  if (!requirePermission('/api/court/decide-appeal')) return;
+  api('POST', '/api/court/decide-appeal', { appeal_id: id, decision: decision })
     .then(function(r) { toast(r.message); refresh(); });
 }
 
 function autoReview() {
+  if (!requirePermission('/api/court/auto-review')) return;
   api('POST', '/api/court/auto-review', {})
     .then(function(r) { toast(r.message); refresh(); });
 }
 
 function remediateAgent(agentId, agentName) {
+  if (!requirePermission('/api/court/remediate')) return;
   var note = prompt('Remediation note for ' + agentName + ':') || '';
-  api('POST', '/api/court/remediate', { agent_id: agentId, by: 'owner', note: note })
+  api('POST', '/api/court/remediate', { agent_id: agentId, note: note })
     .then(function(r) { toast(r.message); refresh(); });
 }
 
 function contributeCapital() {
+  if (!requirePermission('/api/treasury/contribute')) return;
   var amount = parseFloat(document.getElementById('cap-amount').value) || 0;
   var note = document.getElementById('cap-note').value || 'owner capital contribution';
   if (amount <= 0) return toast('Capital amount must be greater than 0');
-  api('POST', '/api/treasury/contribute', { amount: amount, note: note, by: 'owner' })
+  api('POST', '/api/treasury/contribute', { amount: amount, note: note })
     .then(function(r) { toast(r.message || r.error); refresh(); });
 }
 
 function updateReserveFloor() {
+  if (!requirePermission('/api/treasury/reserve-floor')) return;
   var amount = parseFloat(document.getElementById('reserve-amount').value);
   var note = document.getElementById('reserve-note').value || 'reserve policy change';
   if (isNaN(amount) || amount < 0) return toast('Reserve floor must be 0 or greater');
   if (!confirm('Update reserve floor to $' + amount.toFixed(2) + '?')) return;
-  api('POST', '/api/treasury/reserve-floor', { amount: amount, note: note, by: 'owner' })
+  api('POST', '/api/treasury/reserve-floor', { amount: amount, note: note })
     .then(function(r) { toast(r.message || r.error); refresh(); });
 }
 
 function setCharter() {
+  if (!requirePermission('/api/institution/charter')) return;
   var text = document.getElementById('charter-text').value;
   api('POST', '/api/institution/charter', { text: text })
     .then(function(r) { toast(r.message); refresh(); });
 }
 
 function setLifecycle() {
+  if (!requirePermission('/api/institution/lifecycle')) return;
   var state = document.getElementById('lifecycle-select').value;
   if (!confirm('Transition institution lifecycle to ' + state + '?')) return;
   api('POST', '/api/institution/lifecycle', { state: state })
@@ -1026,6 +1082,7 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
             return self._json({
                 **request_context,
                 'auth': auth_context,
+                'permissions': _permission_snapshot(auth_context),
                 'source': context_source,
                 'institution_name': org.get('name', '') if org else '',
                 'institution_slug': org.get('slug', '') if org else '',

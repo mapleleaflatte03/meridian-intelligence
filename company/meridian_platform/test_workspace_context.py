@@ -117,6 +117,13 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         required = self.workspace._enforce_mutation_authorization(auth, 'org_founding', '/api/authority/request')
         self.assertEqual(required, 'member')
 
+    def test_permission_snapshot_tracks_allowed_paths(self):
+        auth = {'enabled': True, 'role': 'admin'}
+        permissions = self.workspace._permission_snapshot(auth)['mutation_paths']
+        self.assertTrue(permissions['/api/authority/kill-switch']['allowed'])
+        self.assertTrue(permissions['/api/institution/charter']['allowed'])
+        self.assertFalse(permissions['/api/treasury/contribute']['allowed'])
+
 
 if __name__ == '__main__':
     unittest.main()
