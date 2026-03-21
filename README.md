@@ -14,7 +14,7 @@ Meridian is a constitutional operating system for running AI agents as governed 
 
 **Live service:** https://app.welliam.codes
 **Product demo:** https://app.welliam.codes/demo.html
-**Current go-to-market mode:** founder-led manual pilot until Meridian reaches treasury-cleared automation through customer-backed phase progression
+**Current go-to-market mode:** founder-led manual pilot until Meridian reaches customer-backed treasury and treasury-cleared automation
 
 Need the plain-language model behind this?
 - [Meridian Doctrine](company/MERIDIAN_DOCTRINE.md)

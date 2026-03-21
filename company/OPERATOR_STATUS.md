@@ -39,7 +39,7 @@ It is not promotional copy. Every claim is tagged verified, inferred, or unknown
 - TX hash: `0xde03d0dc2602b815f2bebd3ee7aae005e8a4d3d44fa23c08ba918512c337db93`
 - Note in ledger: "Clean treasury. $2 USDC owner capital deposit 2026-03-16 reclassified from customer_payment to owner_capital per CLAUDE.md §12."
 
-**Why the pipeline is still blocked:** The reserve floor of $50 was set when the pipeline was being configured. With only $2 in treasury, the floor blocks all spending. The floor policy needs to be adjusted for pre-revenue operation OR the treasury needs $48+ recapitalization.
+**Why the pipeline is still blocked:** The reserve floor of $50 was set when the pipeline was being configured. With only $2 in treasury, the floor blocks all spending. The floor policy needs to be adjusted for pre-revenue operation OR the treasury needs $48+ recapitalization just to clear the reserve gate. That still would not make Meridian automation-ready by itself: automated delivery also waits for customer-backed phase progression and constitutional preflight.
 
 ---
 
