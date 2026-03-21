@@ -92,8 +92,8 @@ def query_events(org_id=None, agent_id=None, action=None, since=None,
     return results[:limit]
 
 
-def tail_events(limit=20):
-    """Return the most recent N events."""
+def tail_events(limit=20, org_id=None):
+    """Return the most recent N events, optionally filtered by org_id."""
     if not os.path.exists(AUDIT_FILE):
         return []
 
@@ -104,9 +104,12 @@ def tail_events(limit=20):
             if not line:
                 continue
             try:
-                events.append(json.loads(line))
+                event = json.loads(line)
             except json.JSONDecodeError:
                 continue
+            if org_id and event.get('org_id') != org_id:
+                continue
+            events.append(event)
 
     return events[-limit:]
 
@@ -161,6 +164,7 @@ def main():
     q.add_argument('--limit', type=int, default=50)
 
     t = sub.add_parser('tail')
+    t.add_argument('--org_id', default=None)
     t.add_argument('--limit', type=int, default=20)
 
     s = sub.add_parser('stats')
@@ -179,7 +183,7 @@ def main():
         for e in events:
             print(f"  {e['timestamp']}  {e['action']:<25} {e['outcome']:<10} agent={e.get('agent_id',''):<15} {e.get('resource','')}")
     elif args.command == 'tail':
-        for e in tail_events(args.limit):
+        for e in tail_events(args.limit, org_id=args.org_id):
             print(f"  {e['timestamp']}  {e['action']:<25} {e['outcome']:<10} org={e.get('org_id','')}")
     elif args.command == 'stats':
         print(json.dumps(stats(args.org_id), indent=2))
