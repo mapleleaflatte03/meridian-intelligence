@@ -37,6 +37,7 @@ They are not interchangeable, and only one of them is the current customer path.
 - The two active bot subscriptions today are owner-controlled internal tests.
 - `premium_deliver.py` and `trial_reminder.py` still exercise this path for internal verification only.
 - Once treasury policy allows honest automated delivery again, this bot can resume lifecycle and direct-delivery duties.
+- Subscription state is still founding-service-only, but now resolves through the founding institution's capsule alias rather than a free-floating singleton path.
 
 **Who uses it today:** Owner-controlled internal test accounts only.
 

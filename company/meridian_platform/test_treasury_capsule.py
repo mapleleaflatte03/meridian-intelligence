@@ -23,6 +23,8 @@ class TreasuryCapsuleTests(unittest.TestCase):
         self._legacy_ledger = os.path.join(self._tmp, 'ledger.json')
         self._legacy_revenue = os.path.join(self._tmp, 'revenue.json')
         self._legacy_transactions = os.path.join(self._tmp, 'transactions.jsonl')
+        self._legacy_subscriptions = os.path.join(self._tmp, 'subscriptions.json')
+        self._legacy_subscriptions_backup = os.path.join(self._tmp, 'subscriptions.json.bak')
         self.org_id = 'org_live'
 
         with open(self._legacy_ledger, 'w') as f:
@@ -76,17 +78,31 @@ class TreasuryCapsuleTests(unittest.TestCase):
             }, f, indent=2)
         with open(self._legacy_transactions, 'w') as f:
             f.write('')
+        subscriptions_payload = {
+            'subscribers': {},
+            'delivery_log': [],
+            'updatedAt': '2026-03-21T00:00:00Z',
+            '_meta': {'service_scope': 'founding_meridian_service'},
+        }
+        with open(self._legacy_subscriptions, 'w') as f:
+            json.dump(subscriptions_payload, f, indent=2)
+        with open(self._legacy_subscriptions_backup, 'w') as f:
+            json.dump(subscriptions_payload, f, indent=2)
 
         self._orig_capsules_dir = capsule.CAPSULES_DIR
         self._orig_legacy_ledger = capsule.LEGACY_LEDGER_FILE
         self._orig_legacy_revenue = capsule.LEGACY_REVENUE_FILE
         self._orig_legacy_transactions = capsule.LEGACY_TRANSACTIONS_FILE
+        self._orig_legacy_subscriptions = capsule.LEGACY_SUBSCRIPTIONS_FILE
+        self._orig_legacy_subscriptions_backup = capsule.LEGACY_SUBSCRIPTIONS_BACKUP_FILE
         self._orig_default_org = capsule.default_org_id
 
         capsule.CAPSULES_DIR = self._capsules_dir
         capsule.LEGACY_LEDGER_FILE = self._legacy_ledger
         capsule.LEGACY_REVENUE_FILE = self._legacy_revenue
         capsule.LEGACY_TRANSACTIONS_FILE = self._legacy_transactions
+        capsule.LEGACY_SUBSCRIPTIONS_FILE = self._legacy_subscriptions
+        capsule.LEGACY_SUBSCRIPTIONS_BACKUP_FILE = self._legacy_subscriptions_backup
         capsule.default_org_id = lambda: self.org_id
 
         self._orig_treasury_default = treasury._default_org_id
@@ -164,6 +180,8 @@ class TreasuryCapsuleTests(unittest.TestCase):
         capsule.LEGACY_LEDGER_FILE = self._orig_legacy_ledger
         capsule.LEGACY_REVENUE_FILE = self._orig_legacy_revenue
         capsule.LEGACY_TRANSACTIONS_FILE = self._orig_legacy_transactions
+        capsule.LEGACY_SUBSCRIPTIONS_FILE = self._orig_legacy_subscriptions
+        capsule.LEGACY_SUBSCRIPTIONS_BACKUP_FILE = self._orig_legacy_subscriptions_backup
         capsule.default_org_id = self._orig_default_org
 
         treasury._default_org_id = self._orig_treasury_default
@@ -198,6 +216,11 @@ class TreasuryCapsuleTests(unittest.TestCase):
         self.assertEqual(os.path.realpath(aliases['ledger']), self._legacy_ledger)
         self.assertEqual(os.path.realpath(aliases['revenue']), self._legacy_revenue)
         self.assertEqual(os.path.realpath(aliases['transactions']), self._legacy_transactions)
+        sub_aliases = capsule.ensure_subscription_aliases(self.org_id)
+        self.assertTrue(os.path.islink(sub_aliases['subscriptions']))
+        self.assertTrue(os.path.islink(sub_aliases['subscriptions_backup']))
+        self.assertEqual(os.path.realpath(sub_aliases['subscriptions']), self._legacy_subscriptions)
+        self.assertEqual(os.path.realpath(sub_aliases['subscriptions_backup']), self._legacy_subscriptions_backup)
 
     def test_matching_regular_file_is_replaced_with_symlink(self):
         org_dir = os.path.join(self._capsules_dir, self.org_id)

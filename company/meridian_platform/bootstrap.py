@@ -23,6 +23,7 @@ from capsule import (
     ensure_capsule,
     capsule_path,
     ensure_treasury_aliases,
+    ensure_subscription_aliases,
     ledger_path as capsule_ledger_path,
 )
 
@@ -81,10 +82,15 @@ def bootstrap():
     ensure_capsule(founding_org_id)
     try:
         aliases = ensure_treasury_aliases(founding_org_id)
+        service_aliases = ensure_subscription_aliases(founding_org_id)
         print(
             f"  Treasury aliases ready: {os.path.relpath(aliases['ledger'], WORKSPACE)}, "
             f"{os.path.relpath(aliases['revenue'], WORKSPACE)}, "
             f"{os.path.relpath(aliases['transactions'], WORKSPACE)}"
+        )
+        print(
+            f"  Service aliases ready: {os.path.relpath(service_aliases['subscriptions'], WORKSPACE)}, "
+            f"{os.path.relpath(service_aliases['subscriptions_backup'], WORKSPACE)}"
         )
     except FileNotFoundError:
         print(f'No ledger at {LEGACY_LEDGER_FILE}, skipping agent registration')

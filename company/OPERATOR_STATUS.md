@@ -17,9 +17,9 @@ It is not promotional copy. Every claim is tagged verified, inferred, or unknown
 | Constitutional preflight | BLOCKED — treasury $48 below reserve floor | `treasury.py runway` |
 | Channel delivery (@MeridianIntelligence) | NOT RUNNING — no new briefs (treasury-blocked) | preflight output |
 | Premium delivery (@eggsama_bot) | NOT RUNNING — no new briefs (treasury-blocked) | preflight output |
-| Trial reminders | Would run for 2 active IDs (owner test accounts) | subscriptions.json |
+| Trial reminders | Would run for 2 active IDs (owner test accounts) | subscriptions state via founding capsule alias |
 | Revenue dashboard | Last OK 2026-03-20 (manually triggered) | `scheduler_truth.py --job revenue-dashboard` |
-| External customers | ZERO — all subscription entries are owner test or synthetic residue | subscriptions.json `_meta` |
+| External customers | ZERO — all subscription entries are owner test or synthetic residue | subscriptions state via founding capsule alias `_meta` |
 | Customer revenue received | $0.00 | founding capsule ledger (`economy/ledger.json` via capsule alias) |
 | Owner capital in treasury | $2.00 USDC | founding capsule ledger + transactions.jsonl |
 | Reserve floor | $50.00 | founding capsule ledger |
@@ -140,7 +140,7 @@ Sentinel can now participate in QA and earn AUTH through normal scoring.
 
 ## Subscription State
 
-**Status:** VERIFIED via subscriptions.json and _meta block
+**Status:** VERIFIED via subscriptions state and `_meta` block behind the founding capsule alias
 
 **Active (trial):**
 - `6114408283` — owner-controlled internal test account, expires 2026-03-23

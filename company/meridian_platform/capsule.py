@@ -17,6 +17,8 @@ ORGS_FILE = os.path.join(PLATFORM_DIR, 'organizations.json')
 LEGACY_LEDGER_FILE = os.path.join(WORKSPACE, 'economy', 'ledger.json')
 LEGACY_REVENUE_FILE = os.path.join(WORKSPACE, 'economy', 'revenue.json')
 LEGACY_TRANSACTIONS_FILE = os.path.join(WORKSPACE, 'economy', 'transactions.jsonl')
+LEGACY_SUBSCRIPTIONS_FILE = os.path.join(WORKSPACE, 'company', 'subscriptions.json')
+LEGACY_SUBSCRIPTIONS_BACKUP_FILE = os.path.join(WORKSPACE, 'company', 'subscriptions.json.bak')
 
 
 def _load_orgs():
@@ -112,6 +114,44 @@ def ensure_treasury_aliases(org_id=None):
     }
 
 
+def _ensure_default_json(path, payload):
+    if os.path.exists(path):
+        return
+    with open(path, 'w') as f:
+        json.dump(payload, f, indent=2)
+
+
+def ensure_subscription_aliases(org_id=None):
+    resolved_org_id = resolve_org_id(org_id)
+    _ensure_default_json(
+        LEGACY_SUBSCRIPTIONS_FILE,
+        {
+            'subscribers': {},
+            'delivery_log': [],
+            'updatedAt': '',
+            '_meta': {'service_scope': 'founding_meridian_service'},
+        },
+    )
+    _ensure_default_json(
+        LEGACY_SUBSCRIPTIONS_BACKUP_FILE,
+        {
+            'subscribers': {},
+            'delivery_log': [],
+            'updatedAt': '',
+            '_meta': {'service_scope': 'founding_meridian_service'},
+        },
+    )
+
+    subscriptions_alias = capsule_path(resolved_org_id, 'subscriptions.json')
+    subscriptions_backup_alias = capsule_path(resolved_org_id, 'subscriptions.json.bak')
+    _ensure_alias(subscriptions_alias, LEGACY_SUBSCRIPTIONS_FILE)
+    _ensure_alias(subscriptions_backup_alias, LEGACY_SUBSCRIPTIONS_BACKUP_FILE)
+    return {
+        'subscriptions': subscriptions_alias,
+        'subscriptions_backup': subscriptions_backup_alias,
+    }
+
+
 def ledger_path(org_id=None):
     return ensure_treasury_aliases(org_id)['ledger']
 
@@ -122,3 +162,11 @@ def revenue_path(org_id=None):
 
 def transactions_path(org_id=None):
     return ensure_treasury_aliases(org_id)['transactions']
+
+
+def subscriptions_path(org_id=None):
+    return ensure_subscription_aliases(org_id)['subscriptions']
+
+
+def subscriptions_backup_path(org_id=None):
+    return ensure_subscription_aliases(org_id)['subscriptions_backup']
