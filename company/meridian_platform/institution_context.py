@@ -221,7 +221,10 @@ def service_boundary_registry():
 
 def admission_state(context, additional_institutions_allowed=False,
                     second_institution_path='', host_identity=None,
-                    admission_registry=None):
+                    admission_registry=None,
+                    management_mode='implicit_context',
+                    mutation_enabled=False,
+                    mutation_disabled_reason=''):
     admitted_org_ids = [context.org_id] if context.is_admitted else []
     admission_source = 'implicit_context'
     host_id = ''
@@ -266,12 +269,20 @@ def admission_state(context, additional_institutions_allowed=False,
         'host_role': host_role,
         'federation_enabled': federation_enabled,
         'second_institution_path': second_institution_path,
+        'management_mode': management_mode,
+        'mutation_enabled': bool(mutation_enabled),
+        'mutation_disabled_reason': (
+            '' if mutation_enabled else mutation_disabled_reason
+        ),
     }
 
 
 def runtime_core_snapshot(context, additional_institutions_allowed=False,
                           second_institution_path='', host_identity=None,
-                          admission_registry=None):
+                          admission_registry=None,
+                          admission_management_mode='implicit_context',
+                          admission_mutation_enabled=False,
+                          admission_mutation_disabled_reason=''):
     return {
         'institution_context': context.to_dict(),
         'host_identity': host_identity.to_dict() if host_identity else {},
@@ -283,5 +294,8 @@ def runtime_core_snapshot(context, additional_institutions_allowed=False,
             second_institution_path=second_institution_path,
             host_identity=host_identity,
             admission_registry=admission_registry,
+            management_mode=admission_management_mode,
+            mutation_enabled=admission_mutation_enabled,
+            mutation_disabled_reason=admission_mutation_disabled_reason,
         ),
     }

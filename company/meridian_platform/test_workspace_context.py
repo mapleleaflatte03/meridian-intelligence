@@ -193,12 +193,45 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         status = self.workspace.api_status(institution_context=ctx)
         self.assertEqual(status['runtime_core']['institution_context']['org_id'], 'org_founding')
         self.assertFalse(status['runtime_core']['admission']['additional_institutions_allowed'])
+        self.assertEqual(status['runtime_core']['admission']['management_mode'], 'founding_locked')
+        self.assertFalse(status['runtime_core']['admission']['mutation_enabled'])
         self.assertTrue(status['runtime_core']['service_registry']['federation_gateway']['supports_institution_routing'])
         self.assertFalse(status['runtime_core']['service_registry']['mcp_service']['supports_institution_routing'])
         self.assertEqual(status['runtime_core']['host_identity']['host_id'], 'host_live')
         self.assertEqual(status['runtime_core']['admission']['admitted_org_ids'], ['org_founding'])
+        self.assertEqual(status['runtime_core']['admission']['management_mode'], 'founding_locked')
+        self.assertFalse(status['runtime_core']['admission']['mutation_enabled'])
+        self.assertEqual(
+            status['runtime_core']['admission']['mutation_disabled_reason'],
+            'single_institution_deployment',
+        )
         self.assertIn('federation', status['runtime_core'])
         self.assertFalse(status['runtime_core']['federation']['enabled'])
+
+    def test_admission_snapshot_reports_founding_lock(self):
+        from runtime_host import default_host_identity
+
+        snapshot = self.workspace._admission_snapshot(
+            'org_founding',
+            host_identity=default_host_identity(
+                host_id='host_live',
+                label='Meridian Live Host',
+                role='institution_host',
+            ),
+            admission_registry={
+                'source': 'derived_bound_default',
+                'host_id': 'host_live',
+                'institutions': {'org_founding': {'status': 'admitted'}},
+                'admitted_org_ids': ['org_founding'],
+            },
+        )
+        self.assertEqual(snapshot['management_mode'], 'founding_locked')
+        self.assertFalse(snapshot['mutation_enabled'])
+        self.assertEqual(snapshot['institutions']['org_founding']['status'], 'admitted')
+
+    def test_mutate_admission_fails_closed_for_live_runtime(self):
+        with self.assertRaises(PermissionError):
+            self.workspace._mutate_admission('org_founding', 'admit', 'org_demo_peer')
 
     def test_federation_snapshot_reports_disabled_live_host(self):
         from runtime_host import default_host_identity
@@ -216,6 +249,27 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.assertFalse(snap['enabled'])
         self.assertFalse(snap['send_enabled'])
         self.assertEqual(snap['disabled_reason'], 'host_federation_disabled')
+
+    def test_admission_snapshot_reports_founding_lock(self):
+        from runtime_host import default_host_identity
+        host = default_host_identity(
+            host_id='host_live',
+            label='Meridian Live Host',
+            federation_enabled=False,
+            supported_boundaries=['workspace', 'cli', 'federation_gateway'],
+        )
+        snap = self.workspace._admission_snapshot(
+            'org_founding',
+            host_identity=host,
+            admission_registry={'source': 'derived_bound_default', 'admitted_org_ids': ['org_founding'], 'institutions': {'org_founding': {'status': 'admitted'}}},
+        )
+        self.assertEqual(snap['management_mode'], 'founding_locked')
+        self.assertFalse(snap['mutation_enabled'])
+        self.assertEqual(snap['mutation_disabled_reason'], 'single_institution_deployment')
+
+    def test_mutate_admission_is_rejected_on_live(self):
+        with self.assertRaises(PermissionError):
+            self.workspace._mutate_admission('org_founding', 'admit', 'org_other')
 
     def test_accept_federation_request_fails_closed_when_disabled(self):
         from federation import FederationAuthority, FederationUnavailable

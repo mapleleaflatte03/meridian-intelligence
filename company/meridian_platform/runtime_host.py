@@ -8,6 +8,7 @@ implicit defaults scattered across service binders.
 """
 from __future__ import annotations
 
+import datetime
 import json
 import os
 import socket
@@ -24,6 +25,10 @@ ADMISSION_STATES = (
     'suspended',
     'revoked',
 )
+
+
+def _now():
+    return datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
 
 
 class HostIdentity:
@@ -186,3 +191,70 @@ def ensure_org_admitted(bound_org_id, admission_registry):
             f"(status={state})"
         )
     return True
+
+
+def save_admission_registry(file_path, registry, *, host_identity=None):
+    if not file_path:
+        raise RuntimeError('Admission registry file path is required')
+    host_id = (
+        registry.get('host_id')
+        or (getattr(host_identity, 'host_id', '') if host_identity else '')
+        or ''
+    ).strip()
+    if not host_id:
+        raise RuntimeError('Admission registry must declare host_id')
+
+    data = {
+        'host_id': host_id,
+        'institutions': {},
+        'updated_at': _now(),
+    }
+    for org_id, entry in sorted((registry.get('institutions') or {}).items()):
+        org_id = (org_id or '').strip()
+        if not org_id:
+            continue
+        normalized = dict(entry or {})
+        status = (normalized.get('status') or 'admitted').strip()
+        if status not in ADMISSION_STATES:
+            raise RuntimeError(
+                f'Unknown admission status {status!r} for institution {org_id!r}'
+            )
+        normalized.pop('org_id', None)
+        normalized['status'] = status
+        data['institutions'][org_id] = normalized
+    parent = os.path.dirname(file_path)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+    with open(file_path, 'w') as f:
+        json.dump(data, f, indent=2, sort_keys=True)
+    return load_admission_registry(file_path, host_identity=host_identity)
+
+
+def set_admission_state(file_path, org_id, status, *, bound_org_id=None,
+                        host_identity=None, source='workspace_api', details=None):
+    org_id = (org_id or '').strip()
+    if not org_id:
+        raise RuntimeError('org_id is required')
+    status = (status or '').strip()
+    if status not in ADMISSION_STATES:
+        raise RuntimeError(
+            f'Unknown admission status {status!r}. Must be one of {ADMISSION_STATES}'
+        )
+    registry = load_admission_registry(
+        file_path,
+        bound_org_id=bound_org_id,
+        host_identity=host_identity,
+    )
+    institutions = dict(registry.get('institutions', {}))
+    entry = dict(institutions.get(org_id, {}))
+    entry.update(details or {})
+    entry['org_id'] = org_id
+    entry['status'] = status
+    entry['source'] = source
+    entry['updated_at'] = _now()
+    if status == 'admitted':
+        entry.setdefault('admitted_at', entry['updated_at'])
+    institutions[org_id] = entry
+    registry['host_id'] = registry.get('host_id') or getattr(host_identity, 'host_id', '')
+    registry['institutions'] = institutions
+    return save_admission_registry(file_path, registry, host_identity=host_identity)

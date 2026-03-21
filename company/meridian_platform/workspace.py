@@ -13,6 +13,7 @@ Endpoints:
   GET  /api/authority             → Authority state (kill switch, approvals, delegations)
   GET  /api/treasury              → Treasury snapshot
   GET  /api/court                 → Court records
+  GET  /api/admission             → Host admission state
   GET  /api/federation            → Federation gateway state
   POST /api/authority/kill-switch → Engage/disengage kill switch
   POST /api/authority/approve     → Decide an approval
@@ -26,6 +27,9 @@ Endpoints:
   POST /api/court/remediate       → Lift lingering sanctions after review
   POST /api/treasury/contribute   → Record owner capital contribution
   POST /api/treasury/reserve-floor → Update reserve floor policy
+  POST /api/admission/admit       → Structurally reject non-founding admission changes
+  POST /api/admission/suspend     → Structurally reject admission suspension changes
+  POST /api/admission/revoke      → Structurally reject admission revocation changes
   POST /api/federation/receive    → Validate and consume a federation envelope
   POST /api/institution/charter   → Set charter
   POST /api/institution/lifecycle → Transition lifecycle
@@ -154,6 +158,9 @@ MUTATION_ROLE_REQUIREMENTS = {
     '/api/court/remediate': 'admin',
     '/api/treasury/contribute': 'owner',
     '/api/treasury/reserve-floor': 'owner',
+    '/api/admission/admit': 'owner',
+    '/api/admission/suspend': 'owner',
+    '/api/admission/revoke': 'owner',
     '/api/institution/charter': 'admin',
     '/api/institution/lifecycle': 'owner',
     '/api/session/issue': 'member',
@@ -259,6 +266,40 @@ def _federation_snapshot(bound_org_id, host_identity=None, admission_registry=No
     return _federation_authority(host_identity).snapshot(
         bound_org_id=bound_org_id,
         admission_registry=admission_registry,
+    )
+
+
+def _admission_management_state():
+    return {
+        'management_mode': 'founding_locked',
+        'mutation_enabled': False,
+        'mutation_disabled_reason': 'single_institution_deployment',
+    }
+
+
+def _admission_snapshot(bound_org_id, host_identity=None, admission_registry=None):
+    if host_identity is None or admission_registry is None:
+        host_identity, admission_registry = _runtime_host_state(bound_org_id)
+    institutions = {}
+    for org_id, entry in sorted(admission_registry.get('institutions', {}).items()):
+        data = dict(entry or {})
+        data['org_id'] = org_id
+        institutions[org_id] = data
+    return {
+        'bound_org_id': bound_org_id,
+        'host_id': host_identity.host_id,
+        'host_role': host_identity.role,
+        'source': admission_registry.get('source', 'none'),
+        'admitted_org_ids': list(admission_registry.get('admitted_org_ids', [])),
+        'institutions': institutions,
+        **_admission_management_state(),
+    }
+
+
+def _mutate_admission(bound_org_id, action, target_org_id):
+    raise PermissionError(
+        f"Live runtime remains founding-only; admission mutation '{action}' is disabled "
+        f"for institution '{bound_org_id}'"
     )
 
 
@@ -506,6 +547,9 @@ def api_status(context_source='founding_default', institution_context=None):
             ),
             host_identity=host_identity,
             admission_registry=admission_registry,
+            admission_management_mode=_admission_management_state()['management_mode'],
+            admission_mutation_enabled=_admission_management_state()['mutation_enabled'],
+            admission_mutation_disabled_reason=_admission_management_state()['mutation_disabled_reason'],
         ),
         'institution': {
             'id': org_id,
@@ -1280,6 +1324,9 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                     ),
                     host_identity=host_identity,
                     admission_registry=admission_registry,
+                    admission_management_mode=_admission_management_state()['management_mode'],
+                    admission_mutation_enabled=_admission_management_state()['mutation_enabled'],
+                    admission_mutation_disabled_reason=_admission_management_state()['mutation_disabled_reason'],
                 ),
             }
             response['runtime_core']['federation'] = _federation_snapshot(
@@ -1307,6 +1354,13 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
         elif path == '/api/federation':
             host_identity, admission_registry = _runtime_host_state(org_id)
             return self._json(_federation_snapshot(
+                org_id,
+                host_identity=host_identity,
+                admission_registry=admission_registry,
+            ))
+        elif path == '/api/admission':
+            host_identity, admission_registry = _runtime_host_state(org_id)
+            return self._json(_admission_snapshot(
                 org_id,
                 host_identity=host_identity,
                 admission_registry=admission_registry,
@@ -1561,6 +1615,11 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                           session_id=_sid)
                 return self._json({'message': f'Session revoked: {session_id}'})
 
+            elif path in ('/api/admission/admit', '/api/admission/suspend', '/api/admission/revoke'):
+                action = path.rsplit('/', 1)[-1]
+                _mutate_admission(org_id, action, body.get('org_id'))
+                return self._json({'message': f'Admission {action} applied'})
+
             elif path == '/api/institution/charter':
                 set_charter(org_id, body['text'])
                 log_event(org_id, by, 'charter_set', outcome='success',
@@ -1576,6 +1635,8 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
             else:
                 return self._json({'error': 'Not found'}, 404)
 
+        except PermissionError as e:
+            return self._json({'error': str(e)}, 403)
         except Exception as e:
             return self._json({'error': str(e)}, 400)
 
