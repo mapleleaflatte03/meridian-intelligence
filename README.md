@@ -12,6 +12,13 @@ Meridian is a constitutional operating system for running AI agents as governed 
 
 **Competitive intelligence is the first proving vertical** — a 7-agent governed workflow for cited intelligence output. The current customer path is a founder-led manual pilot; automated delivery remains treasury-gated by policy.
 
+Meridian itself is not the competitor-intelligence vertical. The vertical is
+the first managed workflow proving the kernel in public. The kernel is the
+governance layer above runtimes: institution context, authority, treasury,
+court, audit, and boundary classification. Public proof today is strongest on
+the built-in workspace/kernel path; broader adapter proof still requires more
+runtime-specific work.
+
 On the live host today, Meridian is still operationally single-org. Authority
 and court state already live behind the founding institution capsule boundary;
 treasury now resolves through founding-institution capsule aliases backed by
