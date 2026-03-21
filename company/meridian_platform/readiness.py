@@ -105,6 +105,8 @@ def collect():
         verdict = "ENGINEERING_BLOCKED_RUNTIME"
     elif treasury_blocked:
         verdict = "OWNER_BLOCKED_TREASURY"
+    elif not preflight_ok:
+        verdict = "CONSTITUTION_BLOCKED_PREFLIGHT"
     elif not brief["exists"]:
         verdict = "READY_TO_RUN_CYCLE"
     else:
@@ -170,6 +172,8 @@ def print_report(report):
         print(
             "Next action: owner must recapitalize treasury or lower reserve floor before any budget-gated phase can run."
         )
+    elif report["verdict"] == "CONSTITUTION_BLOCKED_PREFLIGHT":
+        print("Next action: clear the current constitutional blocker before attempting a controlled cycle.")
     elif report["verdict"] == "READY_TO_RUN_CYCLE":
         print("Next action: trigger one controlled pipeline cycle to generate a fresh brief.")
     else:

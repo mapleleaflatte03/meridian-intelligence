@@ -121,6 +121,24 @@ def _latest_run(job):
             'summary': latest.get('summary', ''),
         })
 
+    latest_run['raw_delivered'] = latest_run['delivered']
+    latest_run['raw_delivery_status'] = latest_run['delivery_status']
+    latest_run['delivery_truth_note'] = ''
+    summary = (latest_run.get('summary') or '').lower()
+    blocked_summary = any(
+        marker in summary
+        for marker in (
+            'blocked by constitutional preflight',
+            'no brief',
+            'cannot be treated as ready for delivery',
+        )
+    )
+    if latest_run['run_status'] != 'ok' or latest_run['error'] or blocked_summary:
+        latest_run['delivered'] = False
+        latest_run['delivery_status'] = 'blocked'
+        if latest_run['raw_delivered']:
+            latest_run['delivery_truth_note'] = 'Raw run log marked delivered, but summary/error shows no real delivery.'
+
     latest_run['run_at'] = _fmt_ms(latest_run['run_at_ms'])
     latest_run['finished_at'] = _fmt_ms(latest_run['finished_at_ms'])
     latest_run['error_code'] = _error_code(latest_run['error'])
@@ -139,6 +157,8 @@ def _contradictions(job, latest_run):
             contradictions.append(
                 f"jobs.json lastDelivered={bool(state.get('lastDelivered'))} but run log delivered={latest_run['delivered']}"
             )
+        if latest_run.get('delivery_truth_note'):
+            contradictions.append(latest_run['delivery_truth_note'])
         state_error = state.get('lastError') or state.get('lastDeliveryError') or ''
         if state_error and state_error != latest_run['error']:
             contradictions.append('jobs.json last error differs from latest run log error')
