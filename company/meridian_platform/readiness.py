@@ -32,6 +32,12 @@ _subs_mod = importlib.util.module_from_spec(_subs_spec)
 _subs_spec.loader.exec_module(_subs_mod)
 internal_test_ids = _subs_mod.internal_test_ids
 
+_phase_spec = importlib.util.spec_from_file_location(
+    'company_phase_machine', os.path.join(COMPANY_DIR, 'phase_machine.py')
+)
+_phase_mod = importlib.util.module_from_spec(_phase_spec)
+_phase_spec.loader.exec_module(_phase_mod)
+
 
 def _run(cmd, cwd=WORKSPACE, timeout=30):
     try:
@@ -94,6 +100,7 @@ def collect():
     )
     preflight = _run([sys.executable, CI_VERTICAL_PY, "preflight"], timeout=20)
     treasury = treasury_snapshot()
+    phase_num, phase_details = _phase_mod.evaluate()
     brief = _latest_brief()
     targets = _delivery_targets()
 
@@ -105,6 +112,8 @@ def collect():
         verdict = "ENGINEERING_BLOCKED_RUNTIME"
     elif treasury_blocked:
         verdict = "OWNER_BLOCKED_TREASURY"
+    elif phase_num < 4:
+        verdict = "PHASE_BLOCKED_AUTOMATION"
     elif not preflight_ok:
         verdict = "CONSTITUTION_BLOCKED_PREFLIGHT"
     elif not brief["exists"]:
@@ -128,6 +137,13 @@ def collect():
             "runway_usd": round(treasury["runway_usd"], 2),
             "blocked": treasury_blocked,
             "shortfall_usd": round(treasury["shortfall_usd"], 2),
+        },
+        "phase": {
+            "number": phase_num,
+            "name": phase_details["name"],
+            "next_phase": phase_details.get("next_phase"),
+            "next_phase_name": phase_details.get("next_phase_name"),
+            "next_unlock": phase_details.get("next_unlock"),
         },
         "preflight": {
             "ok": preflight_ok,
@@ -155,6 +171,7 @@ def print_report(report):
             else f"OK runway ${report['treasury']['runway_usd']:.2f}"
         )
     )
+    print(f"Phase: {report['phase']['number']} — {report['phase']['name']}")
     print(
         "Preflight: "
         + ("OK" if report["preflight"]["ok"] else f"BLOCKED ({report['preflight']['summary']})")
@@ -171,6 +188,10 @@ def print_report(report):
     elif report["verdict"] == "OWNER_BLOCKED_TREASURY":
         print(
             "Next action: owner must recapitalize treasury or lower reserve floor before any budget-gated phase can run."
+        )
+    elif report["verdict"] == "PHASE_BLOCKED_AUTOMATION":
+        print(
+            "Next action: do not treat the system as automation-ready yet; the institution has not reached treasury-cleared automation."
         )
     elif report["verdict"] == "CONSTITUTION_BLOCKED_PREFLIGHT":
         print("Next action: clear the current constitutional blocker before attempting a controlled cycle.")
