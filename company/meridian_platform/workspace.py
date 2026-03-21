@@ -92,13 +92,15 @@ def _load_workspace_credentials():
     env_user = os.environ.get('MERIDIAN_WORKSPACE_USER')
     env_password = os.environ.get('MERIDIAN_WORKSPACE_PASS')
     env_org_id = (os.environ.get('MERIDIAN_WORKSPACE_AUTH_ORG_ID') or '').strip() or None
+    env_user_id = (os.environ.get('MERIDIAN_WORKSPACE_USER_ID') or '').strip() or None
     if env_user and env_password:
-        return env_user, env_password, env_org_id
+        return env_user, env_password, env_org_id, env_user_id
     if not os.path.exists(WORKSPACE_CREDENTIALS_FILE):
-        return None, None, None
+        return None, None, None, None
     user = None
     password = None
     org_id = None
+    user_id = None
     with open(WORKSPACE_CREDENTIALS_FILE) as f:
         for raw_line in f:
             line = raw_line.strip()
@@ -108,7 +110,9 @@ def _load_workspace_credentials():
                 password = line.split(':', 1)[1].strip()
             elif line.startswith('org_id:'):
                 org_id = line.split(':', 1)[1].strip() or None
-    return user, password, org_id
+            elif line.startswith('user_id:'):
+                user_id = line.split(':', 1)[1].strip() or None
+    return user, password, org_id, user_id
 
 
 def _get_founding_org():
@@ -123,7 +127,7 @@ def _resolve_workspace_context():
     """Bind this live workspace process to the founding Meridian institution."""
     founding_org_id, founding_org = _get_founding_org()
     configured_org_id = WORKSPACE_ORG_ID
-    cred_user, cred_password, credential_org_id = _load_workspace_credentials()
+    cred_user, cred_password, credential_org_id, _credential_user_id = _load_workspace_credentials()
     credential_scope_active = bool(cred_user and cred_password and credential_org_id)
     if configured_org_id and configured_org_id != founding_org_id:
         raise RuntimeError(
@@ -163,28 +167,35 @@ def _enforce_request_context(parsed_url, headers, bound_org_id):
 
 
 def _resolve_auth_context(bound_org_id):
-    user, password, credential_org_id = _load_workspace_credentials()
+    user, password, credential_org_id, credential_user_id = _load_workspace_credentials()
     auth_enabled = bool(user and password)
     if credential_org_id and auth_enabled and credential_org_id != bound_org_id:
         raise RuntimeError(
             f"Live workspace credentials must scope to bound org '{bound_org_id}', got '{credential_org_id}'"
         )
+    actor_id = credential_user_id or (f'workspace_user:{user}' if user else None)
     if not auth_enabled:
         return {
             'enabled': False,
             'mode': 'required_missing' if WORKSPACE_AUTH_REQUIRED else 'disabled',
             'org_id': None,
+            'actor_id': None,
+            'actor_source': None,
         }
     if credential_org_id:
         return {
             'enabled': True,
             'mode': 'credential_bound',
             'org_id': credential_org_id,
+            'actor_id': actor_id,
+            'actor_source': 'credentials',
         }
     return {
         'enabled': True,
         'mode': 'process_bound_basic',
         'org_id': bound_org_id,
+        'actor_id': actor_id,
+        'actor_source': 'basic_user',
     }
 
 
@@ -868,7 +879,7 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
             self.wfile.write(message.encode())
 
     def _is_authorized(self):
-        user, password, _credential_org_id = _load_workspace_credentials()
+        user, password, _credential_org_id, _credential_user_id = _load_workspace_credentials()
         if not user or not password:
             return False
 
@@ -888,7 +899,7 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
         protected = path == '/' or path.startswith('/workspace') or path.startswith('/api/')
         if not protected:
             return True
-        user, password, _credential_org_id = _load_workspace_credentials()
+        user, password, _credential_org_id, _credential_user_id = _load_workspace_credentials()
         if not user or not password:
             if WORKSPACE_AUTH_REQUIRED:
                 self._service_unavailable('Workspace auth is required but credentials are not configured',
@@ -984,6 +995,7 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
         try:
             org_id, org, _context_source = _resolve_workspace_context()
             _enforce_request_context(parsed, self.headers, org_id)
+            auth_context = _resolve_auth_context(org_id)
         except RuntimeError as e:
             return self._service_unavailable(str(e), is_api=path.startswith('/api/'))
         except ValueError as e:
@@ -994,18 +1006,18 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
         except Exception:
             return self._json({'error': 'Invalid JSON'}, 400)
 
-        by = 'owner'  # server-enforced — never trust client-supplied actor identity
+        by = auth_context.get('actor_id') or 'owner'  # server-enforced — never trust client-supplied actor identity
 
         try:
             if path == '/api/authority/kill-switch':
                 if body.get('engage'):
                     engage_kill_switch(by, body.get('reason', ''), org_id=org_id)
-                    log_event(org_id, 'system', 'kill_switch_engaged', outcome='success',
+                    log_event(org_id, by, 'kill_switch_engaged', outcome='success',
                               details={'by': by, 'reason': body.get('reason')})
                     return self._json({'message': 'Kill switch ENGAGED'})
                 else:
                     disengage_kill_switch(by, org_id=org_id)
-                    log_event(org_id, 'system', 'kill_switch_disengaged', outcome='success',
+                    log_event(org_id, by, 'kill_switch_disengaged', outcome='success',
                               details={'by': by})
                     return self._json({'message': 'Kill switch disengaged'})
 
@@ -1013,8 +1025,8 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                 decision = body['decision']
                 decide_approval(body['approval_id'], decision,
                                by, body.get('reason', ''), org_id=org_id)
-                log_event(org_id, 'system', 'approval_decided', resource=body['approval_id'],
-                          outcome='success', details={'decision': decision})
+                log_event(org_id, by, 'approval_decided', resource=body['approval_id'],
+                          outcome='success', details={'decision': decision, 'reason': body.get('reason', '')})
                 return self._json({'message': f'Approval {body["approval_id"]}: {decision}'})
 
             elif path == '/api/authority/request':
@@ -1033,7 +1045,7 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
 
             elif path == '/api/authority/revoke':
                 revoke_delegation(body['delegation_id'], org_id=org_id)
-                log_event(org_id, 'system', 'delegation_revoked', resource=body['delegation_id'],
+                log_event(org_id, by, 'delegation_revoked', resource=body['delegation_id'],
                           outcome='success')
                 return self._json({'message': f'Delegation revoked: {body["delegation_id"]}'})
 
@@ -1045,8 +1057,8 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
 
             elif path == '/api/court/resolve':
                 resolve_violation(body['violation_id'], body['note'], org_id=org_id)
-                log_event(org_id, 'system', 'violation_resolved', resource=body['violation_id'],
-                          outcome='success')
+                log_event(org_id, by, 'violation_resolved', resource=body['violation_id'],
+                          outcome='success', details={'note': body['note']})
                 return self._json({'message': f'Violation resolved: {body["violation_id"]}'})
 
             elif path == '/api/court/appeal':
@@ -1056,7 +1068,7 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
 
             elif path == '/api/court/decide-appeal':
                 decide_appeal(body['appeal_id'], body['decision'], by, org_id=org_id)
-                log_event(org_id, 'system', 'appeal_decided', resource=body['appeal_id'],
+                log_event(org_id, by, 'appeal_decided', resource=body['appeal_id'],
                           outcome='success', details={'decision': body['decision']})
                 return self._json({'message': f'Appeal {body["appeal_id"]}: {body["decision"]}'})
 
@@ -1068,15 +1080,15 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
             elif path == '/api/court/remediate':
                 lifted = remediate(body['agent_id'], by,
                                    body.get('note', ''), org_id=org_id)
-                log_event(org_id, 'system', 'court_remediation', resource=body['agent_id'],
-                          outcome='success', details={'lifted': lifted})
+                log_event(org_id, by, 'court_remediation', resource=body['agent_id'],
+                          outcome='success', details={'lifted': lifted, 'note': body.get('note', '')})
                 return self._json({'message': f'Remediation complete: lifted {lifted}',
                                    'lifted': lifted})
 
             elif path == '/api/treasury/contribute':
                 result = contribute_owner_capital(body['amount'], body.get('note', ''),
                                                   by, org_id=org_id)
-                log_event(org_id, 'system', 'treasury_owner_capital', outcome='success',
+                log_event(org_id, by, 'treasury_owner_capital', outcome='success',
                           details=result)
                 return self._json({
                     'message': f'Owner capital recorded: +${result["amount_usd"]:.2f}',
@@ -1086,7 +1098,7 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
             elif path == '/api/treasury/reserve-floor':
                 result = set_reserve_floor_policy(body['amount'], body.get('note', ''),
                                                   by, org_id=org_id)
-                log_event(org_id, 'system', 'treasury_reserve_floor_updated',
+                log_event(org_id, by, 'treasury_reserve_floor_updated',
                           outcome='success', details=result)
                 return self._json({
                     'message': 'Reserve floor updated',
@@ -1095,12 +1107,12 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
 
             elif path == '/api/institution/charter':
                 set_charter(org_id, body['text'])
-                log_event(org_id, 'system', 'charter_set', outcome='success')
+                log_event(org_id, by, 'charter_set', outcome='success')
                 return self._json({'message': 'Charter saved'})
 
             elif path == '/api/institution/lifecycle':
                 org_transition_lifecycle(org_id, body['state'])
-                log_event(org_id, 'system', 'lifecycle_transitioned', outcome='success',
+                log_event(org_id, by, 'lifecycle_transitioned', outcome='success',
                           details={'new_state': body['state']})
                 return self._json({'message': f'Lifecycle transitioned to {body["state"]}'})
 

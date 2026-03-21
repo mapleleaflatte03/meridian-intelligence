@@ -34,14 +34,14 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.workspace._load_workspace_credentials = self.orig_load_workspace_credentials
 
     def test_live_workspace_rejects_non_founding_configured_org(self):
-        self.workspace._load_workspace_credentials = lambda: (None, None, None)
+        self.workspace._load_workspace_credentials = lambda: (None, None, None, None)
         self.workspace.WORKSPACE_ORG_ID = 'org_other'
         self.workspace._get_founding_org = lambda: ('org_founding', {'slug': 'meridian', 'name': 'Meridian'})
         with self.assertRaises(RuntimeError):
             self.workspace._resolve_workspace_context()
 
     def test_live_workspace_rejects_non_founding_credential_scope(self):
-        self.workspace._load_workspace_credentials = lambda: ('owner', 'secret', 'org_other')
+        self.workspace._load_workspace_credentials = lambda: ('owner', 'secret', 'org_other', None)
         self.workspace._get_founding_org = lambda: ('org_founding', {'slug': 'meridian', 'name': 'Meridian'})
         with self.assertRaises(RuntimeError):
             self.workspace._resolve_workspace_context()
@@ -63,10 +63,17 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.assertEqual(context['bound_org_id'], 'org_founding')
 
     def test_auth_context_reports_credential_binding(self):
-        self.workspace._load_workspace_credentials = lambda: ('owner', 'secret', 'org_founding')
+        self.workspace._load_workspace_credentials = lambda: ('owner', 'secret', 'org_founding', None)
         auth = self.workspace._resolve_auth_context('org_founding')
         self.assertEqual(auth['mode'], 'credential_bound')
         self.assertEqual(auth['org_id'], 'org_founding')
+        self.assertEqual(auth['actor_id'], 'workspace_user:owner')
+
+    def test_auth_context_prefers_explicit_user_id(self):
+        self.workspace._load_workspace_credentials = lambda: ('owner', 'secret', 'org_founding', 'user_meridian_owner')
+        auth = self.workspace._resolve_auth_context('org_founding')
+        self.assertEqual(auth['actor_id'], 'user_meridian_owner')
+        self.assertEqual(auth['actor_source'], 'credentials')
 
 
 if __name__ == '__main__':
