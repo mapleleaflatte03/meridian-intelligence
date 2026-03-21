@@ -442,12 +442,13 @@ function render(data) {
   tc += '</div>';
   tc += '<div class="grid3" style="margin-top:0.75rem">';
   tc += '<div class="metric"><div class="val">$' + tr.total_revenue_usd.toFixed(2) + '</div><div class="label">Customer Revenue</div></div>';
+  tc += '<div class="metric"><div class="val">$' + tr.support_received_usd.toFixed(2) + '</div><div class="label">Support</div></div>';
   tc += '<div class="metric"><div class="val">$' + tr.owner_capital_usd.toFixed(2) + '</div><div class="label">Owner Capital</div></div>';
-  tc += '<div class="metric"><div class="val">$' + tr.spend_30d_usd.toFixed(4) + '</div><div class="label">Spend (30d)</div></div>';
   tc += '</div>';
   tc += '<div style="margin-top:0.75rem;font-size:0.85rem;color:var(--dim)">';
   tc += 'Receivables: $' + tr.receivables_usd.toFixed(2) + ' | Clients: ' + tr.clients;
   tc += ' | Paid orders: ' + tr.paid_orders + ' | Owner draws: $' + tr.owner_draws_usd.toFixed(2);
+  tc += ' | Spend (30d): $' + tr.spend_30d_usd.toFixed(4);
   tc += ' | ' + (tr.above_reserve ? '<span style="color:var(--green)">Above reserve</span>' : '<span style="color:var(--red)">BELOW reserve</span>');
   tc += '</div>';
   if (!tr.above_reserve) {

@@ -82,6 +82,7 @@ def get_revenue_summary():
     open_orders = [o for o in orders.values() if o['status'] not in ('paid', 'rejected')]
     return {
         'total_revenue_usd': t.get('total_revenue_usd', 0.0),
+        'support_received_usd': t.get('support_received_usd', 0.0),
         'owner_capital_contributed_usd': t.get('owner_capital_contributed_usd', 0.0),
         'receivables_usd': rev.get('receivables_usd', 0.0),
         'clients': len(customer_client_ids(rev)),
@@ -200,6 +201,7 @@ def treasury_snapshot():
         'shortfall_usd': shortfall,
         'above_reserve': runway >= 0,
         'total_revenue_usd': t.get('total_revenue_usd', 0.0),
+        'support_received_usd': t.get('support_received_usd', 0.0),
         'owner_capital_usd': t.get('owner_capital_contributed_usd', 0.0),
         'owner_draws_usd': t.get('owner_draws_usd', 0.0),
         'receivables_usd': rev_summary['receivables_usd'],
@@ -272,6 +274,7 @@ def main():
         print(f"Reserve floor:   ${snap['reserve_floor_usd']:.2f}")
         print(f"Runway:          ${snap['runway_usd']:.2f} {'(OK)' if snap['above_reserve'] else '(BELOW RESERVE)'}")
         print(f"Revenue:         ${snap['total_revenue_usd']:.2f}")
+        print(f"Support:         ${snap['support_received_usd']:.2f}")
         print(f"Owner capital:   ${snap['owner_capital_usd']:.2f}")
         print(f"Owner draws:     ${snap['owner_draws_usd']:.2f}")
         print(f"Receivables:     ${snap['receivables_usd']:.2f}")
