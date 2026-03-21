@@ -27,6 +27,11 @@ WORKSPACE = os.path.dirname(os.path.dirname(PLATFORM_DIR))
 ECONOMY_DIR = os.path.join(WORKSPACE, 'economy')
 RECORDS_FILE = os.path.join(PLATFORM_DIR, 'court_records.json')
 
+if PLATFORM_DIR not in sys.path:
+    sys.path.insert(0, PLATFORM_DIR)
+
+from capsule import capsule_path, ensure_capsule
+
 # Import economy sanctions module (avoid name collision)
 import importlib.util
 _spec = importlib.util.spec_from_file_location('econ_sanctions', os.path.join(ECONOMY_DIR, 'sanctions.py'))
@@ -88,17 +93,52 @@ def _matches_org(entry_org_id, org_id):
     return not org_id or entry_org_id in (None, '', org_id)
 
 
-def _load_records(org_id=None):
-    _resolve_org_id(org_id)
+def _records_path(org_id=None):
+    return capsule_path(org_id, 'court_records.json')
+
+
+def _records_have_state(data):
+    return bool(data.get('violations')) or bool(data.get('appeals'))
+
+
+def _migrate_legacy_records_if_needed(org_id=None):
+    path = _records_path(org_id)
+    legacy_data = None
     if os.path.exists(RECORDS_FILE):
         with open(RECORDS_FILE) as f:
+            legacy_data = json.load(f)
+    if os.path.exists(path):
+        if legacy_data and _records_have_state(legacy_data):
+            with open(path) as f:
+                current = json.load(f)
+            if not _records_have_state(current):
+                with open(path, 'w') as f:
+                    json.dump(legacy_data, f, indent=2)
+        return path
+    if legacy_data is not None:
+        ensure_capsule(org_id)
+        with open(path, 'w') as f:
+            json.dump(legacy_data, f, indent=2)
+        return path
+    return path
+
+
+def _load_records(org_id=None):
+    _resolve_org_id(org_id)
+    path = _migrate_legacy_records_if_needed(org_id)
+    if os.path.exists(path):
+        with open(path) as f:
             return json.load(f)
     return {'violations': {}, 'appeals': {}, 'updatedAt': _now()}
 
 
-def _save_records(data):
+def _save_records(data, org_id=None):
     data['updatedAt'] = _now()
-    with open(RECORDS_FILE, 'w') as f:
+    org_id = _resolve_org_id(org_id)
+    path = _migrate_legacy_records_if_needed(org_id)
+    if not os.path.exists(os.path.dirname(path)):
+        ensure_capsule(org_id)
+    with open(path, 'w') as f:
         json.dump(data, f, indent=2)
 
 
@@ -162,7 +202,7 @@ def file_violation(agent_id, org_id, violation_type, severity, evidence, policy_
         'created_at': _now(),
         'resolved_at': None,
     }
-    _save_records(records)
+    _save_records(records, org_id)
 
     # Audit log
     try:
@@ -202,7 +242,7 @@ def resolve_violation(violation_id, resolution_note, org_id=None):
     v['status'] = 'resolved'
     v['resolved_at'] = _now()
     v['resolution_note'] = resolution_note
-    _save_records(records)
+    _save_records(records, org_id)
 
 
 def file_appeal(violation_id, agent_id, grounds, org_id=None):
@@ -228,7 +268,7 @@ def file_appeal(violation_id, agent_id, grounds, org_id=None):
         'created_at': _now(),
     }
     v['status'] = 'appealed'
-    _save_records(records)
+    _save_records(records, org_id)
     return appeal_id
 
 
@@ -270,7 +310,7 @@ def decide_appeal(appeal_id, decision, decided_by, org_id=None):
     elif decision == 'upheld' and violation:
         violation['status'] = 'sanctioned'
 
-    _save_records(records)
+    _save_records(records, org_id)
 
 
 def get_agent_record(agent_id, org_id=None):

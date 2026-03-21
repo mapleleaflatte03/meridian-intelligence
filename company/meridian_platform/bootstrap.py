@@ -19,6 +19,7 @@ from organizations import load_orgs, save_orgs, create_org, _now, DEFAULT_POLICY
 from agent_registry import (load_registry, save_registry, _now as _reg_now,
                             INCIDENT_ELEVATED_THRESHOLD, INCIDENT_CRITICAL_THRESHOLD)
 from audit import log_event
+from capsule import ensure_capsule, capsule_path
 
 WORKSPACE = os.path.dirname(os.path.dirname(PLATFORM_DIR))
 LEDGER_FILE = os.path.join(WORKSPACE, 'economy', 'ledger.json')
@@ -236,9 +237,28 @@ def bootstrap():
     if backfilled_agents:
         print(f'  Backfilled fields on {backfilled_agents} agent(s)')
 
-    # ── 2c. Initialize authority_queue.json ───────────────────────────────
-    authority_queue_file = os.path.join(PLATFORM_DIR, 'authority_queue.json')
-    if not os.path.exists(authority_queue_file):
+    # ── 2c. Initialize capsule-backed authority/court state ───────────────
+    ensure_capsule(founding_org_id)
+
+    authority_queue_file = capsule_path(founding_org_id, 'authority_queue.json')
+    legacy_authority_queue_file = os.path.join(PLATFORM_DIR, 'authority_queue.json')
+    if os.path.exists(legacy_authority_queue_file):
+        should_copy_legacy = True
+        if os.path.exists(authority_queue_file):
+            with open(authority_queue_file) as f:
+                current = json.load(f)
+            should_copy_legacy = bool(
+                current.get('pending_approvals')
+                or current.get('delegations')
+                or current.get('kill_switch', {}).get('engaged')
+            ) is False
+        if should_copy_legacy:
+            with open(legacy_authority_queue_file) as f:
+                legacy = json.load(f)
+            with open(authority_queue_file, 'w') as f:
+                json.dump(legacy, f, indent=2)
+            print('  Migrated legacy authority_queue.json into capsule state')
+    elif not os.path.exists(authority_queue_file):
         now = _reg_now()
         with open(authority_queue_file, 'w') as f:
             json.dump({
@@ -252,11 +272,24 @@ def bootstrap():
                 },
                 'updatedAt': now,
             }, f, indent=2)
-        print('  Initialized authority_queue.json')
+        print('  Initialized capsule authority_queue.json')
 
     # ── 2d. Initialize court_records.json ─────────────────────────────────
-    court_records_file = os.path.join(PLATFORM_DIR, 'court_records.json')
-    if not os.path.exists(court_records_file):
+    court_records_file = capsule_path(founding_org_id, 'court_records.json')
+    legacy_court_records_file = os.path.join(PLATFORM_DIR, 'court_records.json')
+    if os.path.exists(legacy_court_records_file):
+        should_copy_legacy = True
+        if os.path.exists(court_records_file):
+            with open(court_records_file) as f:
+                current = json.load(f)
+            should_copy_legacy = not (current.get('violations') or current.get('appeals'))
+        if should_copy_legacy:
+            with open(legacy_court_records_file) as f:
+                legacy = json.load(f)
+            with open(court_records_file, 'w') as f:
+                json.dump(legacy, f, indent=2)
+            print('  Migrated legacy court_records.json into capsule state')
+    elif not os.path.exists(court_records_file):
         now = _reg_now()
         with open(court_records_file, 'w') as f:
             json.dump({
@@ -264,7 +297,7 @@ def bootstrap():
                 'appeals': {},
                 'updatedAt': now,
             }, f, indent=2)
-        print('  Initialized court_records.json')
+        print('  Initialized capsule court_records.json')
 
     # ── 3. Log bootstrap event ───────────────────────────────────────────
     log_event(

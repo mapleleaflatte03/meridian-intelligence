@@ -28,6 +28,11 @@ WORKSPACE = os.path.dirname(os.path.dirname(PLATFORM_DIR))
 ECONOMY_DIR = os.path.join(WORKSPACE, 'economy')
 QUEUE_FILE = os.path.join(PLATFORM_DIR, 'authority_queue.json')
 
+if PLATFORM_DIR not in sys.path:
+    sys.path.insert(0, PLATFORM_DIR)
+
+from capsule import capsule_path, ensure_capsule
+
 # Import economy authority module (avoid name collision with this file)
 import importlib.util
 _spec = importlib.util.spec_from_file_location('econ_authority', os.path.join(ECONOMY_DIR, 'authority.py'))
@@ -66,10 +71,45 @@ def _matches_org(entry_org_id, org_id):
     return not org_id or entry_org_id in (None, '', org_id)
 
 
-def _load_queue(org_id=None):
-    _resolve_org_id(org_id)
+def _queue_path(org_id=None):
+    return capsule_path(org_id, 'authority_queue.json')
+
+
+def _queue_has_state(data):
+    return (
+        bool(data.get('pending_approvals'))
+        or bool(data.get('delegations'))
+        or bool(data.get('kill_switch', {}).get('engaged'))
+    )
+
+
+def _migrate_legacy_queue_if_needed(org_id=None):
+    path = _queue_path(org_id)
+    legacy_data = None
     if os.path.exists(QUEUE_FILE):
         with open(QUEUE_FILE) as f:
+            legacy_data = json.load(f)
+    if os.path.exists(path):
+        if legacy_data and _queue_has_state(legacy_data):
+            with open(path) as f:
+                current = json.load(f)
+            if not _queue_has_state(current):
+                with open(path, 'w') as f:
+                    json.dump(legacy_data, f, indent=2)
+        return path
+    if legacy_data is not None:
+        ensure_capsule(org_id)
+        with open(path, 'w') as f:
+            json.dump(legacy_data, f, indent=2)
+        return path
+    return path
+
+
+def _load_queue(org_id=None):
+    org_id = _resolve_org_id(org_id)
+    path = _migrate_legacy_queue_if_needed(org_id)
+    if os.path.exists(path):
+        with open(path) as f:
             return json.load(f)
     return {
         'pending_approvals': {},
@@ -84,9 +124,13 @@ def _load_queue(org_id=None):
     }
 
 
-def _save_queue(data):
+def _save_queue(data, org_id=None):
     data['updatedAt'] = _now()
-    with open(QUEUE_FILE, 'w') as f:
+    org_id = _resolve_org_id(org_id)
+    path = _migrate_legacy_queue_if_needed(org_id)
+    if not os.path.exists(os.path.dirname(path)):
+        ensure_capsule(org_id)
+    with open(path, 'w') as f:
         json.dump(data, f, indent=2)
 
 
@@ -139,7 +183,7 @@ def request_approval(agent_id, action, resource, cost_usd=0.0, org_id=None):
         'decided_at': None,
         'reason': '',
     }
-    _save_queue(queue)
+    _save_queue(queue, org_id)
     return approval_id
 
 
@@ -160,7 +204,7 @@ def decide_approval(approval_id, decision, decided_by, reason='', org_id=None):
     approval['decided_by'] = decided_by
     approval['decided_at'] = _now()
     approval['reason'] = reason
-    _save_queue(queue)
+    _save_queue(queue, org_id)
     return True
 
 
@@ -180,7 +224,7 @@ def delegate(from_agent_id, to_agent_id, scopes, duration_hours=24, org_id=None)
         'expires_at': expires,
         'created_at': _now(),
     }
-    _save_queue(queue)
+    _save_queue(queue, org_id)
     return delegation_id
 
 
@@ -193,7 +237,7 @@ def revoke_delegation(delegation_id, org_id=None):
     if not _matches_org(queue['delegations'][delegation_id].get('org_id'), org_id):
         raise ValueError(f'Delegation {delegation_id} does not belong to {org_id}')
     del queue['delegations'][delegation_id]
-    _save_queue(queue)
+    _save_queue(queue, org_id)
 
 
 def engage_kill_switch(engaged_by, reason, org_id=None):
@@ -207,7 +251,7 @@ def engage_kill_switch(engaged_by, reason, org_id=None):
         'engaged_at': _now(),
         'reason': reason,
     }
-    _save_queue(queue)
+    _save_queue(queue, org_id)
 
 
 def disengage_kill_switch(engaged_by, org_id=None):
@@ -221,7 +265,7 @@ def disengage_kill_switch(engaged_by, org_id=None):
         'engaged_at': None,
         'reason': '',
     }
-    _save_queue(queue)
+    _save_queue(queue, org_id)
 
 
 def get_sprint_lead(org_id=None):
