@@ -24,7 +24,11 @@ explicitly credential-bound to the founding org. When credentials also carry a
 `user_id`, workspace mutations are role-checked against the founding
 institution membership instead of being treated as a generic Basic-auth user.
 `/api/context` also exposes the effective mutation permission snapshot for the
-bound actor.
+bound actor. `/api/context` and `/api/status` now also expose `runtime_core`,
+which surfaces the bound institution context, the current boundary identity
+model, the live boundary registry, and the admission state for this deployment.
+That admission state is intentionally strict: this live runtime remains a
+single-institution deployment for the founding Meridian org.
 
 **Live service:** https://app.welliam.codes
 **Product demo:** https://app.welliam.codes/demo.html
@@ -94,7 +98,9 @@ Connect via SSE: `https://app.welliam.codes/sse`
 | `company_info` | **FREE** | Meridian capabilities and pricing |
 
 On the live host today, every MCP tool call is audited and metered for the
-founding Meridian institution only. Multi-institution MCP routing is not live.
+founding Meridian institution only. The shared runtime-core taxonomy classifies
+that path as `mcp_service` with identity model `x402_payment` and scope
+`founding_service_only`. Multi-institution MCP routing is not live.
 
 ---
 

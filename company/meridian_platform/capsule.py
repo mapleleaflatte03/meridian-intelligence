@@ -71,6 +71,46 @@ def _load_alias_content(path):
         return json.load(f)
 
 
+def _write_json(path, payload):
+    with open(path, 'w') as f:
+        json.dump(payload, f, indent=2)
+
+
+def _merge_revenue_state(current, target_data):
+    """Heal a split-brain revenue alias in the single-org live runtime.
+
+    This is intentionally narrow: only the founding revenue state is merged,
+    because it is the one live treasury path that may already have diverged
+    between a regular capsule file and the legacy target during earlier
+    cutover work.
+    """
+    if not isinstance(current, dict) or not isinstance(target_data, dict):
+        return None
+
+    current_ts = current.get('updatedAt', '') or ''
+    target_ts = target_data.get('updatedAt', '') or ''
+    primary, secondary = (
+        (current, target_data) if current_ts >= target_ts else (target_data, current)
+    )
+
+    merged = dict(secondary)
+    merged.update(primary)
+    merged['clients'] = {
+        **target_data.get('clients', {}),
+        **current.get('clients', {}),
+    }
+    merged['orders'] = {
+        **target_data.get('orders', {}),
+        **current.get('orders', {}),
+    }
+    merged['receivables_usd'] = max(
+        float(target_data.get('receivables_usd', 0.0) or 0.0),
+        float(current.get('receivables_usd', 0.0) or 0.0),
+    )
+    merged['updatedAt'] = max(current_ts, target_ts)
+    return merged
+
+
 def _ensure_alias(path, target):
     ensure_capsule(os.path.basename(os.path.dirname(path)))
     if os.path.islink(path):
@@ -84,9 +124,14 @@ def _ensure_alias(path, target):
         current = _load_alias_content(path)
         target_data = _load_alias_content(target)
         if current != target_data:
-            raise ValueError(
-                f'Capsule alias collision at {path}: existing file diverges from {target}'
-            )
+            merged = None
+            if os.path.basename(path) == 'revenue.json':
+                merged = _merge_revenue_state(current, target_data)
+            if merged is None:
+                raise ValueError(
+                    f'Capsule alias collision at {path}: existing file diverges from {target}'
+                )
+            _write_json(target, merged)
         os.unlink(path)
     os.symlink(target, path)
     return path
@@ -117,8 +162,7 @@ def ensure_treasury_aliases(org_id=None):
 def _ensure_default_json(path, payload):
     if os.path.exists(path):
         return
-    with open(path, 'w') as f:
-        json.dump(payload, f, indent=2)
+    _write_json(path, payload)
 
 
 def ensure_subscription_aliases(org_id=None):

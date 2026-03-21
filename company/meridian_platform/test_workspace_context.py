@@ -64,6 +64,17 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.assertEqual(context['requested_org_id'], 'org_founding')
         self.assertEqual(context['bound_org_id'], 'org_founding')
 
+    def test_live_workspace_context_returns_institution_context(self):
+        self.workspace._load_workspace_credentials = lambda: (None, None, None, None)
+        self.workspace._get_founding_org = lambda: (
+            'org_founding',
+            {'id': 'org_founding', 'slug': 'meridian', 'name': 'Meridian', 'lifecycle_state': 'founding'},
+        )
+        ctx = self.workspace._resolve_workspace_context()
+        self.assertEqual(ctx.org_id, 'org_founding')
+        self.assertEqual(ctx.boundary.name, 'workspace')
+        self.assertEqual(ctx.context_source, 'founding_default')
+
     def test_auth_context_reports_credential_binding(self):
         self.workspace._load_workspace_credentials = lambda: ('owner', 'secret', 'org_founding', None)
         auth = self.workspace._resolve_auth_context('org_founding')
@@ -123,6 +134,40 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.assertTrue(permissions['/api/authority/kill-switch']['allowed'])
         self.assertTrue(permissions['/api/institution/charter']['allowed'])
         self.assertFalse(permissions['/api/treasury/contribute']['allowed'])
+
+    def test_api_status_exposes_runtime_core(self):
+        self.workspace._load_workspace_credentials = lambda: ('owner', 'secret', 'org_founding', 'user_owner')
+        self.workspace._get_founding_org = lambda: (
+            'org_founding',
+            {
+                'id': 'org_founding',
+                'slug': 'meridian',
+                'name': 'Meridian',
+                'owner_id': 'user_owner',
+                'members': [{'user_id': 'user_owner', 'role': 'owner'}],
+                'lifecycle_state': 'founding',
+                'policy_defaults': {},
+            },
+        )
+        self.workspace.load_registry = lambda: {'agents': {}}
+        self.workspace._load_queue = lambda org_id: {
+            'kill_switch': False,
+            'pending_approvals': {},
+            'delegations': {},
+        }
+        self.workspace.treasury_snapshot = lambda org_id: {}
+        self.workspace._phase_mod.evaluate = lambda org_id: (0, {'name': 'Founder-Backed Build'})
+        self.workspace._load_records = lambda org_id: {'violations': {}, 'appeals': {}}
+        self.workspace.get_sprint_lead = lambda org_id: ('', 0)
+        self.workspace.get_pending_approvals = lambda org_id=None: []
+        self.workspace._ci_vertical_status = lambda reg, lead_id, org_id: {}
+        self.workspace.get_agent_remediation = lambda economy_key, reg, org_id=None: None
+        self.workspace.capsule_dir = lambda org_id: f'/tmp/capsules/{org_id}'
+        ctx = self.workspace._resolve_workspace_context()
+        status = self.workspace.api_status(institution_context=ctx)
+        self.assertEqual(status['runtime_core']['institution_context']['org_id'], 'org_founding')
+        self.assertFalse(status['runtime_core']['admission']['additional_institutions_allowed'])
+        self.assertFalse(status['runtime_core']['service_registry']['mcp_service']['supports_institution_routing'])
 
 
 if __name__ == '__main__':

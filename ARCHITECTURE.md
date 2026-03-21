@@ -219,7 +219,16 @@ mismatch with the founding Meridian institution. If credentials also carry a
 `user_id`, workspace mutations resolve the actor through the founding org
 membership and enforce role-based mutation guards on top of Basic auth.
 `/api/context` now returns the effective mutation permission snapshot for that
-bound actor.
+bound actor. `/api/context` and `/api/status` now also surface `runtime_core`,
+which exposes:
+- the bound institution context
+- the current boundary identity model
+- the live boundary registry (`workspace`, `mcp_service`, `payment_monitor`, `subscriptions`, `accounting`, `cli`)
+- the live admission model
+
+That admission model is explicitly `single_institution_deployment`. The live
+workspace is institution-bound, but this deployment does not admit additional
+institutions beyond the founding Meridian org.
 
 ### Hard numbers:
 - Treasury: $2.00 (owner capital, not customer revenue)

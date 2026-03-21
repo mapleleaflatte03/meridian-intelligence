@@ -83,6 +83,7 @@ from court import (file_violation, get_violations, resolve_violation,
 from session import SessionAuthority
 from capsule import capsule_dir
 from ci_vertical import PIPELINE_PHASES, _phase_gate_snapshot, get_agent_remediation
+from institution_context import InstitutionContext, WORKSPACE_BOUNDARY, runtime_core_snapshot
 
 # Process-level session authority (tokens do not survive restarts unless
 # MERIDIAN_SESSION_SECRET is set in the environment).
@@ -175,7 +176,12 @@ def _resolve_workspace_context():
         raise RuntimeError(
             f"Live workspace credentials must scope to founding org '{founding_org_id}', got '{credential_org_id}'"
         )
-    return founding_org_id, founding_org, ('configured_org' if configured_org_id else 'founding_default')
+    return InstitutionContext.bind(
+        founding_org_id,
+        founding_org,
+        ('configured_org' if configured_org_id else 'founding_default'),
+        WORKSPACE_BOUNDARY,
+    )
 
 
 def _requested_org_override(parsed_url, headers):
@@ -334,8 +340,14 @@ def _permission_snapshot(auth_context):
 
 # ── API data builders ────────────────────────────────────────────────────────
 
-def api_status(context_source='founding_default'):
-    org_id, org, context_source = _resolve_workspace_context()
+def api_status(context_source='founding_default', institution_context=None):
+    if institution_context is not None:
+        inst_ctx = institution_context
+    else:
+        inst_ctx = _resolve_workspace_context()
+    org_id = inst_ctx.org_id
+    org = inst_ctx.org
+    context_source = inst_ctx.context_source
     auth_context = _resolve_auth_context(org_id)
     reg = load_registry()
     queue = _load_queue(org_id)
@@ -389,6 +401,15 @@ def api_status(context_source='founding_default'):
             'auth': auth_context,
             'permissions': _permission_snapshot(auth_context),
         },
+        'runtime_core': runtime_core_snapshot(
+            inst_ctx,
+            additional_institutions_allowed=False,
+            second_institution_path=(
+                'Live runtime remains founding-only. Admitting a second institution '
+                'requires a new runtime program; this deployment does not expose '
+                'shared multi-institution routing.'
+            ),
+        ),
         'institution': {
             'id': org_id,
             'name': org.get('name', ''),
@@ -1116,7 +1137,10 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
         if not self._require_auth(path):
             return
         try:
-            org_id, org, context_source = _resolve_workspace_context()
+            inst_ctx = _resolve_workspace_context()
+            org_id = inst_ctx.org_id
+            org = inst_ctx.org
+            context_source = inst_ctx.context_source
             request_context = _enforce_request_context(parsed, self.headers, org_id)
             session_claims = self._session_claims_from_request(expected_org_id=org_id)
             if session_claims:
@@ -1135,15 +1159,22 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
         if path == '/' or path == '/workspace':
             return self._html(DASHBOARD_HTML)
         elif path == '/api/status':
-            return self._json(api_status(context_source=context_source))
+            return self._json(api_status(institution_context=inst_ctx))
         elif path == '/api/context':
             return self._json({
                 **request_context,
                 'auth': auth_context,
                 'permissions': _permission_snapshot(auth_context),
-                'source': context_source,
-                'institution_name': org.get('name', '') if org else '',
-                'institution_slug': org.get('slug', '') if org else '',
+                'institution': inst_ctx.to_dict(),
+                'runtime_core': runtime_core_snapshot(
+                    inst_ctx,
+                    additional_institutions_allowed=False,
+                    second_institution_path=(
+                        'Live runtime remains founding-only. Admitting a second '
+                        'institution requires a new runtime program; this '
+                        'deployment does not expose shared multi-institution routing.'
+                    ),
+                ),
             })
         elif path == '/api/institution':
             return self._json(org or {})
@@ -1201,7 +1232,8 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
         if not self._require_auth(path):
             return
         try:
-            org_id, org, _context_source = _resolve_workspace_context()
+            inst_ctx = _resolve_workspace_context()
+            org_id = inst_ctx.org_id
             _enforce_request_context(parsed, self.headers, org_id)
             session_claims = self._session_claims_from_request(expected_org_id=org_id)
             if session_claims:
@@ -1393,7 +1425,8 @@ def main():
     if args.org_id:
         WORKSPACE_ORG_ID = args.org_id
 
-    org_id, org, context_source = _resolve_workspace_context()
+    inst_ctx = _resolve_workspace_context()
+    org_id, org, context_source = inst_ctx.org_id, inst_ctx.org, inst_ctx.context_source
 
     server = HTTPServer(('127.0.0.1', args.port), WorkspaceHandler)
     print(f'Governed Workspace running at http://127.0.0.1:{args.port}')

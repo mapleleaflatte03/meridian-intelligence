@@ -232,6 +232,28 @@ class TreasuryCapsuleTests(unittest.TestCase):
         self.assertTrue(os.path.islink(ledger_alias))
         self.assertEqual(os.path.realpath(ledger_alias), self._legacy_ledger)
 
+    def test_revenue_collision_is_merged_and_relinked(self):
+        org_dir = os.path.join(self._capsules_dir, self.org_id)
+        os.makedirs(org_dir, exist_ok=True)
+        revenue_alias = os.path.join(org_dir, 'revenue.json')
+        with open(revenue_alias, 'w') as f:
+            json.dump({
+                'clients': {
+                    'cli_b': {'id': 'cli_b', 'name': 'Client B'},
+                },
+                'orders': {},
+                'receivables_usd': 0.0,
+                'updatedAt': '2026-03-22T00:00:00Z',
+            }, f, indent=2)
+        capsule.ensure_treasury_aliases(self.org_id)
+        self.assertTrue(os.path.islink(revenue_alias))
+        self.assertEqual(os.path.realpath(revenue_alias), self._legacy_revenue)
+        with open(self._legacy_revenue) as f:
+            merged = json.load(f)
+        self.assertIn('cli_a', merged['clients'])
+        self.assertIn('cli_b', merged['clients'])
+        self.assertEqual(merged['updatedAt'], '2026-03-22T00:00:00Z')
+
     def test_treasury_reads_through_capsule_aliases(self):
         capsule.ensure_treasury_aliases(self.org_id)
         self.assertEqual(treasury.get_balance(self.org_id), 7.5)

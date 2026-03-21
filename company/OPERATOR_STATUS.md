@@ -17,6 +17,7 @@ It is not promotional copy. Every claim is tagged verified, inferred, or unknown
 | Constitutional preflight | BLOCKED — treasury $48 below reserve floor | `treasury.py runway` |
 | Channel delivery (@MeridianIntelligence) | NOT RUNNING — no new briefs (treasury-blocked) | preflight output |
 | Premium delivery (@eggsama_bot) | NOT RUNNING — no new briefs (treasury-blocked) | preflight output |
+| Workspace runtime-core surface | VERIFIED — `/api/context` and `/api/status` expose boundary registry + admission truth for founding Meridian | authenticated curl to `http://127.0.0.1:18901/api/context` and `/api/status` |
 | Trial reminders | Would run for 2 active IDs (owner test accounts) | subscriptions state via founding capsule alias |
 | Revenue dashboard | Last OK 2026-03-20 (manually triggered) | `scheduler_truth.py --job revenue-dashboard` |
 | External customers | ZERO — all subscription entries are owner test or synthetic residue | subscriptions state via founding capsule alias `_meta` |
