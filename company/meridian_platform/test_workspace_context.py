@@ -26,11 +26,13 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.workspace = _load_workspace('live_workspace_context_test')
         self.orig_workspace_org_id = self.workspace.WORKSPACE_ORG_ID
         self.orig_get_founding_org = self.workspace._get_founding_org
+        self.orig_load_orgs = self.workspace.load_orgs
         self.orig_load_workspace_credentials = self.workspace._load_workspace_credentials
 
     def tearDown(self):
         self.workspace.WORKSPACE_ORG_ID = self.orig_workspace_org_id
         self.workspace._get_founding_org = self.orig_get_founding_org
+        self.workspace.load_orgs = self.orig_load_orgs
         self.workspace._load_workspace_credentials = self.orig_load_workspace_credentials
 
     def test_live_workspace_rejects_non_founding_configured_org(self):
@@ -71,9 +73,49 @@ class LiveWorkspaceContextTests(unittest.TestCase):
 
     def test_auth_context_prefers_explicit_user_id(self):
         self.workspace._load_workspace_credentials = lambda: ('owner', 'secret', 'org_founding', 'user_meridian_owner')
+        self.workspace.load_orgs = lambda: {
+            'organizations': {
+                'org_founding': {
+                    'id': 'org_founding',
+                    'slug': 'meridian',
+                    'name': 'Meridian',
+                    'owner_id': 'user_meridian_owner',
+                    'members': [{'user_id': 'user_meridian_owner', 'role': 'owner'}],
+                },
+            }
+        }
         auth = self.workspace._resolve_auth_context('org_founding')
         self.assertEqual(auth['actor_id'], 'user_meridian_owner')
         self.assertEqual(auth['actor_source'], 'credentials')
+        self.assertEqual(auth['role'], 'owner')
+
+    def test_auth_context_resolves_owner_alias_role(self):
+        self.workspace._load_workspace_credentials = lambda: ('owner', 'secret', 'org_founding', None)
+        self.workspace.load_orgs = lambda: {
+            'organizations': {
+                'org_founding': {
+                    'id': 'org_founding',
+                    'slug': 'meridian',
+                    'name': 'Meridian',
+                    'owner_id': 'user_son',
+                    'members': [{'user_id': 'user_son', 'role': 'owner'}],
+                },
+            }
+        }
+        auth = self.workspace._resolve_auth_context('org_founding')
+        self.assertEqual(auth['user_id'], 'user_son')
+        self.assertEqual(auth['role'], 'owner')
+        self.assertEqual(auth['actor_source'], 'owner_alias')
+
+    def test_mutation_authorization_requires_admin_for_kill_switch(self):
+        auth = {'enabled': True, 'role': 'member'}
+        with self.assertRaises(PermissionError):
+            self.workspace._enforce_mutation_authorization(auth, 'org_founding', '/api/authority/kill-switch')
+
+    def test_mutation_authorization_allows_member_request(self):
+        auth = {'enabled': True, 'role': 'member'}
+        required = self.workspace._enforce_mutation_authorization(auth, 'org_founding', '/api/authority/request')
+        self.assertEqual(required, 'member')
 
 
 if __name__ == '__main__':

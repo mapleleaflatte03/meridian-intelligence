@@ -215,7 +215,9 @@ institution. `/api/context` reports that bound context, and request-level
 `org_id` or `X-Meridian-Org-Id` hints are only accepted on exact match. This is
 an explicit single-org boundary, not live multi-institution routing. When
 workspace credentials carry an explicit `org_id` scope, startup rejects any
-mismatch with the founding Meridian institution.
+mismatch with the founding Meridian institution. If credentials also carry a
+`user_id`, workspace mutations resolve the actor through the founding org
+membership and enforce role-based mutation guards on top of Basic auth.
 
 ### Hard numbers:
 - Treasury: $2.00 (owner capital, not customer revenue)

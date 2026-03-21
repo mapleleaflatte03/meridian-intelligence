@@ -20,7 +20,9 @@ registry cutover is unfinished. The owner-facing workspace is process-bound to
 the founding Meridian institution; `/api/context` reports that bound context
 and rejects request-level org overrides that do not exactly match it. The same
 endpoint now also reports whether Basic auth is simply process-bound or
-explicitly credential-bound to the founding org.
+explicitly credential-bound to the founding org. When credentials also carry a
+`user_id`, workspace mutations are role-checked against the founding
+institution membership instead of being treated as a generic Basic-auth user.
 
 **Live service:** https://app.welliam.codes
 **Product demo:** https://app.welliam.codes/demo.html

@@ -88,6 +88,26 @@ def _now():
     return datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
 
 
+ROLE_RANK = {
+    'viewer': 0,
+    'member': 1,
+    'admin': 2,
+    'owner': 3,
+}
+
+MEMBER_MUTATION_PATHS = {
+    '/api/authority/request',
+    '/api/court/file',
+    '/api/court/appeal',
+}
+
+OWNER_ONLY_MUTATION_PATHS = {
+    '/api/treasury/contribute',
+    '/api/treasury/reserve-floor',
+    '/api/institution/lifecycle',
+}
+
+
 def _load_workspace_credentials():
     env_user = os.environ.get('MERIDIAN_WORKSPACE_USER')
     env_password = os.environ.get('MERIDIAN_WORKSPACE_PASS')
@@ -173,12 +193,29 @@ def _resolve_auth_context(bound_org_id):
         raise RuntimeError(
             f"Live workspace credentials must scope to bound org '{bound_org_id}', got '{credential_org_id}'"
         )
-    actor_id = credential_user_id or (f'workspace_user:{user}' if user else None)
+    resolved_user_id = None
+    actor_source = None
+    if credential_user_id:
+        resolved_user_id = credential_user_id
+        actor_source = 'credentials'
+    elif user and _member_role(bound_org_id, user):
+        resolved_user_id = user
+        actor_source = 'basic_user_id'
+    elif user == 'owner':
+        org = load_orgs().get('organizations', {}).get(bound_org_id)
+        owner_id = (org or {}).get('owner_id')
+        if owner_id:
+            resolved_user_id = owner_id
+            actor_source = 'owner_alias'
+    role = _member_role(bound_org_id, resolved_user_id)
+    actor_id = resolved_user_id or (f'workspace_user:{user}' if user else None)
     if not auth_enabled:
         return {
             'enabled': False,
             'mode': 'required_missing' if WORKSPACE_AUTH_REQUIRED else 'disabled',
             'org_id': None,
+            'user_id': None,
+            'role': None,
             'actor_id': None,
             'actor_source': None,
         }
@@ -187,16 +224,56 @@ def _resolve_auth_context(bound_org_id):
             'enabled': True,
             'mode': 'credential_bound',
             'org_id': credential_org_id,
+            'user_id': resolved_user_id,
+            'role': role,
             'actor_id': actor_id,
-            'actor_source': 'credentials',
+            'actor_source': actor_source or 'credentials',
         }
     return {
         'enabled': True,
         'mode': 'process_bound_basic',
         'org_id': bound_org_id,
+        'user_id': resolved_user_id,
+        'role': role,
         'actor_id': actor_id,
-        'actor_source': 'basic_user',
+        'actor_source': actor_source or 'basic_user',
     }
+
+
+def _member_role(org_id, user_id):
+    if not org_id or not user_id:
+        return None
+    org = load_orgs().get('organizations', {}).get(org_id)
+    if not org:
+        return None
+    for member in org.get('members', []):
+        if member.get('user_id') == user_id:
+            return member.get('role')
+    return None
+
+
+def _required_mutation_role(path):
+    if path in OWNER_ONLY_MUTATION_PATHS:
+        return 'owner'
+    if path in MEMBER_MUTATION_PATHS:
+        return 'member'
+    return 'admin'
+
+
+def _enforce_mutation_authorization(auth_context, org_id, path):
+    if not auth_context.get('enabled'):
+        raise PermissionError('Workspace auth is required for mutations')
+    role = auth_context.get('role')
+    if not role:
+        raise PermissionError(
+            f"Workspace credential actor is not a member of institution '{org_id}'"
+        )
+    required_role = _required_mutation_role(path)
+    if ROLE_RANK.get(role, -1) < ROLE_RANK.get(required_role, 99):
+        raise PermissionError(
+            f"Workspace actor role '{role}' cannot mutate '{path}'; requires {required_role}"
+        )
+    return required_role
 
 
 # ── API data builders ────────────────────────────────────────────────────────
@@ -996,10 +1073,13 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
             org_id, org, _context_source = _resolve_workspace_context()
             _enforce_request_context(parsed, self.headers, org_id)
             auth_context = _resolve_auth_context(org_id)
+            _enforce_mutation_authorization(auth_context, org_id, path)
         except RuntimeError as e:
             return self._service_unavailable(str(e), is_api=path.startswith('/api/'))
         except ValueError as e:
             return self._json({'error': str(e)}, 400)
+        except PermissionError as e:
+            return self._json({'error': str(e)}, 403)
 
         try:
             body = self._read_body()
