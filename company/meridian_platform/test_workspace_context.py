@@ -266,6 +266,33 @@ class LiveWorkspaceContextTests(unittest.TestCase):
                 'shared_secret': 'beta-secret',
             })
 
+    def test_federation_manifest_reports_founding_locked_runtime(self):
+        from runtime_host import default_host_identity
+
+        self.workspace._load_workspace_credentials = lambda: (None, None, None, None)
+        self.workspace._get_founding_org = lambda: (
+            'org_founding',
+            {'id': 'org_founding', 'slug': 'meridian', 'name': 'Meridian', 'lifecycle_state': 'founding'},
+        )
+        manifest = self.workspace._federation_manifest(
+            self.workspace._resolve_workspace_context(),
+            host_identity=default_host_identity(
+                host_id='host_live',
+                label='Meridian Live Host',
+                federation_enabled=False,
+                supported_boundaries=['workspace', 'cli', 'federation_gateway'],
+            ),
+            admission_registry={
+                'source': 'derived_bound_default',
+                'host_id': 'host_live',
+                'institutions': {'org_founding': {'status': 'admitted'}},
+                'admitted_org_ids': ['org_founding'],
+            },
+        )
+        self.assertEqual(manifest['host_identity']['host_id'], 'host_live')
+        self.assertEqual(manifest['admission']['management_mode'], 'founding_locked')
+        self.assertFalse(manifest['federation']['enabled'])
+
     def test_admission_snapshot_reports_founding_lock(self):
         from runtime_host import default_host_identity
         host = default_host_identity(
