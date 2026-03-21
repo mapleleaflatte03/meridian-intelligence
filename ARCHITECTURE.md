@@ -210,6 +210,11 @@ institution, not the live source of truth.
 - Multi-institution isolation with zero founding-org shared state in the live system
 - Treasury registries fully cut over from founding ledger pointers into capsule-owned state
 
+The owner-facing workspace API is process-bound to the founding Meridian
+institution. `/api/context` reports that bound context, and request-level
+`org_id` or `X-Meridian-Org-Id` hints are only accepted on exact match. This is
+an explicit single-org boundary, not live multi-institution routing.
+
 ### Hard numbers:
 - Treasury: $2.00 (owner capital, not customer revenue)
 - Customer revenue: $0.00

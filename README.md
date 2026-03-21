@@ -16,7 +16,9 @@ On the live host today, Meridian is still operationally single-org. Authority
 and court state already live behind the founding institution capsule boundary;
 treasury now resolves through founding-institution capsule aliases backed by
 the live ledger/revenue state, while the remaining per-institution treasury
-registry cutover is unfinished.
+registry cutover is unfinished. The owner-facing workspace is process-bound to
+the founding Meridian institution; `/api/context` reports that bound context
+and rejects request-level org overrides that do not exactly match it.
 
 **Live service:** https://app.welliam.codes
 **Product demo:** https://app.welliam.codes/demo.html
