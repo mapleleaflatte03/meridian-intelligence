@@ -57,7 +57,7 @@ PIPELINE_PHASES = [
     {'phase': 'qa_aegis',    'agent': 'aegis',     'action': 'review',  'description': 'Run acceptance gate and PASS/FAIL decision'},
     {'phase': 'execute',     'agent': 'forge',     'action': 'execute', 'description': 'Execute bounded improvement task'},
     {'phase': 'compress',    'agent': 'pulse',     'action': 'execute', 'description': 'Compress context for delivery'},
-    {'phase': 'deliver',     'agent': 'main',      'action': 'execute', 'description': 'Deliver brief to subscribers'},
+    {'phase': 'deliver',     'agent': 'main',      'action': 'execute', 'description': 'Deliver brief through the current honest customer path'},
     {'phase': 'score',       'agent': 'main',      'action': 'execute', 'description': 'Auto-score agents, advance epoch'},
 ]
 

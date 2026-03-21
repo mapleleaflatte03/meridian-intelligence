@@ -117,7 +117,7 @@ Runs nightly (22:00–06:10 ICT):
 2. **Extract** — Sourced findings with relevance scoring and deduplication
 3. **Write** — Cited intelligence alert in structured format
 4. **QA** — Multi-agent verification: source freshness, citation accuracy, quality bar
-5. **Deliver** — Approved alert to subscribers via Telegram
+5. **Deliver** — Approved alert through the current honest path: founder-led pilot now, automated subscriber delivery when treasury policy clears
 6. **Score** — Economy auto-scores agents (REP/AUTH deltas). Registry syncs.
 7. **Audit** — Every step logged. Usage metered.
 

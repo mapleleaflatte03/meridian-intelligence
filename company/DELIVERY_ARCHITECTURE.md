@@ -25,7 +25,7 @@ They are not interchangeable, and only one of them is the current customer path.
 - Broadcast only. No subscriber interaction.
 - Used for public previews when there is a fresh brief worth posting.
 - Managed by `channel_deliver.py`.
-- Not currently on a deterministic cron schedule.
+- Explicit operator action today, not a daily or weekly delivery promise.
 
 **Who sees it:** Public. Discovery and proof-of-output surface.
 
@@ -35,7 +35,7 @@ They are not interchangeable, and only one of them is the current customer path.
 
 - The bot remains a valid technical surface, but it is not the current public onboarding promise.
 - The two active bot subscriptions today are owner-controlled internal tests.
-- `premium_deliver.py` and `trial_reminder.py` still exercise this path for internal verification.
+- `premium_deliver.py` and `trial_reminder.py` still exercise this path for internal verification only.
 - Once treasury policy allows honest automated delivery again, this bot can resume lifecycle and direct-delivery duties.
 
 **Who uses it today:** Owner-controlled internal test accounts only.
@@ -100,7 +100,7 @@ delivery succeeded.
 | Surface | Current role | Audience | Interaction | Current truth |
 |---------|--------------|----------|-------------|---------------|
 | Founder manual pilot | Real customer delivery path | Pilot teams | Direct | Active when the founder chooses to run a pilot |
-| @MeridianIntelligence | Public preview | Public | None (broadcast) | Optional / manual posting, not deterministic cron |
+| @MeridianIntelligence | Public preview | Public | None (broadcast) | Optional / manual posting; not a standing delivery promise |
 | @eggsama_bot | Internal test + future subscriber lifecycle | Owner test accounts today | Yes — commands | Not the active public onboarding promise |
 | Owner DM (5322393870) | Operator brief + alerts | Owner only | None | Active when pipeline clears |
 
