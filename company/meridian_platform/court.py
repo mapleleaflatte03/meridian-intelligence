@@ -64,7 +64,32 @@ def _now():
     return datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
 
 
-def _load_records():
+def _default_org_id():
+    try:
+        from organizations import load_orgs
+        for oid, org in load_orgs().get('organizations', {}).items():
+            if org.get('slug') == 'meridian':
+                return oid
+    except Exception:
+        pass
+    return None
+
+
+def _resolve_org_id(org_id=None):
+    founding_org_id = _default_org_id()
+    if org_id and founding_org_id and org_id != founding_org_id:
+        raise ValueError(
+            f'Live court only supports founding org {founding_org_id}, got {org_id}'
+        )
+    return org_id or founding_org_id
+
+
+def _matches_org(entry_org_id, org_id):
+    return not org_id or entry_org_id in (None, '', org_id)
+
+
+def _load_records(org_id=None):
+    _resolve_org_id(org_id)
     if os.path.exists(RECORDS_FILE):
         with open(RECORDS_FILE) as f:
             return json.load(f)
@@ -81,12 +106,13 @@ def _save_records(data):
 
 def file_violation(agent_id, org_id, violation_type, severity, evidence, policy_ref=''):
     """Create a violation record. Auto-applies sanction if severity >= 3."""
+    org_id = _resolve_org_id(org_id)
     if violation_type not in VIOLATION_TYPES:
         raise ValueError(f'Invalid violation type: {violation_type}. Must be one of {VIOLATION_TYPES}')
     if severity < 1 or severity > 6:
         raise ValueError(f'Severity must be 1-6, got {severity}')
 
-    records = _load_records()
+    records = _load_records(org_id)
     violation_id = f'vio_{uuid.uuid4().hex[:8]}'
 
     sanction_type = SEVERITY_SANCTIONS.get(severity)
@@ -152,10 +178,11 @@ def file_violation(agent_id, org_id, violation_type, severity, evidence, policy_
     return violation_id
 
 
-def get_violations(agent_id=None, status=None):
+def get_violations(agent_id=None, status=None, org_id=None):
     """Query violations, optionally filtered by agent and/or status."""
-    records = _load_records()
-    violations = list(records['violations'].values())
+    org_id = _resolve_org_id(org_id)
+    records = _load_records(org_id)
+    violations = [v for v in records['violations'].values() if _matches_org(v.get('org_id'), org_id)]
     if agent_id:
         violations = [v for v in violations if v['agent_id'] == agent_id]
     if status:
@@ -163,28 +190,35 @@ def get_violations(agent_id=None, status=None):
     return violations
 
 
-def resolve_violation(violation_id, resolution_note):
+def resolve_violation(violation_id, resolution_note, org_id=None):
     """Close a violation."""
-    records = _load_records()
+    org_id = _resolve_org_id(org_id)
+    records = _load_records(org_id)
     v = records['violations'].get(violation_id)
     if not v:
         raise ValueError(f'Violation not found: {violation_id}')
+    if not _matches_org(v.get('org_id'), org_id):
+        raise ValueError(f'Violation {violation_id} does not belong to {org_id}')
     v['status'] = 'resolved'
     v['resolved_at'] = _now()
     v['resolution_note'] = resolution_note
     _save_records(records)
 
 
-def file_appeal(violation_id, agent_id, grounds):
+def file_appeal(violation_id, agent_id, grounds, org_id=None):
     """Create an appeal for a violation."""
-    records = _load_records()
+    org_id = _resolve_org_id(org_id)
+    records = _load_records(org_id)
     v = records['violations'].get(violation_id)
     if not v:
         raise ValueError(f'Violation not found: {violation_id}')
+    if not _matches_org(v.get('org_id'), org_id):
+        raise ValueError(f'Violation {violation_id} does not belong to {org_id}')
 
     appeal_id = f'apl_{uuid.uuid4().hex[:8]}'
     records['appeals'][appeal_id] = {
         'id': appeal_id,
+        'org_id': org_id,
         'violation_id': violation_id,
         'agent_id': agent_id,
         'grounds': grounds,
@@ -198,14 +232,17 @@ def file_appeal(violation_id, agent_id, grounds):
     return appeal_id
 
 
-def decide_appeal(appeal_id, decision, decided_by):
+def decide_appeal(appeal_id, decision, decided_by, org_id=None):
     """Decide an appeal. If overturned, lift the associated sanction."""
     if decision not in ('upheld', 'overturned', 'dismissed'):
         raise ValueError(f'Invalid decision: {decision}')
-    records = _load_records()
+    org_id = _resolve_org_id(org_id)
+    records = _load_records(org_id)
     appeal = records['appeals'].get(appeal_id)
     if not appeal:
         raise ValueError(f'Appeal not found: {appeal_id}')
+    if not _matches_org(appeal.get('org_id'), org_id):
+        raise ValueError(f'Appeal {appeal_id} does not belong to {org_id}')
     if appeal['status'] != 'pending':
         raise ValueError(f'Appeal {appeal_id} is already {appeal["status"]}')
 
@@ -215,6 +252,8 @@ def decide_appeal(appeal_id, decision, decided_by):
 
     # If overturned, lift the sanction and resolve the violation
     violation = records['violations'].get(appeal['violation_id'])
+    if violation and not _matches_org(violation.get('org_id'), org_id):
+        raise ValueError(f'Violation {appeal["violation_id"]} does not belong to {org_id}')
     if decision == 'overturned' and violation:
         violation['status'] = 'dismissed'
         violation['resolved_at'] = _now()
@@ -234,11 +273,18 @@ def decide_appeal(appeal_id, decision, decided_by):
     _save_records(records)
 
 
-def get_agent_record(agent_id):
+def get_agent_record(agent_id, org_id=None):
     """Get full court record for an agent: violations, sanctions, appeals."""
-    records = _load_records()
-    violations = [v for v in records['violations'].values() if v['agent_id'] == agent_id]
-    appeals = [a for a in records['appeals'].values() if a['agent_id'] == agent_id]
+    org_id = _resolve_org_id(org_id)
+    records = _load_records(org_id)
+    violations = [
+        v for v in records['violations'].values()
+        if v['agent_id'] == agent_id and _matches_org(v.get('org_id'), org_id)
+    ]
+    appeals = [
+        a for a in records['appeals'].values()
+        if a['agent_id'] == agent_id and _matches_org(a.get('org_id'), org_id)
+    ]
 
     # Current restrictions from economy
     try:
@@ -257,8 +303,9 @@ def get_agent_record(agent_id):
     }
 
 
-def auto_review(ledger_data=None):
+def auto_review(ledger_data=None, org_id=None):
     """Wrap economy auto-sanctions and create violation records for any auto-applied sanctions."""
+    requested_org_id = _resolve_org_id(org_id)
     if ledger_data is None:
         ledger_data = _econ_load_ledger()
 
@@ -270,7 +317,7 @@ def auto_review(ledger_data=None):
             # Create a violation record for the auto-sanction
             try:
                 # Determine org_id from agent registry
-                org_id = ''
+                violation_org_id = requested_org_id or ''
                 try:
                     sys.path.insert(0, PLATFORM_DIR)
                     from agent_registry import load_registry
@@ -278,15 +325,17 @@ def auto_review(ledger_data=None):
                     for a in reg['agents'].values():
                         ekey = a.get('economy_key', '')
                         if ekey == agent_id or a['name'].lower() == agent_id:
-                            org_id = a.get('org_id', '')
+                            violation_org_id = a.get('org_id', violation_org_id)
                             break
                 except Exception:
                     pass
+                if requested_org_id and violation_org_id not in ('', requested_org_id):
+                    continue
 
                 severity = level if isinstance(level, int) else 3
                 vid = file_violation(
                     agent_id=agent_id,
-                    org_id=org_id,
+                    org_id=violation_org_id or requested_org_id,
                     violation_type='weak_output' if severity <= 2 else 'rejected_output',
                     severity=min(severity, 6),
                     evidence=note,
@@ -302,24 +351,30 @@ def auto_review(ledger_data=None):
     return violations_created
 
 
-def get_restrictions(agent_id):
+def get_restrictions(agent_id, org_id=None):
     """Pass-through to economy sanctions."""
+    _resolve_org_id(org_id)
     ledger = _econ_load_ledger()
     return _econ_get_restrictions(ledger, agent_id)
 
 
-def remediate(agent_id, approved_by, note=''):
+def remediate(agent_id, approved_by, note='', org_id=None):
     """Remediation path: lift lingering sanctions after violation is resolved.
 
     Requires all violations for the agent to be resolved/dismissed.
     Lifts economy sanctions, resets risk_state to nominal, resets incident_count.
     """
-    records = _load_records()
+    org_id = _resolve_org_id(org_id)
+    records = _load_records(org_id)
 
     # Check that no open/sanctioned violations remain
     open_violations = [
         v for v in records['violations'].values()
-        if v['agent_id'] == agent_id and v['status'] in ('open', 'sanctioned', 'appealed')
+        if (
+            v['agent_id'] == agent_id
+            and v['status'] in ('open', 'sanctioned', 'appealed')
+            and _matches_org(v.get('org_id'), org_id)
+        )
     ]
     if open_violations:
         raise ValueError(
@@ -355,7 +410,7 @@ def remediate(agent_id, approved_by, note=''):
     # Audit
     try:
         from audit import log_event
-        log_event('', agent_id, 'court_remediation',
+        log_event(org_id, agent_id, 'court_remediation',
                   outcome='success',
                   details={'lifted': lifted, 'approved_by': approved_by, 'note': note})
     except Exception:
@@ -381,31 +436,39 @@ def main():
     vl = sub.add_parser('violations')
     vl.add_argument('--agent', default=None)
     vl.add_argument('--status', default=None)
+    vl.add_argument('--org', default=None)
 
     rs = sub.add_parser('resolve')
     rs.add_argument('--violation_id', required=True)
     rs.add_argument('--note', required=True)
+    rs.add_argument('--org', default=None)
 
     ap = sub.add_parser('appeal')
     ap.add_argument('--violation_id', required=True)
     ap.add_argument('--agent', required=True)
     ap.add_argument('--grounds', required=True)
+    ap.add_argument('--org', default=None)
 
     da = sub.add_parser('decide-appeal')
     da.add_argument('--appeal_id', required=True)
     da.add_argument('--decision', required=True, choices=['upheld', 'overturned', 'dismissed'])
     da.add_argument('--by', required=True)
+    da.add_argument('--org', default=None)
 
     rec = sub.add_parser('record')
     rec.add_argument('--agent', required=True)
+    rec.add_argument('--org', default=None)
 
     rem = sub.add_parser('remediate')
     rem.add_argument('--agent', required=True)
     rem.add_argument('--by', required=True, help='Who approved remediation')
     rem.add_argument('--note', default='', help='Remediation note')
+    rem.add_argument('--org', default=None)
 
-    sub.add_parser('auto-review')
-    sub.add_parser('show')
+    arv = sub.add_parser('auto-review')
+    arv.add_argument('--org', default=None)
+    sh = sub.add_parser('show')
+    sh.add_argument('--org', default=None)
 
     args = p.parse_args()
 
@@ -414,7 +477,7 @@ def main():
                              args.evidence, args.policy_ref)
         print(f'Violation filed: {vid}')
     elif args.command == 'violations':
-        violations = get_violations(args.agent, args.status)
+        violations = get_violations(args.agent, args.status, org_id=args.org)
         if not violations:
             print('No violations found.')
         else:
@@ -422,16 +485,16 @@ def main():
                 print(f"  {v['id']}  agent={v['agent_id']}  type={v['type']}  "
                       f"sev={v['severity']}  status={v['status']}  sanction={v.get('sanction_applied', '-')}")
     elif args.command == 'resolve':
-        resolve_violation(args.violation_id, args.note)
+        resolve_violation(args.violation_id, args.note, org_id=args.org)
         print(f'Violation {args.violation_id} resolved')
     elif args.command == 'appeal':
-        aid = file_appeal(args.violation_id, args.agent, args.grounds)
+        aid = file_appeal(args.violation_id, args.agent, args.grounds, org_id=args.org)
         print(f'Appeal filed: {aid}')
     elif args.command == 'decide-appeal':
-        decide_appeal(args.appeal_id, args.decision, args.by)
+        decide_appeal(args.appeal_id, args.decision, args.by, org_id=args.org)
         print(f'Appeal {args.appeal_id}: {args.decision}')
     elif args.command == 'record':
-        rec = get_agent_record(args.agent)
+        rec = get_agent_record(args.agent, org_id=args.org)
         print(f"\n=== Court Record: {args.agent} ===")
         print(f"Total violations: {rec['total_violations']}")
         print(f"Open violations:  {rec['open_violations']}")
@@ -440,7 +503,7 @@ def main():
             print(f"  {v['id']}  {v['type']}  sev={v['severity']}  status={v['status']}  {v['created_at']}")
     elif args.command == 'remediate':
         try:
-            lifted = remediate(args.agent, args.by, args.note)
+            lifted = remediate(args.agent, args.by, args.note, org_id=args.org)
             if lifted:
                 print(f'Remediation complete for {args.agent}: lifted {lifted}')
             else:
@@ -449,15 +512,16 @@ def main():
             print(f'Remediation denied: {e}')
             raise SystemExit(1)
     elif args.command == 'auto-review':
-        vids = auto_review()
+        vids = auto_review(org_id=args.org)
         if vids:
             print(f'Auto-review created {len(vids)} violation(s): {vids}')
         else:
             print('Auto-review: no new violations')
     elif args.command == 'show':
-        records = _load_records()
-        violations = list(records['violations'].values())
-        appeals = list(records['appeals'].values())
+        resolved_org_id = _resolve_org_id(args.org)
+        records = _load_records(args.org)
+        violations = [v for v in records['violations'].values() if _matches_org(v.get('org_id'), resolved_org_id)]
+        appeals = [a for a in records['appeals'].values() if _matches_org(a.get('org_id'), resolved_org_id)]
         open_v = [v for v in violations if v['status'] in ('open', 'sanctioned', 'appealed')]
         pending_a = [a for a in appeals if a['status'] == 'pending']
 

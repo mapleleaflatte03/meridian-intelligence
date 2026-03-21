@@ -62,32 +62,35 @@ PIPELINE_PHASES = [
 ]
 
 
-def _get_registry_agent(reg, economy_key):
+def _get_registry_agent(reg, economy_key, org_id=None):
     for agent in reg['agents'].values():
+        if org_id and agent.get('org_id') not in (None, '', org_id):
+            continue
         if agent.get('economy_key') == economy_key:
             return agent
     return None
 
 
-def _phase_gate_snapshot(reg=None):
+def _phase_gate_snapshot(reg=None, org_id=None):
     """Return phase-by-phase gate status, combining authority + treasury truth."""
     reg = reg or load_registry()
-    lead_id, _ = get_sprint_lead()
+    org_id = org_id or _get_org()[0]
+    lead_id, _ = get_sprint_lead(org_id)
     phases = []
     blocked_phases = []
 
     for phase in PIPELINE_PHASES:
         economy_key = phase['agent']
-        agent = _get_registry_agent(reg, economy_key)
+        agent = _get_registry_agent(reg, economy_key, org_id)
 
-        auth_allowed, auth_reason = check_authority(economy_key, phase['action'])
+        auth_allowed, auth_reason = check_authority(economy_key, phase['action'], org_id=org_id)
         budget_allowed = True
         budget_reason = 'n/a'
         budget_required = 0.0
         if agent:
             budget_required = float(agent.get('budget', {}).get('max_per_run_usd', 0.0) or 0.0)
             if budget_required > 0:
-                budget_allowed, budget_reason = check_budget(agent['id'], budget_required)
+                budget_allowed, budget_reason = check_budget(agent['id'], budget_required, org_id=org_id)
 
         blockers = []
         if not auth_allowed:
@@ -114,7 +117,7 @@ def _phase_gate_snapshot(reg=None):
             'budget_reason': budget_reason,
             'budget_required_usd': budget_required,
             'risk_state': agent.get('risk_state', '?') if agent else '?',
-            'restrictions': get_restrictions(economy_key),
+            'restrictions': get_restrictions(economy_key, org_id=org_id),
             'is_lead': economy_key == lead_id,
             'blockers': blockers,
             'clear': is_clear,
@@ -123,23 +126,24 @@ def _phase_gate_snapshot(reg=None):
     return phases, blocked_phases
 
 
-def get_agent_remediation(agent_key, reg=None):
+def get_agent_remediation(agent_key, reg=None, org_id=None):
     """Expose an operator-readable remediation path for non-nominal agents."""
     reg = reg or load_registry()
-    agent = _get_registry_agent(reg, agent_key)
+    org_id = org_id or _get_org()[0]
+    agent = _get_registry_agent(reg, agent_key, org_id)
     if not agent:
         return None
 
-    restrictions = get_restrictions(agent_key)
+    restrictions = get_restrictions(agent_key, org_id=org_id)
     if agent.get('risk_state') == 'nominal' and not restrictions:
         return None
 
     actions = {}
     for action in ('lead', 'assign', 'execute', 'review', 'remediate'):
-        allowed, reason = check_authority(agent_key, action)
+        allowed, reason = check_authority(agent_key, action, org_id=org_id)
         actions[action] = {'allowed': allowed, 'reason': reason}
 
-    record = get_agent_record(agent_key)
+    record = get_agent_record(agent_key, org_id=org_id)
     next_steps = []
     if actions['remediate']['allowed']:
         next_steps.append('Run a remediation-only task and record the evidence in court/audit.')
@@ -168,7 +172,7 @@ def status():
     """Show CI vertical mapped to five constitutional primitives."""
     org_id, org = _get_org()
     reg = load_registry()
-    lead_id, lead_auth = get_sprint_lead()
+    lead_id, lead_auth = get_sprint_lead(org_id)
 
     print(f"\n{'='*60}")
     print(f"COMPETITIVE INTELLIGENCE VERTICAL — Constitutional Map")
@@ -185,9 +189,9 @@ def status():
     print(f"\n--- AGENTS (CI Vertical) ---")
     print(f"  {'Phase':<14} {'Agent':<12} {'Role':<12} {'REP':>4} {'AUTH':>4} {'Risk':<10} {'Restrictions'}")
     print(f"  {'-'*80}")
-    phases, blocked_phases = _phase_gate_snapshot(reg)
+    phases, blocked_phases = _phase_gate_snapshot(reg, org_id)
     for phase in phases:
-        agent = _get_registry_agent(reg, phase['agent_key'])
+        agent = _get_registry_agent(reg, phase['agent_key'], org_id)
         if agent:
             lead_marker = ' *LEAD*' if phase['agent_key'] == lead_id else ''
             print(f"  {phase['phase']:<14} {agent['name']:<12} {agent['role']:<12} "
@@ -196,7 +200,7 @@ def status():
 
     # Authority gates
     print(f"\n--- AUTHORITY (Pipeline Gates) ---")
-    ks = is_kill_switch_engaged()
+    ks = is_kill_switch_engaged(org_id)
     print(f"  Kill switch: {'ENGAGED (pipeline blocked)' if ks else 'off'}")
     print(f"  Sprint lead: {lead_id or 'NONE'} (AUTH={lead_auth})")
     for phase in phases:
@@ -205,8 +209,8 @@ def status():
 
     # Treasury
     print(f"\n--- TREASURY (Budget Constraints) ---")
-    balance = get_balance()
-    runway = get_runway()
+    balance = get_balance(org_id)
+    runway = get_runway(org_id)
     print(f"  Balance: ${balance:.2f} | Runway: ${runway:.2f}")
     for phase in phases:
         if phase['budget_required_usd'] > 0:
@@ -215,7 +219,7 @@ def status():
 
     # Court
     print(f"\n--- COURT (Active Enforcement) ---")
-    open_v = get_violations(status='open') + get_violations(status='sanctioned')
+    open_v = get_violations(status='open', org_id=org_id) + get_violations(status='sanctioned', org_id=org_id)
     if open_v:
         for v in open_v:
             print(f"  {v['id']} agent={v['agent_id']} type={v['type']} sev={v['severity']} "
@@ -226,7 +230,7 @@ def status():
     if blocked_phases:
         print(f"\n--- REMEDIATION PATHS ---")
         for phase in phases:
-            remediation = get_agent_remediation(phase['agent_key'], reg)
+            remediation = get_agent_remediation(phase['agent_key'], reg, org_id=org_id)
             if remediation and (phase['phase'] in blocked_phases or remediation['risk_state'] != 'nominal'):
                 print(f"  {remediation['agent_name']} ({remediation['risk_state']})")
                 for step in remediation['next_steps']:
@@ -248,7 +252,7 @@ def preflight():
     blocked = False
     blockers = []
     reg = load_registry()
-    phases, blocked_phases = _phase_gate_snapshot(reg)
+    phases, blocked_phases = _phase_gate_snapshot(reg, org_id)
 
     print(f"CI Vertical Preflight — {_now()}")
 
@@ -262,7 +266,7 @@ def preflight():
         print(f"  OK: Institution active")
 
     # 2. Kill switch
-    if is_kill_switch_engaged():
+    if is_kill_switch_engaged(org_id):
         print(f"  BLOCKED: Kill switch engaged")
         blocked = True
         blockers.append('kill switch engaged')
@@ -279,7 +283,7 @@ def preflight():
             blockers.append(f"{phase['phase']}: {'; '.join(phase['blockers'])}")
 
     # 4. Treasury summary
-    runway = get_runway()
+    runway = get_runway(org_id)
     if runway < -100:
         print(f"  WARN: Treasury runway severely negative (${runway:.2f})")
     elif runway < 0:
@@ -287,7 +291,7 @@ def preflight():
 
     # 5. Court / remediation state
     for phase in phases:
-        remediation = get_agent_remediation(phase['agent_key'], reg)
+        remediation = get_agent_remediation(phase['agent_key'], reg, org_id=org_id)
         if remediation and remediation['risk_state'] in ('critical', 'suspended'):
             print(f"  NOTE: {remediation['agent_name']} remediation path active")
             for step in remediation['next_steps']:

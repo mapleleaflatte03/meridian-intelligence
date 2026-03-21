@@ -60,7 +60,7 @@ sys.path.insert(0, PLATFORM_DIR)
 from organizations import (load_orgs, set_charter, set_policy_defaults,
                            transition_lifecycle as org_transition_lifecycle)
 from agent_registry import load_registry, sync_from_economy
-from audit import log_event, tail_events
+from audit import log_event, query_events
 
 import importlib.util
 
@@ -117,17 +117,19 @@ def _get_founding_org():
 def api_status():
     org_id, org = _get_founding_org()
     reg = load_registry()
-    queue = _load_queue()
+    queue = _load_queue(org_id)
     snap = treasury_snapshot(org_id)
     phase_num, phase_details = _phase_mod.evaluate(org_id)
-    records = _load_records()
-    lead_id, lead_auth = get_sprint_lead()
+    records = _load_records(org_id)
+    lead_id, lead_auth = get_sprint_lead(org_id)
 
     agents = []
     remediations = []
     for a in reg['agents'].values():
-        restrictions = get_restrictions(a.get('economy_key', a['name'].lower()))
-        remediation = get_agent_remediation(a.get('economy_key', a['name'].lower()), reg)
+        if a.get('org_id') not in (None, '', org_id):
+            continue
+        restrictions = get_restrictions(a.get('economy_key', a['name'].lower()), org_id=org_id)
+        remediation = get_agent_remediation(a.get('economy_key', a['name'].lower()), reg, org_id=org_id)
         if remediation:
             remediations.append(remediation)
         agents.append({
@@ -143,14 +145,19 @@ def api_status():
             'remediation': remediation,
         })
 
-    open_violations = [v for v in records['violations'].values()
-                       if v['status'] in ('open', 'sanctioned', 'appealed')]
-    pending_appeals = [a for a in records['appeals'].values()
-                       if a['status'] == 'pending']
-    pending_approvals = [a for a in queue['pending_approvals'].values()
-                         if a['status'] == 'pending']
-    active_delegations = [d for d in queue['delegations'].values()
-                          if d.get('expires_at', '') > _now()]
+    open_violations = [
+        v for v in records['violations'].values()
+        if v['status'] in ('open', 'sanctioned', 'appealed') and v.get('org_id') in (None, '', org_id)
+    ]
+    pending_appeals = [
+        a for a in records['appeals'].values()
+        if a['status'] == 'pending' and a.get('org_id') in (None, '', org_id)
+    ]
+    pending_approvals = get_pending_approvals(org_id=org_id)
+    active_delegations = [
+        d for d in queue['delegations'].values()
+        if d.get('expires_at', '') > _now() and d.get('org_id') in (None, '', org_id)
+    ]
 
     return {
         'institution': {
@@ -185,19 +192,19 @@ def api_status():
             'total_violations': len(records['violations']),
             'total_appeals': len(records['appeals']),
         },
-        'ci_vertical': _ci_vertical_status(reg, lead_id),
+        'ci_vertical': _ci_vertical_status(reg, lead_id, org_id),
         'remediations': remediations,
         'timestamp': _now(),
     }
 
 
-def _ci_vertical_status(reg, lead_id):
+def _ci_vertical_status(reg, lead_id, org_id):
     """Build CI vertical constitutional gate status."""
-    phases, blocked_phases = _phase_gate_snapshot(reg)
+    phases, blocked_phases = _phase_gate_snapshot(reg, org_id)
     all_clear = all(p['clear'] for p in phases)
 
     return {
-        'preflight': 'CLEAR' if (all_clear and not is_kill_switch_engaged()) else 'BLOCKED',
+        'preflight': 'CLEAR' if (all_clear and not is_kill_switch_engaged(org_id)) else 'BLOCKED',
         'blocked_phases': blocked_phases,
         'phases': phases,
     }
@@ -837,32 +844,37 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
             _, org = _get_founding_org()
             return self._json(org or {})
         elif path == '/api/agents':
+            org_id, _ = _get_founding_org()
             reg = load_registry()
-            return self._json(list(reg['agents'].values()))
+            return self._json([a for a in reg['agents'].values() if a.get('org_id') in (None, '', org_id)])
         elif path == '/api/authority':
-            queue = _load_queue()
-            lead_id, lead_auth = get_sprint_lead()
+            org_id, _ = _get_founding_org()
+            queue = _load_queue(org_id)
+            lead_id, lead_auth = get_sprint_lead(org_id)
             return self._json({
                 'kill_switch': queue['kill_switch'],
-                'pending_approvals': list(queue['pending_approvals'].values()),
-                'delegations': list(queue['delegations'].values()),
+                'pending_approvals': get_pending_approvals(org_id=org_id),
+                'delegations': [d for d in queue['delegations'].values() if d.get('org_id') in (None, '', org_id)],
                 'sprint_lead': {'agent_id': lead_id, 'auth': lead_auth},
             })
         elif path == '/api/treasury':
             org_id, _ = _get_founding_org()
             return self._json(treasury_snapshot(org_id))
         elif path == '/api/court':
-            records = _load_records()
+            org_id, _ = _get_founding_org()
+            records = _load_records(org_id)
             return self._json({
-                'violations': list(records['violations'].values()),
-                'appeals': list(records['appeals'].values()),
+                'violations': [v for v in records['violations'].values() if v.get('org_id') in (None, '', org_id)],
+                'appeals': [a for a in records['appeals'].values() if a.get('org_id') in (None, '', org_id)],
             })
         elif path == '/api/ci-vertical':
+            org_id, _ = _get_founding_org()
             reg = load_registry()
-            lead_id, _ = get_sprint_lead()
-            return self._json(_ci_vertical_status(reg, lead_id))
+            lead_id, _ = get_sprint_lead(org_id)
+            return self._json(_ci_vertical_status(reg, lead_id, org_id))
         elif path == '/api/audit':
-            events = tail_events(30)
+            org_id, _ = _get_founding_org()
+            events = query_events(org_id=org_id, limit=30)
             events.reverse()
             return self._json({'events': events})
         else:
@@ -885,12 +897,12 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
         try:
             if path == '/api/authority/kill-switch':
                 if body.get('engage'):
-                    engage_kill_switch(by, body.get('reason', ''))
+                    engage_kill_switch(by, body.get('reason', ''), org_id=org_id)
                     log_event(org_id, 'system', 'kill_switch_engaged', outcome='success',
                               details={'by': by, 'reason': body.get('reason')})
                     return self._json({'message': 'Kill switch ENGAGED'})
                 else:
-                    disengage_kill_switch(by)
+                    disengage_kill_switch(by, org_id=org_id)
                     log_event(org_id, 'system', 'kill_switch_disengaged', outcome='success',
                               details={'by': by})
                     return self._json({'message': 'Kill switch disengaged'})
@@ -898,27 +910,27 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
             elif path == '/api/authority/approve':
                 decision = body['decision']
                 decide_approval(body['approval_id'], decision,
-                               by, body.get('reason', ''))
+                               by, body.get('reason', ''), org_id=org_id)
                 log_event(org_id, 'system', 'approval_decided', resource=body['approval_id'],
                           outcome='success', details={'decision': decision})
                 return self._json({'message': f'Approval {body["approval_id"]}: {decision}'})
 
             elif path == '/api/authority/request':
                 aid = request_approval(body['agent'], body['action'],
-                                       body['resource'], body.get('cost', 0))
+                                       body['resource'], body.get('cost', 0), org_id=org_id)
                 log_event(org_id, body['agent'], 'approval_requested', resource=aid,
                           outcome='success', details=body)
                 return self._json({'message': f'Approval requested: {aid}', 'approval_id': aid})
 
             elif path == '/api/authority/delegate':
                 scopes = [s.strip() for s in body['scopes'].split(',') if s.strip()]
-                did = delegate(body['from'], body['to'], scopes, body.get('hours', 24))
+                did = delegate(body['from'], body['to'], scopes, body.get('hours', 24), org_id=org_id)
                 log_event(org_id, body['from'], 'delegation_created', resource=did,
                           outcome='success', details=body)
                 return self._json({'message': f'Delegation created: {did}', 'delegation_id': did})
 
             elif path == '/api/authority/revoke':
-                revoke_delegation(body['delegation_id'])
+                revoke_delegation(body['delegation_id'], org_id=org_id)
                 log_event(org_id, 'system', 'delegation_revoked', resource=body['delegation_id'],
                           outcome='success')
                 return self._json({'message': f'Delegation revoked: {body["delegation_id"]}'})
@@ -930,30 +942,30 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                 return self._json({'message': f'Violation filed: {vid}', 'violation_id': vid})
 
             elif path == '/api/court/resolve':
-                resolve_violation(body['violation_id'], body['note'])
+                resolve_violation(body['violation_id'], body['note'], org_id=org_id)
                 log_event(org_id, 'system', 'violation_resolved', resource=body['violation_id'],
                           outcome='success')
                 return self._json({'message': f'Violation resolved: {body["violation_id"]}'})
 
             elif path == '/api/court/appeal':
-                aid = file_appeal(body['violation_id'], body['agent'], body['grounds'])
+                aid = file_appeal(body['violation_id'], body['agent'], body['grounds'], org_id=org_id)
                 log_event(org_id, body['agent'], 'appeal_filed', resource=aid, outcome='success')
                 return self._json({'message': f'Appeal filed: {aid}', 'appeal_id': aid})
 
             elif path == '/api/court/decide-appeal':
-                decide_appeal(body['appeal_id'], body['decision'], by)
+                decide_appeal(body['appeal_id'], body['decision'], by, org_id=org_id)
                 log_event(org_id, 'system', 'appeal_decided', resource=body['appeal_id'],
                           outcome='success', details={'decision': body['decision']})
                 return self._json({'message': f'Appeal {body["appeal_id"]}: {body["decision"]}'})
 
             elif path == '/api/court/auto-review':
-                vids = auto_review()
+                vids = auto_review(org_id=org_id)
                 return self._json({'message': f'Auto-review: {len(vids)} violation(s) created',
                                    'violations': vids})
 
             elif path == '/api/court/remediate':
                 lifted = remediate(body['agent_id'], by,
-                                   body.get('note', ''))
+                                   body.get('note', ''), org_id=org_id)
                 log_event(org_id, 'system', 'court_remediation', resource=body['agent_id'],
                           outcome='success', details={'lifted': lifted})
                 return self._json({'message': f'Remediation complete: lifted {lifted}',

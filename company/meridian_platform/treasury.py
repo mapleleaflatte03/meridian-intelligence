@@ -46,7 +46,11 @@ _update_reserve_floor = _accounting_mod.update_reserve_floor
 # Import platform metering
 sys.path.insert(0, PLATFORM_DIR)
 from metering import get_spend, summary as metering_summary
-from agent_registry import check_budget as _agent_check_budget
+from agent_registry import (
+    check_budget as _agent_check_budget,
+    get_agent,
+    get_agent_by_economy_key,
+)
 
 
 def _now():
@@ -64,16 +68,27 @@ def _default_org_id():
     return None
 
 
+def _resolve_org_id(org_id=None):
+    founding_org_id = _default_org_id()
+    if org_id and founding_org_id and org_id != founding_org_id:
+        raise ValueError(
+            f'Live treasury only supports founding org {founding_org_id}, got {org_id}'
+        )
+    return org_id or founding_org_id
+
+
 # ── Core functions ───────────────────────────────────────────────────────────
 
 def get_balance(org_id=None):
     """Read treasury.cash_usd from ledger.json."""
+    _resolve_org_id(org_id)
     ledger = load_ledger()
     return ledger['treasury']['cash_usd']
 
 
 def get_reserve_floor(org_id=None):
     """Read treasury.reserve_floor_usd from ledger.json."""
+    _resolve_org_id(org_id)
     ledger = load_ledger()
     return ledger['treasury'].get('reserve_floor_usd', 50.0)
 
@@ -85,6 +100,7 @@ def get_runway(org_id=None):
 
 def get_revenue_summary(org_id=None):
     """Read revenue state from economy/revenue.py."""
+    _resolve_org_id(org_id)
     rev = load_revenue()
     ledger = load_ledger()
     t = ledger['treasury']
@@ -116,20 +132,25 @@ def get_spend_summary(org_id, period_days=30):
 
 def contribute_owner_capital(amount_usd, note='', by='owner', org_id=None):
     """Record owner capital contribution via the accounting layer."""
+    _resolve_org_id(org_id)
     return _owner_contribute_capital(amount_usd, note, actor=by)
 
 
 def set_reserve_floor_policy(amount_usd, note='', by='owner', org_id=None):
     """Update reserve floor policy via the accounting layer."""
+    _resolve_org_id(org_id)
     return _update_reserve_floor(amount_usd, note, actor=by)
 
 
 def check_budget(agent_id, cost_usd, org_id=None):
     """Check agent budget + treasury runway. Returns (allowed, reason)."""
-    # Try economy_key → registry ID mapping first
-    from agent_registry import get_agent_by_economy_key
-    reg_agent = get_agent_by_economy_key(agent_id)
+    org_id = _resolve_org_id(org_id)
+    reg_agent = get_agent(agent_id)
+    if reg_agent is None:
+        reg_agent = get_agent_by_economy_key(agent_id)
     lookup_id = reg_agent['id'] if reg_agent else agent_id
+    if reg_agent and org_id and reg_agent.get('org_id') not in (None, '', org_id):
+        return False, f'Agent belongs to {reg_agent.get("org_id")}, not {org_id}'
 
     # Check agent-level budget
     allowed, reason = _agent_check_budget(lookup_id, cost_usd)
@@ -168,6 +189,7 @@ def can_payout(amount_usd, org_id=None):
 
 def treasury_snapshot(org_id=None):
     """Combined view: balance, revenue, spend, runway, reserve status."""
+    org_id = _resolve_org_id(org_id)
     ledger = load_ledger()
     t = ledger['treasury']
     rev_summary = get_revenue_summary(org_id)
@@ -228,36 +250,42 @@ def main():
     p = argparse.ArgumentParser(description='Treasury primitive — financial read facade')
     sub = p.add_subparsers(dest='command')
 
-    sub.add_parser('balance')
-    sub.add_parser('runway')
+    bal = sub.add_parser('balance')
+    bal.add_argument('--org_id', default=None)
+    run = sub.add_parser('runway')
+    run.add_argument('--org_id', default=None)
 
     sp = sub.add_parser('spend')
     sp.add_argument('--org_id', default=None)
     sp.add_argument('--days', type=int, default=30)
 
-    sub.add_parser('snapshot')
+    snap_cmd = sub.add_parser('snapshot')
+    snap_cmd.add_argument('--org_id', default=None)
 
     cb = sub.add_parser('check-budget')
     cb.add_argument('--agent_id', required=True)
     cb.add_argument('--cost', type=float, required=True)
+    cb.add_argument('--org_id', default=None)
 
     cc = sub.add_parser('contribute')
     cc.add_argument('--amount', type=float, required=True)
     cc.add_argument('--note', default='owner top-up')
     cc.add_argument('--by', default='owner')
+    cc.add_argument('--org_id', default=None)
 
     rf = sub.add_parser('set-reserve-floor')
     rf.add_argument('--amount', type=float, required=True)
     rf.add_argument('--note', default='reserve policy update')
     rf.add_argument('--by', default='owner')
+    rf.add_argument('--org_id', default=None)
 
     args = p.parse_args()
 
     if args.command == 'balance':
-        print(f'Treasury balance: ${get_balance():.2f}')
+        print(f'Treasury balance: ${get_balance(args.org_id):.2f}')
     elif args.command == 'runway':
-        runway = get_runway()
-        floor = get_reserve_floor()
+        runway = get_runway(args.org_id)
+        floor = get_reserve_floor(args.org_id)
         status = 'ABOVE reserve' if runway >= 0 else 'BELOW reserve'
         print(f'Runway: ${runway:.2f} ({status}, floor=${floor:.2f})')
     elif args.command == 'spend':
@@ -277,7 +305,7 @@ def main():
         else:
             print('No org found for spend query')
     elif args.command == 'snapshot':
-        snap = treasury_snapshot()
+        snap = treasury_snapshot(args.org_id)
         print(f"\n=== Treasury Snapshot ({snap['snapshot_at']}) ===")
         print(f"Balance:         ${snap['balance_usd']:.2f}")
         print(f"Reserve floor:   ${snap['reserve_floor_usd']:.2f}")
@@ -291,15 +319,15 @@ def main():
         print(f"Clients:         {snap['clients']}")
         print(f"Paid orders:     {snap['paid_orders']}")
     elif args.command == 'check-budget':
-        allowed, reason = check_budget(args.agent_id, args.cost)
+        allowed, reason = check_budget(args.agent_id, args.cost, org_id=args.org_id)
         status = 'ALLOWED' if allowed else 'BLOCKED'
         print(f'{status}: {reason}')
         sys.exit(0 if allowed else 1)
     elif args.command == 'contribute':
-        result = contribute_owner_capital(args.amount, args.note, args.by)
+        result = contribute_owner_capital(args.amount, args.note, args.by, org_id=args.org_id)
         print(f"Capital contribution recorded: +${result['amount_usd']:.2f} | cash now ${result['cash_after_usd']:.2f}")
     elif args.command == 'set-reserve-floor':
-        result = set_reserve_floor_policy(args.amount, args.note, args.by)
+        result = set_reserve_floor_policy(args.amount, args.note, args.by, org_id=args.org_id)
         print(f"Reserve floor updated: ${result['old_reserve_floor_usd']:.2f} -> ${result['new_reserve_floor_usd']:.2f}")
     else:
         p.print_help()

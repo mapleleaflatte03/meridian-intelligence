@@ -42,6 +42,28 @@ def _load_revenue():
     return _load_json(os.path.join(ECONOMY_DIR, 'revenue.json'))
 
 
+def _default_org_id():
+    try:
+        orgs_path = os.path.join(_WORKSPACE, 'company', 'meridian_platform', 'organizations.json')
+        with open(orgs_path) as f:
+            orgs = json.load(f)
+        for oid, org in orgs.get('organizations', {}).items():
+            if org.get('slug') == 'meridian':
+                return oid
+    except Exception:
+        pass
+    return None
+
+
+def _resolve_org_id(org_id=None):
+    founding_org_id = _default_org_id()
+    if org_id and founding_org_id and org_id != founding_org_id:
+        raise ValueError(
+            f'Live phase machine only supports founding org {founding_org_id}, got {org_id}'
+        )
+    return org_id or founding_org_id
+
+
 # -- Phase checks (mirrors kernel/phase_machine.py with deployment context) ---
 
 PHASES = {
@@ -61,6 +83,7 @@ def _order_client_id(order):
 
 def evaluate(org_id=None):
     """Evaluate Meridian's current phase. Returns (phase_num, details)."""
+    _resolve_org_id(org_id)
     ledger = _load_ledger()
     revenue = _load_revenue()
     t = ledger.get('treasury', {})
