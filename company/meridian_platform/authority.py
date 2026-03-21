@@ -31,7 +31,7 @@ QUEUE_FILE = os.path.join(PLATFORM_DIR, 'authority_queue.json')
 if PLATFORM_DIR not in sys.path:
     sys.path.insert(0, PLATFORM_DIR)
 
-from capsule import capsule_path, ensure_capsule
+from capsule import capsule_path, ensure_capsule, ensure_treasury_aliases, ledger_path as capsule_ledger_path
 
 # Import economy authority module (avoid name collision with this file)
 import importlib.util
@@ -134,9 +134,10 @@ def _save_queue(data, org_id=None):
         json.dump(data, f, indent=2)
 
 
-def _load_ledger():
-    ledger_path = os.path.join(ECONOMY_DIR, 'ledger.json')
-    with open(ledger_path) as f:
+def _load_ledger(org_id=None):
+    _resolve_org_id(org_id)
+    ensure_treasury_aliases(org_id)
+    with open(capsule_ledger_path(org_id)) as f:
         return json.load(f)
 
 
@@ -161,7 +162,7 @@ def check_authority(agent_id, action, org_id=None):
                 return True, f"Delegated by {d['from_agent_id']} (expires {d['expires_at']})"
 
     # Fall through to economy authority check
-    ledger = _load_ledger()
+    ledger = _load_ledger(org_id)
     return _econ_check_rights(ledger, agent_id, action)
 
 
@@ -271,7 +272,7 @@ def disengage_kill_switch(engaged_by, org_id=None):
 def get_sprint_lead(org_id=None):
     """Pass-through to economy authority."""
     _resolve_org_id(org_id)
-    ledger = _load_ledger()
+    ledger = _load_ledger(org_id)
     return _econ_sprint_lead(ledger)
 
 

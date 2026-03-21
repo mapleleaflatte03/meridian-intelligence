@@ -13,18 +13,22 @@ Usage:
   python3 agent_registry.py set-budget --agent_id <id> --max_per_day_usd 5.0
   python3 agent_registry.py set-scopes --agent_id <id> --scopes "read,research,write_brief"
   python3 agent_registry.py disable --agent_id <id>
-  python3 agent_registry.py sync-economy  # sync REP/AUTH from economy/ledger.json
+  python3 agent_registry.py sync-economy  # sync REP/AUTH from founding institution ledger alias
 """
 import argparse
 import datetime
 import json
 import os
 import uuid
+import sys
 
 PLATFORM_DIR = os.path.dirname(os.path.abspath(__file__))
 REGISTRY_FILE = os.path.join(PLATFORM_DIR, 'agent_registry.json')
-WORKSPACE = os.path.dirname(os.path.dirname(PLATFORM_DIR))
-LEDGER_FILE = os.path.join(WORKSPACE, 'economy', 'ledger.json')
+
+if PLATFORM_DIR not in sys.path:
+    sys.path.insert(0, PLATFORM_DIR)
+
+from capsule import ensure_treasury_aliases, ledger_path as capsule_ledger_path
 
 VALID_ROLLOUT_STATES = ('active', 'staged', 'quarantined', 'disabled')
 VALID_ROLES = ('manager', 'analyst', 'verifier', 'executor', 'writer', 'qa_gate', 'compressor')
@@ -237,12 +241,14 @@ def get_agent_by_economy_key(economy_key):
 
 
 def sync_from_economy():
-    """Sync REP/AUTH and sanction flags from economy/ledger.json into the agent registry."""
-    if not os.path.exists(LEDGER_FILE):
-        print('No ledger found at', LEDGER_FILE)
+    """Sync REP/AUTH and sanction flags from the founding institution ledger alias into the agent registry."""
+    ensure_treasury_aliases()
+    ledger_file = capsule_ledger_path()
+    if not os.path.exists(ledger_file):
+        print('No ledger found at', ledger_file)
         return
 
-    with open(LEDGER_FILE) as f:
+    with open(ledger_file) as f:
         ledger = json.load(f)
 
     data = load_registry()

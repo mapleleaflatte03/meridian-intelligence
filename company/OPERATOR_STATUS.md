@@ -1,6 +1,6 @@
 # Operator Status — Meridian
 
-Last updated: 2026-03-20
+Last updated: 2026-03-21
 Evidence base: direct commands and local file inspection (see Evidence column).
 
 This document records the current operational truth of the Meridian system.
@@ -20,9 +20,9 @@ It is not promotional copy. Every claim is tagged verified, inferred, or unknown
 | Trial reminders | Would run for 2 active IDs (owner test accounts) | subscriptions.json |
 | Revenue dashboard | Last OK 2026-03-20 (manually triggered) | `scheduler_truth.py --job revenue-dashboard` |
 | External customers | ZERO — all subscription entries are owner test or synthetic residue | subscriptions.json `_meta` |
-| Customer revenue received | $0.00 | ledger.json `total_revenue_usd` |
-| Owner capital in treasury | $2.00 USDC | ledger.json `cash_usd`, transactions.jsonl |
-| Reserve floor | $50.00 | ledger.json `reserve_floor_usd` |
+| Customer revenue received | $0.00 | founding capsule treasury pointer (`economy/capsules/org_48b05c21/ledger.json:treasury`) |
+| Owner capital in treasury | $2.00 USDC | founding capsule treasury pointer + transactions.jsonl |
+| Reserve floor | $50.00 | founding capsule treasury pointer |
 | Runway | $-48.00 (below floor) | `python3 meridian_platform/treasury.py runway` |
 
 ---
@@ -34,7 +34,7 @@ It is not promotional copy. Every claim is tagged verified, inferred, or unknown
 **Runway:** $-48.00 — treasury is $48 below the reserve floor
 
 **Evidence for the $2.00:**
-- `economy/ledger.json`: `"cash_usd": 2.0`, `"owner_capital_contributed_usd": 2.0`, `"total_revenue_usd": 0.0`
+- founding capsule treasury alias `economy/capsules/org_48b05c21/ledger.json` → `economy/ledger.json`: `"cash_usd": 2.0`, `"owner_capital_contributed_usd": 2.0`, `"total_revenue_usd": 0.0`
 - `economy/transactions.jsonl` (line 35-36): 2.00 USDC received 2026-03-16, initially detected as `customer_payment`, reclassified to `owner_capital` per CLAUDE.md §12 (owner wallet)
 - TX hash: `0xde03d0dc2602b815f2bebd3ee7aae005e8a4d3d44fa23c08ba918512c337db93`
 - Note in ledger: "Clean treasury. $2 USDC owner capital deposit 2026-03-16 reclassified from customer_payment to owner_capital per CLAUDE.md §12."
@@ -102,7 +102,7 @@ python3 company/meridian_platform/treasury.py set-reserve-floor \
 This is a policy decision. It means the pipeline can run on any treasury balance.
 Document the reason. Only the owner should make this call.
 
-**Note:** These commands update ledger.json only. They are not on-chain.
+**Note:** These commands update the founding treasury state via the live capsule-backed ledger pointer. They are not on-chain.
 
 ---
 
@@ -213,7 +213,7 @@ These rules apply to this document and any future operator status docs:
 
 1. **Every financial claim must cite a source file or command.**
    Wrong: "Treasury is $0."
-   Right: "Treasury cash_usd=2.0 per economy/ledger.json, total_revenue_usd=0.0."
+   Right: "Treasury cash_usd=2.0 per founding capsule ledger pointer (`economy/capsules/<org>/ledger.json`), total_revenue_usd=0.0."
 
 2. **Every command example must be tested before publication.**
    Wrong: `treasury.py deposit --amount 50` (command does not exist)

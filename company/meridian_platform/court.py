@@ -30,7 +30,12 @@ RECORDS_FILE = os.path.join(PLATFORM_DIR, 'court_records.json')
 if PLATFORM_DIR not in sys.path:
     sys.path.insert(0, PLATFORM_DIR)
 
-from capsule import capsule_path, ensure_capsule
+from capsule import (
+    capsule_path,
+    ensure_capsule,
+    ensure_treasury_aliases,
+    ledger_path as capsule_ledger_path,
+)
 
 # Import economy sanctions module (avoid name collision)
 import importlib.util
@@ -41,8 +46,6 @@ _econ_apply_sanction = _econ_sanctions_mod.apply_sanction
 _econ_lift_sanction = _econ_sanctions_mod.lift_sanction
 _econ_check_auto_sanctions = _econ_sanctions_mod.check_auto_sanctions
 _econ_get_restrictions = _econ_sanctions_mod.get_restrictions
-_econ_load_ledger = _econ_sanctions_mod.load_ledger
-_econ_save_ledger = _econ_sanctions_mod.save_ledger
 
 # Violation types per CLAUDE.md section 9
 VIOLATION_TYPES = (
@@ -142,6 +145,21 @@ def _save_records(data, org_id=None):
         json.dump(data, f, indent=2)
 
 
+def _econ_load_ledger(org_id=None):
+    _resolve_org_id(org_id)
+    ensure_treasury_aliases(org_id)
+    with open(capsule_ledger_path(org_id)) as f:
+        return json.load(f)
+
+
+def _econ_save_ledger(data, org_id=None):
+    data['updatedAt'] = _now()
+    _resolve_org_id(org_id)
+    ensure_treasury_aliases(org_id)
+    with open(capsule_ledger_path(org_id), 'w') as f:
+        json.dump(data, f, indent=2)
+
+
 # ── Core functions ───────────────────────────────────────────────────────────
 
 def file_violation(agent_id, org_id, violation_type, severity, evidence, policy_ref=''):
@@ -161,14 +179,14 @@ def file_violation(agent_id, org_id, violation_type, severity, evidence, policy_
     # Auto-apply sanction if severity >= 3
     if sanction_type:
         try:
-            ledger = _econ_load_ledger()
+            ledger = _econ_load_ledger(org_id)
             result = _econ_apply_sanction(
                 ledger, agent_id, sanction_type,
                 f'Court violation {violation_id}: {violation_type} (severity {severity})',
                 level=severity
             )
             if result:
-                _econ_save_ledger(ledger)
+                _econ_save_ledger(ledger, org_id)
                 sanction_applied = sanction_type
         except Exception as e:
             print(f'WARN: could not apply sanction: {e}')
@@ -300,11 +318,11 @@ def decide_appeal(appeal_id, decision, decided_by, org_id=None):
         violation['resolution_note'] = f'Appeal {appeal_id} overturned by {decided_by}'
         if violation.get('sanction_applied'):
             try:
-                ledger = _econ_load_ledger()
+                ledger = _econ_load_ledger(org_id)
                 _econ_lift_sanction(
                     ledger, violation['agent_id'], violation['sanction_applied'],
                     f'Appeal {appeal_id} overturned')
-                _econ_save_ledger(ledger)
+                _econ_save_ledger(ledger, org_id)
             except Exception as e:
                 print(f'WARN: could not lift sanction: {e}')
     elif decision == 'upheld' and violation:
@@ -328,7 +346,7 @@ def get_agent_record(agent_id, org_id=None):
 
     # Current restrictions from economy
     try:
-        ledger = _econ_load_ledger()
+        ledger = _econ_load_ledger(org_id)
         restrictions = _econ_get_restrictions(ledger, agent_id)
     except Exception:
         restrictions = []
@@ -347,7 +365,7 @@ def auto_review(ledger_data=None, org_id=None):
     """Wrap economy auto-sanctions and create violation records for any auto-applied sanctions."""
     requested_org_id = _resolve_org_id(org_id)
     if ledger_data is None:
-        ledger_data = _econ_load_ledger()
+        ledger_data = _econ_load_ledger(requested_org_id)
 
     changes = _econ_check_auto_sanctions(ledger_data, dry_run=True)
     violations_created = []
@@ -393,8 +411,8 @@ def auto_review(ledger_data=None, org_id=None):
 
 def get_restrictions(agent_id, org_id=None):
     """Pass-through to economy sanctions."""
-    _resolve_org_id(org_id)
-    ledger = _econ_load_ledger()
+    resolved_org_id = _resolve_org_id(org_id)
+    ledger = _econ_load_ledger(resolved_org_id)
     return _econ_get_restrictions(ledger, agent_id)
 
 
@@ -423,7 +441,7 @@ def remediate(agent_id, approved_by, note='', org_id=None):
         )
 
     # Lift all economy sanctions for this agent
-    ledger = _econ_load_ledger()
+    ledger = _econ_load_ledger(org_id)
     lifted = []
     for stype in ('probation', 'zero_authority', 'lead_ban', 'remediation_only'):
         agent_data = ledger.get('agents', {}).get(agent_id, {})
@@ -432,7 +450,7 @@ def remediate(agent_id, approved_by, note='', org_id=None):
                                 f'Remediation approved by {approved_by}: {note}')
             lifted.append(stype)
     if lifted:
-        _econ_save_ledger(ledger)
+        _econ_save_ledger(ledger, org_id)
 
     # Reset risk_state and incident_count in agent registry
     try:

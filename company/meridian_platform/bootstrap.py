@@ -19,10 +19,15 @@ from organizations import load_orgs, save_orgs, create_org, _now, DEFAULT_POLICY
 from agent_registry import (load_registry, save_registry, _now as _reg_now,
                             INCIDENT_ELEVATED_THRESHOLD, INCIDENT_CRITICAL_THRESHOLD)
 from audit import log_event
-from capsule import ensure_capsule, capsule_path, ensure_treasury_aliases
+from capsule import (
+    ensure_capsule,
+    capsule_path,
+    ensure_treasury_aliases,
+    ledger_path as capsule_ledger_path,
+)
 
 WORKSPACE = os.path.dirname(os.path.dirname(PLATFORM_DIR))
-LEDGER_FILE = os.path.join(WORKSPACE, 'economy', 'ledger.json')
+LEGACY_LEDGER_FILE = os.path.join(WORKSPACE, 'economy', 'ledger.json')
 
 
 def bootstrap():
@@ -72,12 +77,21 @@ def bootstrap():
         save_orgs(orgs)
         print('  Backfilled institution fields on founding org')
 
-    # ── 2. Register agents from economy/ledger.json ──────────────────────
-    if not os.path.exists(LEDGER_FILE):
-        print(f'No ledger at {LEDGER_FILE}, skipping agent registration')
+    # ── 2. Prepare founding capsule aliases before reading ledger ─────────
+    ensure_capsule(founding_org_id)
+    try:
+        aliases = ensure_treasury_aliases(founding_org_id)
+        print(
+            f"  Treasury aliases ready: {os.path.relpath(aliases['ledger'], WORKSPACE)}, "
+            f"{os.path.relpath(aliases['revenue'], WORKSPACE)}"
+        )
+    except FileNotFoundError:
+        print(f'No ledger at {LEGACY_LEDGER_FILE}, skipping agent registration')
         return
 
-    with open(LEDGER_FILE) as f:
+    ledger_file = capsule_ledger_path(founding_org_id)
+
+    with open(ledger_file) as f:
         ledger = json.load(f)
 
     registry = load_registry()
@@ -239,12 +253,6 @@ def bootstrap():
         print(f'  Backfilled fields on {backfilled_agents} agent(s)')
 
     # ── 2c. Initialize capsule-backed authority/court state ───────────────
-    ensure_capsule(founding_org_id)
-    aliases = ensure_treasury_aliases(founding_org_id)
-    print(
-        f"  Treasury aliases ready: {os.path.relpath(aliases['ledger'], WORKSPACE)}, "
-        f"{os.path.relpath(aliases['revenue'], WORKSPACE)}"
-    )
 
     authority_queue_file = capsule_path(founding_org_id, 'authority_queue.json')
     legacy_authority_queue_file = os.path.join(PLATFORM_DIR, 'authority_queue.json')
