@@ -188,10 +188,13 @@ def treasury_snapshot():
     }
     if shortfall > 0:
         remediation['next_steps'].append(
-            f"Record at least ${shortfall:.2f} of real owner capital or customer cash before running budget-gated phases."
+            f"Record at least ${shortfall:.2f} of real treasury cash (owner capital, support, or customer cash) to clear the reserve gate."
         )
         remediation['next_steps'].append(
             f"If policy truly changed, explicitly lower reserve floor from ${floor:.2f} with an auditable note."
+        )
+        remediation['next_steps'].append(
+            "Clearing the reserve gate is not the same as automation readiness; customer-backed phase progression and preflight still govern delivery."
         )
 
     return {

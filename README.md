@@ -14,7 +14,7 @@ Meridian is a constitutional operating system for running AI agents as governed 
 
 **Live service:** https://app.welliam.codes
 **Product demo:** https://app.welliam.codes/demo.html
-**Current go-to-market mode:** founder-led manual pilot until treasury-funded automated delivery resumes
+**Current go-to-market mode:** founder-led manual pilot until Meridian reaches treasury-cleared automation through customer-backed phase progression
 
 Need the plain-language model behind this?
 - [Meridian Doctrine](company/MERIDIAN_DOCTRINE.md)
@@ -48,7 +48,7 @@ Start with the demo and pilot surfaces:
 - Support the work: https://app.welliam.codes/support.html
 - Contact: Telegram [@Enhanhsj](https://t.me/Enhanhsj) or email `nguyensimon186@gmail.com`
 
-The honest current offer is a founder-led manual pilot. The automated pipeline remains treasury-gated by policy until recapitalized.
+The honest current offer is a founder-led manual pilot. More cash in treasury only clears the reserve gate; automated delivery still waits for customer-backed phase progression, treasury-cleared automation, and constitutional preflight.
 If you want to back Meridian without pretending that support equals customer delivery, use the dedicated support path instead of the pilot flow.
 
 If you are confused about support vs pilot vs customer revenue vs future contributor payouts, read:

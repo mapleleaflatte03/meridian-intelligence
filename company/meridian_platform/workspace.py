@@ -453,7 +453,7 @@ function render(data) {
   tc += '</div>';
   if (!tr.above_reserve) {
     tc += '<div style="margin-top:0.75rem;padding:0.75rem;border:1px solid var(--red);border-radius:6px;background:#241414">';
-    tc += '<strong style="color:var(--red)">Operating below reserve.</strong> Budget-gated phases should not run until treasury is recapitalized above the $' + tr.reserve_floor_usd.toFixed(2) + ' floor or the reserve policy is explicitly changed.';
+    tc += '<strong style="color:var(--red)">Operating below reserve.</strong> Clear the reserve gate before any budget-gated phase can proceed, but do not treat that alone as automation-ready state.';
     tc += '</div>';
   }
   if (tr.remediation && tr.remediation.blocked) {
