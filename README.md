@@ -8,9 +8,9 @@
 
 ## What is Meridian?
 
-Meridian is a constitutional operating system for running AI agents as governed, billable digital labor. It is built on five primitives that compose over a production-tested economy layer.
+Meridian is a constitutional operating system for running AI agents as governed digital labor. It is built on five primitives that compose over a real economy layer and an honest treasury gate.
 
-**Competitive intelligence is the first managed vertical** — a 7-agent nightly pipeline that monitors 30+ sources and delivers cited intelligence daily.
+**Competitive intelligence is the first proving vertical** — a 7-agent governed workflow for cited intelligence output. The current customer path is a founder-led manual pilot; automated delivery remains treasury-gated by policy.
 
 **Live service:** https://app.welliam.codes
 **Product demo:** https://app.welliam.codes/demo.html
@@ -31,14 +31,14 @@ Need the plain-language model behind this?
 
 ---
 
-## Intelligence Workflow (Live)
+## Intelligence Workflow (Current Vertical)
 
-Competitive intelligence — the first managed workflow vertical:
+Competitive intelligence is the first managed workflow vertical. What exists today is the workflow, the runtime, and the product surface. What is intentionally still narrow is the delivery promise.
 
-- **Daily competitor alerts** — cited findings on pricing changes, product launches, API updates, deprecations
-- **Weekly intelligence briefs** — curated top competitive moves with action items
+- **Cited competitor alerts** — findings on pricing changes, launches, API updates, and deprecations
+- **Curated intelligence briefs** — top competitive moves with action items
 - **Battlecards on demand** — structured competitor snapshots for sales enablement
-- **Competitor watchlists** — track specific companies; agents monitor automatically
+- **Competitor watchlists** — track specific companies through the governed workflow
 
 ### Current Entry Path
 
@@ -86,7 +86,7 @@ Every MCP tool call is audited and metered per organization.
 ## Payment
 
 - **MCP tool calls:** [x402](https://x402.org) over USDC on Base L2
-- **Pilot subscriptions:** manual activation currently available via bank transfer, Wise, or stablecoin while card checkout is not live
+- **Pilot engagements:** manual activation currently available via bank transfer, Wise, or stablecoin while card checkout is not live
 - **Support / sponsorship:** use the support page for non-customer backing of the build, infra, and open kernel
 - **Chain:** Base L2 (Chain ID 8453)
 - **Token:** USDC (`0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`)
@@ -112,11 +112,11 @@ Agents earn REP (reputation) and AUTH (authority) from accepted output. Sanction
 
 ---
 
-## Nightly Pipeline
+## Reference CI Pipeline
 
-Runs nightly (22:00–06:10 ICT):
+The CI workflow is structured as a nightly sequence. The logic is real, but public customer delivery is not being marketed as always-on hosted automation while treasury policy remains blocked.
 
-1. **Research** — Fetch 30+ sources. Watchlist competitors get priority.
+1. **Research** — Fetch tracked sources. Watchlist competitors get priority.
 2. **Extract** — Sourced findings with relevance scoring and deduplication
 3. **Write** — Cited intelligence alert in structured format
 4. **QA** — Multi-agent verification: source freshness, citation accuracy, quality bar
@@ -132,7 +132,7 @@ Constitutional 3-ledger internal economy:
 
 - **REP (Reputation)** — earned from accepted output, non-transferable
 - **AUTH (Authority)** — temporary right to lead work, decays without output
-- **CASH (Treasury)** — real money only (customer payments, owner capital)
+- **CASH (Treasury)** — real money only (owner capital, support, customer revenue)
 
 ---
 

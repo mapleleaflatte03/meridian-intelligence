@@ -2,7 +2,7 @@
 
 ## What Meridian Is
 
-Meridian is a constitutional operating system for running AI agents as managed, governed, billable digital labor. It is built on exactly five primitives: **Institution, Agent, Authority, Treasury, Court**.
+Meridian is a constitutional operating system for running AI agents as managed, governed digital labor. It is built on exactly five primitives: **Institution, Agent, Authority, Treasury, Court**.
 
 Organizations use Meridian to:
 - Found charter-governed institutions with lifecycle management
@@ -165,45 +165,52 @@ Severity-to-sanction mapping (CLAUDE.md §9):
 
 ## Workflow Verticals
 
-### Competitive Intelligence (live — first managed vertical)
-- Daily competitor monitoring (30+ sources)
-- Cited intelligence briefs
-- Watchlist-driven alerts
-- Battlecard generation
-- Pipeline: research -> extract -> write -> QA -> deliver -> score -> court-review
+### Competitive Intelligence (current proving vertical)
+- Cited intelligence workflow for AI/product teams
+- Watchlist-driven research, writing, QA, and scoring
+- Battlecard-style snapshots and research-on-demand outputs
+- Delivery promise currently narrowed to founder-led manual pilot
+- Workflow shape: research -> extract -> write -> QA -> deliver -> score -> court-review
 
 ### Research-on-Demand (live, via MCP)
 - Topic-driven research with sourced findings
 - Delegated to Atlas agent
 
-## Current State (2026-03-19)
+## Current State (2026-03-21)
 
 ### What works:
 - Five constitutional primitives (Institution, Agent, Authority, Treasury, Court)
-- Night-shift pipeline producing daily intelligence briefs
+- Healthy runtime on the live host
+- Governed CI workflow logic and reference pipeline
 - MCP server with 5 paid tools + x402 payment gating
 - 3-ledger economy (REP/AUTH/CASH) with auto-scoring
 - Court auto-review wired into scoring pipeline
 - Authority checks wired into MCP tool calls
 - Treasury budget enforcement on paid operations
-- Subscription management (trial + paid plans)
-- Telegram delivery (bot + channel)
-- Public web surface (landing, demo, pilot pages)
+- Public web surface (landing, demo, pilot, support pages)
+- Founder-led manual pilot path
+- Support path separated from customer revenue in doctrine and public surfaces
+
+### What is intentionally not claimed as live:
+- Automated subscriber delivery for external customers
+- Broad self-serve trial or paid subscription flow
+- Telegram bot/channel as the honest default customer path
+- Multi-institution isolation with zero founding-org shared state in the live system
 
 ### Hard numbers:
 - Treasury: $2.00 (owner capital, not customer revenue)
 - Customer revenue: $0.00
 - External paying customers: 0
-- Active trials: 2 (both owner-controlled internal tests)
-- Agents: 7 (Leviathann + 6 staff)
-- Epochs completed: 7
+- Deliverable targets today: 0
+- Internal test targets today: 2
+- Latest brief available for delivery: none
 
 ## Principles
 
 1. Five primitives govern everything — Institution, Agent, Authority, Treasury, Court
 2. Compose over economy — import and extend, never rewrite
 3. Every action is auditable — who did what, when, with what authority
-4. Organizations own resources — no global shared state
+4. Institutions should own their own resources; remaining founding-org shared state is technical debt, not doctrine
 5. Metering is core product, not internal tooling
 6. Trust before marketplace — control primitives before ecosystem
 7. Revenue before tokenization — prove the money path first
