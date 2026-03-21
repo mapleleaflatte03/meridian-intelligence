@@ -78,6 +78,14 @@ class FederationReplayError(FederationValidationError):
 class FederationDeliveryError(FederationError):
     """Outbound delivery to a trusted peer failed."""
 
+    def __init__(self, message, *, peer_host_id='', envelope='',
+                 claims=None, response=None):
+        super().__init__(message)
+        self.peer_host_id = peer_host_id
+        self.envelope = envelope
+        self.claims = claims
+        self.response = response
+
 
 class FederationPeer:
     __slots__ = (
@@ -122,6 +130,31 @@ class FederationPeer:
         if not self.endpoint_url:
             return ''
         return self.endpoint_url + '/api/federation/receive'
+
+
+def _normalize_host_id(host_id, *, field_name='host_id'):
+    host_id = (host_id or '').strip()
+    if not host_id:
+        raise RuntimeError(f'{field_name} is required')
+    return host_id
+
+
+def _normalize_peer_org_ids(admitted_org_ids):
+    normalized = []
+    for org_id in admitted_org_ids or []:
+        org_id = (org_id or '').strip()
+        if org_id and org_id not in normalized:
+            normalized.append(org_id)
+    return normalized
+
+
+def _peer_view(raw_peer):
+    if isinstance(raw_peer, FederationPeer):
+        return raw_peer.to_dict(), raw_peer.trust_state, raw_peer.receive_url
+    data = dict(raw_peer or {})
+    endpoint_url = (data.get('endpoint_url') or data.get('base_url') or '').rstrip('/')
+    receive_url = endpoint_url + '/api/federation/receive' if endpoint_url else ''
+    return data, (data.get('trust_state') or '').strip(), receive_url
 
 
 class ReplayStore:
@@ -250,6 +283,122 @@ def load_peer_registry(file_path, *, host_identity=None):
         if entry.trust_state == 'trusted':
             registry['trusted_peer_ids'].append(host_id)
     return registry
+
+
+def save_peer_registry(file_path, registry, *, host_identity=None):
+    if not file_path:
+        raise RuntimeError('Federation peer registry file path is required')
+    host_id = (
+        registry.get('host_id')
+        or (getattr(host_identity, 'host_id', '') if host_identity else '')
+        or ''
+    ).strip()
+    if not host_id:
+        raise RuntimeError('Federation peer registry must declare host_id')
+    if host_identity and host_id != host_identity.host_id:
+        raise RuntimeError(
+            f"Peer registry host_id '{host_id}' does not match runtime host "
+            f"'{host_identity.host_id}'"
+        )
+
+    peers_out = {}
+    for peer_host_id, raw_entry in sorted((registry.get('peers') or {}).items()):
+        if isinstance(raw_entry, FederationPeer):
+            entry = raw_entry
+        else:
+            data = dict(raw_entry or {})
+            entry = FederationPeer(
+                host_id=(data.get('host_id') or peer_host_id or '').strip(),
+                label=(data.get('label') or data.get('name') or peer_host_id).strip(),
+                transport=(data.get('transport') or 'https').strip(),
+                endpoint_url=(data.get('endpoint_url') or data.get('base_url') or '').strip(),
+                trust_state=(data.get('trust_state') or 'trusted').strip(),
+                shared_secret=(data.get('shared_secret') or '').strip(),
+                admitted_org_ids=_normalize_peer_org_ids(data.get('admitted_org_ids', [])),
+            )
+        if entry.host_id == host_id:
+            raise RuntimeError('Peer registry cannot declare the current host as a trusted peer')
+        if entry.trust_state == 'trusted' and not entry.shared_secret:
+            raise RuntimeError(
+                f"Trusted peer '{entry.host_id}' must declare shared_secret for HMAC verification"
+            )
+        peer_data = entry.to_dict(redact_secret=False)
+        peer_data['admitted_org_ids'] = _normalize_peer_org_ids(peer_data.get('admitted_org_ids', []))
+        peers_out[entry.host_id] = peer_data
+
+    parent = os.path.dirname(file_path)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+    with open(file_path, 'w') as f:
+        json.dump({
+            'host_id': host_id,
+            'updated_at': _now().strftime('%Y-%m-%dT%H:%M:%SZ'),
+            'peers': peers_out,
+        }, f, indent=2, sort_keys=True)
+    return load_peer_registry(file_path, host_identity=host_identity)
+
+
+def upsert_peer_registry_entry(file_path, peer_host_id, *, host_identity=None,
+                               label=None, transport=None, endpoint_url=None,
+                               trust_state=None, shared_secret=None,
+                               admitted_org_ids=None):
+    peer_host_id = _normalize_host_id(peer_host_id, field_name='peer_host_id')
+    if host_identity and peer_host_id == host_identity.host_id:
+        raise PermissionError('Cannot register the current host as its own federation peer')
+
+    registry = load_peer_registry(file_path, host_identity=host_identity)
+    existing = registry.get('peers', {}).get(peer_host_id)
+    next_trust_state = (trust_state or (existing.trust_state if existing else 'trusted')).strip()
+    next_entry = FederationPeer(
+        host_id=peer_host_id,
+        label=(
+            label.strip() if isinstance(label, str) and label.strip()
+            else (existing.label if existing else peer_host_id)
+        ),
+        transport=(
+            transport.strip() if isinstance(transport, str) and transport.strip()
+            else (existing.transport if existing else 'https')
+        ),
+        endpoint_url=(
+            endpoint_url.strip() if isinstance(endpoint_url, str)
+            else (existing.endpoint_url if existing else '')
+        ),
+        trust_state=next_trust_state,
+        shared_secret=(
+            shared_secret.strip() if isinstance(shared_secret, str)
+            else (existing.shared_secret if existing else '')
+        ),
+        admitted_org_ids=(
+            _normalize_peer_org_ids(admitted_org_ids)
+            if admitted_org_ids is not None else
+            _normalize_peer_org_ids(existing.admitted_org_ids if existing else [])
+        ),
+    )
+    registry.setdefault('peers', {})[peer_host_id] = next_entry
+    return save_peer_registry(file_path, registry, host_identity=host_identity)
+
+
+def set_peer_trust_state(file_path, peer_host_id, trust_state, *, host_identity=None):
+    peer_host_id = _normalize_host_id(peer_host_id, field_name='peer_host_id')
+    trust_state = (trust_state or '').strip()
+    if trust_state not in TRUST_STATES:
+        raise RuntimeError(
+            f'Unknown trust_state {trust_state!r}. Must be one of {TRUST_STATES}'
+        )
+    registry = load_peer_registry(file_path, host_identity=host_identity)
+    existing = registry.get('peers', {}).get(peer_host_id)
+    if not existing:
+        raise LookupError(f"Peer host '{peer_host_id}' is not in peer registry")
+    registry.setdefault('peers', {})[peer_host_id] = FederationPeer(
+        host_id=existing.host_id,
+        label=existing.label,
+        transport=existing.transport,
+        endpoint_url=existing.endpoint_url,
+        trust_state=trust_state,
+        shared_secret=existing.shared_secret,
+        admitted_org_ids=existing.admitted_org_ids,
+    )
+    return save_peer_registry(file_path, registry, host_identity=host_identity)
 
 
 class FederationAuthority:
@@ -478,31 +627,55 @@ class FederationAuthority:
             warrant_id=warrant_id,
             commitment_id=commitment_id,
         )
+        claims = self.validate(
+            envelope,
+            payload=payload,
+            expected_target_host_id=peer.host_id,
+            expected_target_org_id=target_institution_id,
+            expected_boundary_name='federation_gateway',
+        )
         sender = http_post or _default_http_post_json
         try:
             response = sender(peer.receive_url, {
                 'envelope': envelope,
                 'payload': payload,
             })
-        except FederationError:
-            raise
+        except FederationError as exc:
+            raise FederationDeliveryError(
+                str(exc),
+                peer_host_id=peer.host_id,
+                envelope=envelope,
+                claims=claims,
+            ) from exc
         except Exception as exc:
             raise FederationDeliveryError(
-                f"Failed delivering federation envelope to '{peer.host_id}': {exc}"
+                f"Failed delivering federation envelope to '{peer.host_id}': {exc}",
+                peer_host_id=peer.host_id,
+                envelope=envelope,
+                claims=claims,
             ) from exc
         return {
             'peer': peer.to_dict(),
             'envelope': envelope,
+            'claims': claims.to_dict(),
             'response': response,
         }
 
     def snapshot(self, *, bound_org_id='', admission_registry=None):
         enabled, reason = self._enabled_state()
         peers = self.peer_registry.get('peers', {})
+        peer_views = [
+            _peer_view(peers[host_id])
+            for host_id in sorted(peers)
+        ]
+        all_peers = [
+            peer_data
+            for peer_data, _trust_state, _receive_url in peer_views
+        ]
         trusted_peers = [
-            peer.to_dict()
-            for peer in peers.values()
-            if peer.trust_state == 'trusted'
+            peer_data
+            for peer_data, trust_state, _receive_url in peer_views
+            if trust_state == 'trusted'
         ]
         return {
             'enabled': enabled,
@@ -512,10 +685,15 @@ class FederationAuthority:
             'identity_model': 'signed_host_service',
             'boundary_name': 'federation_gateway',
             'peer_transport': self.host_identity.peer_transport,
-            'send_enabled': enabled and any(peer.receive_url for peer in trusted_peers),
+            'send_enabled': enabled and any(
+                trust_state == 'trusted' and receive_url
+                for _peer_data, trust_state, receive_url in peer_views
+            ),
             'registry_source': self.peer_registry.get('source', 'none'),
             'peer_count': len(trusted_peers),
+            'all_peer_count': len(all_peers),
             'trusted_peer_ids': list(self.peer_registry.get('trusted_peer_ids', [])),
+            'peers': all_peers,
             'trusted_peers': trusted_peers,
             'admitted_org_ids': list((admission_registry or {}).get('admitted_org_ids', [])),
             'replay_protection': self.replay_store.snapshot(),

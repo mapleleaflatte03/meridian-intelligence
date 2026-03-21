@@ -35,6 +35,9 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.orig_load_workspace_credentials = self.workspace._load_workspace_credentials
         self.orig_load_host_identity = self.workspace.load_host_identity
         self.orig_load_admission_registry = self.workspace.load_admission_registry
+        self.orig_runtime_host_state = self.workspace._runtime_host_state
+        self.orig_federation_authority = self.workspace._federation_authority
+        self.orig_log_event = self.workspace.log_event
 
     def tearDown(self):
         self.workspace.WORKSPACE_ORG_ID = self.orig_workspace_org_id
@@ -48,6 +51,9 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.workspace._load_workspace_credentials = self.orig_load_workspace_credentials
         self.workspace.load_host_identity = self.orig_load_host_identity
         self.workspace.load_admission_registry = self.orig_load_admission_registry
+        self.workspace._runtime_host_state = self.orig_runtime_host_state
+        self.workspace._federation_authority = self.orig_federation_authority
+        self.workspace.log_event = self.orig_log_event
 
     def test_live_workspace_rejects_non_founding_configured_org(self):
         self.workspace._load_workspace_credentials = lambda: (None, None, None, None)
@@ -148,6 +154,7 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.assertTrue(permissions['/api/authority/kill-switch']['allowed'])
         self.assertTrue(permissions['/api/institution/charter']['allowed'])
         self.assertFalse(permissions['/api/treasury/contribute']['allowed'])
+        self.assertTrue(permissions['/api/federation/send']['allowed'])
 
     def test_api_status_exposes_runtime_core(self):
         from runtime_host import default_host_identity
@@ -309,6 +316,36 @@ class LiveWorkspaceContextTests(unittest.TestCase):
                 'org_founding',
                 envelope,
                 payload={'task': 'demo'},
+            )
+
+    def test_deliver_federation_envelope_fails_closed_when_disabled(self):
+        from federation import FederationUnavailable
+        from runtime_host import default_host_identity
+
+        self.workspace.load_host_identity = lambda *args, **kwargs: default_host_identity(
+            host_id='host_live',
+            label='Meridian Live Host',
+            federation_enabled=False,
+            peer_transport='none',
+            supported_boundaries=['workspace', 'cli', 'federation_gateway'],
+        )
+        self.workspace.load_admission_registry = lambda *args, **kwargs: {
+            'source': 'derived_bound_default',
+            'host_id': 'host_live',
+            'institutions': {'org_founding': {'status': 'admitted'}},
+            'admitted_org_ids': ['org_founding'],
+        }
+
+        with self.assertRaises(FederationUnavailable):
+            self.workspace._deliver_federation_envelope(
+                'org_founding',
+                'host_peer',
+                'org_peer',
+                'execution_request',
+                payload={'task': 'demo'},
+                actor_type='user',
+                actor_id='user_owner',
+                session_id='ses_demo',
             )
 
 

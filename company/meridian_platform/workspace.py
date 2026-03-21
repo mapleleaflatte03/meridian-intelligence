@@ -15,6 +15,7 @@ Endpoints:
   GET  /api/court                 → Court records
   GET  /api/admission             → Host admission state
   GET  /api/federation            → Federation gateway state
+  GET  /api/federation/peers      → Federation peer registry state
   POST /api/authority/kill-switch → Engage/disengage kill switch
   POST /api/authority/approve     → Decide an approval
   POST /api/authority/request     → Request approval
@@ -30,6 +31,10 @@ Endpoints:
   POST /api/admission/admit       → Structurally reject non-founding admission changes
   POST /api/admission/suspend     → Structurally reject admission suspension changes
   POST /api/admission/revoke      → Structurally reject admission revocation changes
+  POST /api/federation/peers/upsert → Structurally reject peer registry mutation on live
+  POST /api/federation/peers/suspend → Structurally reject peer suspension changes on live
+  POST /api/federation/peers/revoke → Structurally reject peer revocation changes on live
+  POST /api/federation/send       → Attempt a federation delivery and fail closed when disabled
   POST /api/federation/receive    → Validate and consume a federation envelope
   POST /api/institution/charter   → Set charter
   POST /api/institution/lifecycle → Transition lifecycle
@@ -111,6 +116,7 @@ from federation import (
     ReplayStore,
     load_peer_registry,
     FederationUnavailable,
+    FederationDeliveryError,
     FederationValidationError,
     FederationReplayError,
 )
@@ -161,6 +167,10 @@ MUTATION_ROLE_REQUIREMENTS = {
     '/api/admission/admit': 'owner',
     '/api/admission/suspend': 'owner',
     '/api/admission/revoke': 'owner',
+    '/api/federation/send': 'admin',
+    '/api/federation/peers/upsert': 'owner',
+    '/api/federation/peers/suspend': 'owner',
+    '/api/federation/peers/revoke': 'owner',
     '/api/institution/charter': 'admin',
     '/api/institution/lifecycle': 'owner',
     '/api/session/issue': 'member',
@@ -251,22 +261,36 @@ def _runtime_host_state(bound_org_id):
     return host_identity, admission_registry
 
 
-def _federation_authority(host_identity):
+def _federation_authority(host_identity, peer_registry=None):
     return FederationAuthority(
         host_identity,
         signing_secret=FEDERATION_SIGNING_SECRET,
-        peer_registry=load_peer_registry(FEDERATION_PEERS_FILE, host_identity=host_identity),
+        peer_registry=(
+            peer_registry
+            if peer_registry is not None else
+            load_peer_registry(FEDERATION_PEERS_FILE, host_identity=host_identity)
+        ),
         replay_store=ReplayStore(FEDERATION_REPLAY_FILE),
     )
 
 
-def _federation_snapshot(bound_org_id, host_identity=None, admission_registry=None):
+def _federation_management_state():
+    return {
+        'management_mode': 'founding_locked',
+        'mutation_enabled': False,
+        'mutation_disabled_reason': 'single_institution_deployment',
+    }
+
+
+def _federation_snapshot(bound_org_id, host_identity=None, admission_registry=None, peer_registry=None):
     if host_identity is None or admission_registry is None:
         host_identity, admission_registry = _runtime_host_state(bound_org_id)
-    return _federation_authority(host_identity).snapshot(
+    snapshot = _federation_authority(host_identity, peer_registry=peer_registry).snapshot(
         bound_org_id=bound_org_id,
         admission_registry=admission_registry,
     )
+    snapshot.update(_federation_management_state())
+    return snapshot
 
 
 def _admission_management_state():
@@ -314,6 +338,99 @@ def _accept_federation_request(bound_org_id, envelope, payload=None):
         expected_boundary_name='federation_gateway',
     )
     return claims, authority.snapshot(
+        bound_org_id=bound_org_id,
+        admission_registry=admission_registry,
+    )
+
+
+def _mutate_federation_peer(bound_org_id, action, payload):
+    raise PermissionError(
+        f"Live runtime remains founding-only; federation peer mutation '{action}' is disabled "
+        f"for institution '{bound_org_id}'"
+    )
+
+
+def _federation_claims_dict(claims):
+    if not claims:
+        return {}
+    if isinstance(claims, dict):
+        return dict(claims)
+    if hasattr(claims, 'to_dict'):
+        return claims.to_dict()
+    return {}
+
+
+def _federation_audit_details(claims, **extra):
+    claim_data = _federation_claims_dict(claims)
+    details = {
+        'envelope_id': claim_data.get('envelope_id', ''),
+        'source_host_id': claim_data.get('source_host_id', ''),
+        'source_institution_id': claim_data.get('source_institution_id', ''),
+        'target_host_id': claim_data.get('target_host_id', ''),
+        'target_institution_id': claim_data.get('target_institution_id', ''),
+        'nonce': claim_data.get('nonce', ''),
+        'boundary_name': claim_data.get('boundary_name', ''),
+    }
+    for key, value in extra.items():
+        if value not in (None, ''):
+            details[key] = value
+    return details
+
+
+def _deliver_federation_envelope(bound_org_id, target_host_id, target_org_id,
+                                 message_type, payload=None, *,
+                                 actor_type='host_service', actor_id='',
+                                 session_id='', warrant_id='',
+                                 commitment_id='', ttl_seconds=None):
+    host_identity, admission_registry = _runtime_host_state(bound_org_id)
+    authority = _federation_authority(host_identity)
+    try:
+        delivery = authority.deliver(
+            target_host_id,
+            bound_org_id,
+            target_org_id,
+            message_type,
+            payload=payload,
+            actor_type=actor_type,
+            actor_id=actor_id,
+            session_id=session_id,
+            warrant_id=warrant_id,
+            commitment_id=commitment_id,
+            ttl_seconds=ttl_seconds,
+        )
+    except FederationDeliveryError as exc:
+        log_event(
+            bound_org_id,
+            actor_id or f'host:{host_identity.host_id}',
+            'federation_envelope_delivery_failed',
+            resource=message_type,
+            outcome='failed',
+            actor_type=actor_type or 'service',
+            details=_federation_audit_details(
+                exc.claims,
+                target_host_id=exc.peer_host_id or target_host_id,
+                target_institution_id=target_org_id,
+                error=str(exc),
+            ),
+            session_id=session_id or None,
+        )
+        raise
+
+    claims = delivery.get('claims')
+    log_event(
+        bound_org_id,
+        actor_id or f'host:{host_identity.host_id}',
+        'federation_envelope_sent',
+        resource=message_type,
+        outcome='accepted',
+        actor_type=actor_type or 'service',
+        details=_federation_audit_details(
+            claims,
+            peer_transport=(delivery.get('peer') or {}).get('transport', ''),
+        ),
+        session_id=session_id or None,
+    )
+    return delivery, authority.snapshot(
         bound_org_id=bound_org_id,
         admission_registry=admission_registry,
     )
@@ -1358,6 +1475,13 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                 host_identity=host_identity,
                 admission_registry=admission_registry,
             ))
+        elif path == '/api/federation/peers':
+            host_identity, admission_registry = _runtime_host_state(org_id)
+            return self._json(_federation_snapshot(
+                org_id,
+                host_identity=host_identity,
+                admission_registry=admission_registry,
+            ))
         elif path == '/api/admission':
             host_identity, admission_registry = _runtime_host_state(org_id)
             return self._json(_admission_snapshot(
@@ -1420,15 +1544,17 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                     'federation_envelope_received',
                     resource=claims.message_type,
                     outcome='accepted',
-                    actor_type='service',
+                    actor_type=claims.actor_type or 'service',
                     details={
                         'envelope_id': claims.envelope_id,
                         'source_host_id': claims.source_host_id,
                         'source_institution_id': claims.source_institution_id,
                         'target_host_id': claims.target_host_id,
+                        'target_institution_id': claims.target_institution_id,
                         'nonce': claims.nonce,
                         'boundary_name': claims.boundary_name,
                     },
+                    session_id=claims.session_id or None,
                 )
                 return self._json({
                     'message': 'Federation envelope accepted',
@@ -1614,6 +1740,51 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                           details={'session_id': session_id},
                           session_id=_sid)
                 return self._json({'message': f'Session revoked: {session_id}'})
+
+            elif path == '/api/federation/send':
+                target_host_id = (body.get('target_host_id') or '').strip()
+                target_org_id = (body.get('target_org_id') or '').strip()
+                message_type = (body.get('message_type') or '').strip()
+                if not target_host_id:
+                    return self._json({'error': 'target_host_id is required'}, 400)
+                if not target_org_id:
+                    return self._json({'error': 'target_org_id is required'}, 400)
+                if not message_type:
+                    return self._json({'error': 'message_type is required'}, 400)
+                try:
+                    delivery, federation_state = _deliver_federation_envelope(
+                        org_id,
+                        target_host_id,
+                        target_org_id,
+                        message_type,
+                        payload=body.get('payload'),
+                        actor_type='user',
+                        actor_id=by,
+                        session_id=_sid or '',
+                        warrant_id=(body.get('warrant_id') or '').strip(),
+                        commitment_id=(body.get('commitment_id') or '').strip(),
+                        ttl_seconds=body.get('ttl_seconds'),
+                    )
+                except FederationUnavailable as e:
+                    return self._json({'error': str(e)}, 503)
+                except FederationDeliveryError as e:
+                    return self._json({
+                        'error': str(e),
+                        'peer_host_id': e.peer_host_id,
+                        'claims': _federation_claims_dict(e.claims),
+                    }, 502)
+                return self._json({
+                    'message': 'Federation envelope delivered',
+                    'delivery': delivery,
+                    'runtime_core': {
+                        'federation': federation_state,
+                    },
+                })
+
+            elif path in ('/api/federation/peers/upsert', '/api/federation/peers/suspend', '/api/federation/peers/revoke'):
+                action = path.rsplit('/', 1)[-1]
+                _mutate_federation_peer(org_id, action, body)
+                return self._json({'message': f'Federation peer {action} applied'})
 
             elif path in ('/api/admission/admit', '/api/admission/suspend', '/api/admission/revoke'):
                 action = path.rsplit('/', 1)[-1]
