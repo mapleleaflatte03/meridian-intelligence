@@ -3,6 +3,13 @@
 Owner money flow accounting.
 Separates owner capital from company treasury cash.
 
+Institution scope:
+  Founding-service-only module.  Reads/writes through capsule aliases that
+  resolve to economy/ledger.json for the founding institution.  The capsule
+  calls (ensure_treasury_aliases, capsule_ledger_path) are invoked without
+  an explicit org_id, which defaults to the founding org.  This module does
+  not support multi-institution operation and is not part of the OSS kernel.
+
 Usage:
   python3 accounting.py contribute --amount <USD> --note "..."
   python3 accounting.py expense    --amount <USD> --note "..."   # records owner-paid expense

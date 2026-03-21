@@ -2,6 +2,13 @@
 """
 Phase machine for the live Meridian deployment.
 
+Institution scope:
+  Founding-institution-only evaluator.  Reads from capsule-aliased ledger
+  and revenue files that resolve to economy/ledger.json and economy/revenue.json
+  for the founding org.  The _resolve_org_id() guard rejects any non-founding
+  org_id at runtime.  Multi-institution phase evaluation would require the
+  OSS kernel's phase_machine.py which accepts org_id for capsule resolution.
+
 Evaluates the institution's current maturity against the same phase model as
 the public kernel, but against live economy state and deployment-specific
 internal test identifiers.
@@ -39,14 +46,14 @@ def _load_json(path):
         return json.load(f)
 
 
-def _load_ledger():
+def _load_ledger(org_id=None):
     ensure_treasury_aliases()
-    return _load_json(capsule_ledger_path())
+    return _load_json(capsule_ledger_path(org_id))
 
 
-def _load_revenue():
+def _load_revenue(org_id=None):
     ensure_treasury_aliases()
-    return _load_json(capsule_revenue_path())
+    return _load_json(capsule_revenue_path(org_id))
 
 
 def _default_org_id():
@@ -90,9 +97,9 @@ def _order_client_id(order):
 
 def evaluate(org_id=None):
     """Evaluate Meridian's current phase. Returns (phase_num, details)."""
-    _resolve_org_id(org_id)
-    ledger = _load_ledger()
-    revenue = _load_revenue()
+    resolved = _resolve_org_id(org_id)
+    ledger = _load_ledger(resolved)
+    revenue = _load_revenue(resolved)
     t = ledger.get('treasury', {})
     checks = []
 

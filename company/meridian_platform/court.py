@@ -2,6 +2,12 @@
 """
 Court primitive for Meridian Constitutional OS.
 
+Institution scope:
+  Founding-institution-only.  All functions accept org_id but
+  _resolve_org_id() enforces that only the founding org (slug='meridian')
+  is valid.  Court records resolve through capsule_path() to the founding
+  org's capsule directory.
+
 Composes over economy/sanctions.py — adds violation records, appeals,
 and structured policy enforcement per CLAUDE.md sections 9-10.
 

@@ -2,6 +2,12 @@
 """
 Authority primitive for Meridian Constitutional OS.
 
+Institution scope:
+  Founding-institution-only.  All functions accept org_id but
+  _resolve_org_id() enforces that only the founding org (slug='meridian')
+  is valid.  Authority queue state resolves through capsule_path() to the
+  founding org's capsule directory.
+
 Composes over economy/authority.py — adds approval queues, delegations,
 and a kill switch. Economy module handles the scoring math; this module
 handles governance workflow.

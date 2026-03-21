@@ -63,7 +63,7 @@ def bootstrap():
     if 'policy_defaults' not in org:
         org['policy_defaults'] = dict(DEFAULT_POLICY_DEFAULTS)
         backfilled_org = True
-    expected_treasury_pointer = f'economy/capsules/{founding_org_id}/ledger.json:treasury'
+    expected_treasury_pointer = f'capsule://{founding_org_id}/treasury'
     if org.get('treasury_id') != expected_treasury_pointer:
         org['treasury_id'] = expected_treasury_pointer
         backfilled_org = True
