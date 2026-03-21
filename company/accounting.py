@@ -4,11 +4,13 @@ Owner money flow accounting.
 Separates owner capital from company treasury cash.
 
 Institution scope:
-  Founding-service-only module.  Reads/writes through capsule aliases that
-  resolve to economy/ledger.json for the founding institution.  The capsule
-  calls (ensure_treasury_aliases, capsule_ledger_path) are invoked without
-  an explicit org_id, which defaults to the founding org.  This module does
-  not support multi-institution operation and is not part of the OSS kernel.
+  Founding-service-only module.  Ledger reads/writes go through capsule
+  aliases (ensure_treasury_aliases, capsule_ledger_path) which resolve to
+  economy/ledger.json for the founding institution.  Transaction appends
+  go directly to economy/transactions.jsonl — the same file the capsule
+  would resolve to, but the write path is intentionally direct since this
+  module serves exactly one institution.  This module does not support
+  multi-institution operation and is not part of the OSS kernel.
 
 Usage:
   python3 accounting.py contribute --amount <USD> --note "..."
@@ -23,7 +25,6 @@ COMPANY_DIR      = os.path.dirname(os.path.abspath(__file__))
 ECONOMY_DIR      = os.path.join(COMPANY_DIR, '..', 'economy')
 MERIDIAN_PLATFORM_DIR = os.path.join(COMPANY_DIR, 'meridian_platform')
 OWNER_LEDGER     = os.path.join(COMPANY_DIR, 'owner_ledger.json')
-LEDGER           = os.path.join(ECONOMY_DIR, 'ledger.json')
 TRANSACTIONS     = os.path.join(ECONOMY_DIR, 'transactions.jsonl')
 
 if MERIDIAN_PLATFORM_DIR not in sys.path:
