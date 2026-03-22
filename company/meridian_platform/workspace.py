@@ -829,6 +829,150 @@ def _federation_inbox_snapshot(bound_org_id, *, limit=50):
     }
 
 
+def _settlement_notice_ref(claims, receipt, payload=None):
+    payload = payload if isinstance(payload, dict) else {}
+    execution_refs = payload.get('execution_refs') or {}
+    if not isinstance(execution_refs, dict):
+        execution_refs = {}
+    claim_data = _federation_claims_dict(claims)
+    return {
+        'proposal_id': (payload.get('proposal_id') or '').strip(),
+        'tx_ref': (payload.get('tx_ref') or execution_refs.get('tx_ref') or '').strip(),
+        'tx_hash': (payload.get('tx_hash') or execution_refs.get('tx_hash') or '').strip(),
+        'settlement_adapter': (payload.get('settlement_adapter') or execution_refs.get('settlement_adapter') or '').strip(),
+        'proof_type': (payload.get('proof_type') or execution_refs.get('proof_type') or '').strip(),
+        'verification_state': (payload.get('verification_state') or execution_refs.get('verification_state') or '').strip(),
+        'finality_state': (payload.get('finality_state') or execution_refs.get('finality_state') or '').strip(),
+        'warrant_id': claim_data.get('warrant_id', ''),
+        'envelope_id': claim_data.get('envelope_id', ''),
+        'receipt_id': (receipt or {}).get('receipt_id', ''),
+        'source_host_id': claim_data.get('source_host_id', ''),
+        'source_institution_id': claim_data.get('source_institution_id', ''),
+        'target_host_id': claim_data.get('target_host_id', ''),
+        'target_institution_id': claim_data.get('target_institution_id', ''),
+        'payload_hash': claim_data.get('payload_hash', ''),
+        'proof': payload.get('proof') or execution_refs.get('proof') or {},
+        'recorded_by': claim_data.get('actor_id') or f"peer:{claim_data.get('source_host_id', '')}",
+        'recorded_at': (receipt or {}).get('accepted_at', '') or _now(),
+    }
+
+
+def _process_received_federation_message(bound_org_id, claims, receipt, *, payload=None):
+    result = {
+        'applied': False,
+        'message_type': claims.message_type,
+        'state': 'received',
+        'reason': 'no_receiver_handler',
+    }
+    if claims.message_type != 'settlement_notice' or not claims.commitment_id:
+        return result
+
+    actor_id = claims.actor_id or f'peer:{claims.source_host_id}'
+    try:
+        commitments.validate_commitment_for_settlement(
+            claims.commitment_id,
+            org_id=bound_org_id,
+            warrant_id=claims.warrant_id,
+        )
+    except PermissionError as exc:
+        error = str(exc)
+        log_event(
+            bound_org_id,
+            actor_id,
+            'federation_settlement_notice_blocked',
+            resource=claims.commitment_id,
+            outcome='blocked',
+            actor_type=claims.actor_type or 'service',
+            details=_federation_audit_details(
+                claims,
+                receipt_id=(receipt or {}).get('receipt_id', ''),
+                error=error,
+            ),
+            session_id=claims.session_id or None,
+        )
+        result.update({
+            'reason': 'commitment_not_settlement_ready',
+            'error': error,
+        })
+        return result
+
+    case_record, warrant = _maybe_block_commitment_settlement(
+        claims.commitment_id,
+        actor_id,
+        org_id=bound_org_id,
+        session_id=claims.session_id or None,
+        note='Settlement notice blocked by active case on receiver',
+    )
+    if case_record:
+        log_event(
+            bound_org_id,
+            actor_id,
+            'federation_settlement_notice_blocked',
+            resource=claims.commitment_id,
+            outcome='blocked',
+            actor_type=claims.actor_type or 'service',
+            details=_federation_audit_details(
+                claims,
+                receipt_id=(receipt or {}).get('receipt_id', ''),
+                case_id=case_record.get('case_id', ''),
+                case_status=case_record.get('status', ''),
+                error='linked_case_blocked',
+            ),
+            session_id=claims.session_id or None,
+        )
+        result.update({
+            'reason': 'case_blocked',
+            'case': case_record,
+            'warrant': warrant,
+        })
+        return result
+
+    settlement_ref = _settlement_notice_ref(claims, receipt, payload)
+    commitments.record_settlement_ref(
+        claims.commitment_id,
+        settlement_ref,
+        org_id=bound_org_id,
+    )
+    commitment = commitments.settle_commitment(
+        claims.commitment_id,
+        actor_id,
+        org_id=bound_org_id,
+        note='Applied from received settlement_notice envelope',
+    )
+    inbox_entry = _federation_inbox_entry(
+        bound_org_id,
+        claims,
+        receipt,
+        payload=payload,
+        state='processed',
+    )
+    log_event(
+        bound_org_id,
+        actor_id,
+        'federation_settlement_notice_applied',
+        resource=claims.commitment_id,
+        outcome='success',
+        actor_type=claims.actor_type or 'service',
+        details=_federation_audit_details(
+            claims,
+            receipt_id=(receipt or {}).get('receipt_id', ''),
+            proposal_id=settlement_ref.get('proposal_id', ''),
+            tx_ref=settlement_ref.get('tx_ref', ''),
+            settlement_adapter=settlement_ref.get('settlement_adapter', ''),
+        ),
+        session_id=claims.session_id or None,
+    )
+    result.update({
+        'applied': True,
+        'state': 'processed',
+        'reason': 'settlement_notice_applied',
+        'commitment': commitment,
+        'settlement_ref': settlement_ref,
+        'inbox_entry': inbox_entry,
+    })
+    return result
+
+
 def _federation_peer_state(peer_host_id, *, host_identity=None):
     peer_host_id = (peer_host_id or '').strip()
     if not peer_host_id:
@@ -2310,6 +2454,14 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                     receipt,
                     payload=body.get('payload'),
                 )
+                processing = _process_received_federation_message(
+                    inst_ctx.org_id,
+                    claims,
+                    receipt,
+                    payload=body.get('payload'),
+                )
+                if processing.get('inbox_entry'):
+                    inbox_entry = processing['inbox_entry']
                 log_event(
                     inst_ctx.org_id,
                     claims.actor_id or f'peer:{claims.source_host_id}',
@@ -2336,6 +2488,7 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                     'claims': claims.to_dict(),
                     'receipt': receipt,
                     'inbox_entry': inbox_entry,
+                    'processing': processing,
                     'runtime_core': {
                         'federation': dict(
                             federation_state,
