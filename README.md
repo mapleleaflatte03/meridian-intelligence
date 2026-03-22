@@ -52,6 +52,10 @@ peer transport, a signing secret, and trusted peers.
 `GET /api/federation/inbox` now mirrors the founding capsule-backed receiver
 inbox shape as a read surface, so any accepted envelope would persist into the
 founding institution capsule instead of existing only as audit lines.
+`GET /api/federation/execution-jobs` now exposes the receiver-side queue of
+incoming `execution_request` envelopes as local review objects with pending
+local warrants. This is a live codepath mirror, not evidence that live
+federation is broadly enabled.
 The live boundary registry also declares warrant requirements for
 `federation_gateway`, so this disabled host can still say honestly which
 message types would require court-first execution review if federation were

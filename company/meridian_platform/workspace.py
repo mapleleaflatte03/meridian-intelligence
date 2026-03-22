@@ -27,6 +27,7 @@ Endpoints:
   GET  /api/federation            → Federation gateway state
   GET  /api/federation/peers      → Federation peer registry state
   GET  /api/federation/inbox      → Founding federation inbox state
+  GET  /api/federation/execution-jobs → Receiver-side federated execution jobs
   GET  /api/federation/manifest   → Public host federation manifest
   POST /api/authority/kill-switch → Engage/disengage kill switch
   POST /api/authority/approve     → Decide an approval
@@ -172,6 +173,7 @@ from court import (file_violation, get_violations, resolve_violation,
 from session import SessionAuthority
 from warrants import (
     list_warrants,
+    get_warrant,
     issue_warrant,
     review_warrant,
     validate_warrant_for_execution,
@@ -195,6 +197,12 @@ from federation_inbox import (
     load_inbox_entries,
     summarize_inbox_entries,
     upsert_inbox_entry,
+)
+from federated_execution_jobs import (
+    get_execution_job,
+    list_execution_jobs,
+    execution_job_summary,
+    upsert_execution_job,
 )
 from capsule import capsule_dir
 from ci_vertical import PIPELINE_PHASES, _phase_gate_snapshot, get_agent_remediation
@@ -398,6 +406,7 @@ def _federation_snapshot(bound_org_id, host_identity=None, admission_registry=No
     )
     snapshot.update(_federation_management_state())
     snapshot['inbox_summary'] = summarize_inbox_entries(bound_org_id)
+    snapshot['execution_job_summary'] = execution_job_summary(bound_org_id)
     return snapshot
 
 
@@ -829,6 +838,142 @@ def _federation_inbox_snapshot(bound_org_id, *, limit=50):
     }
 
 
+def _receiver_execution_warrant_payload(claims, payload=None):
+    claim_data = _federation_claims_dict(claims)
+    return {
+        'source_host_id': claim_data.get('source_host_id', ''),
+        'source_institution_id': claim_data.get('source_institution_id', ''),
+        'target_host_id': claim_data.get('target_host_id', ''),
+        'target_institution_id': claim_data.get('target_institution_id', ''),
+        'message_type': claim_data.get('message_type', ''),
+        'boundary_name': claim_data.get('boundary_name', ''),
+        'identity_model': claim_data.get('identity_model', ''),
+        'sender_warrant_id': claim_data.get('warrant_id', ''),
+        'commitment_id': claim_data.get('commitment_id', ''),
+        'payload': payload if isinstance(payload, dict) else {},
+    }
+
+
+def _execution_job_view(bound_org_id, job):
+    record = dict(job or {})
+    local_warrant_id = (record.get('local_warrant_id') or '').strip()
+    if local_warrant_id:
+        warrant = get_warrant(local_warrant_id, org_id=bound_org_id)
+        if warrant:
+            record['local_warrant'] = {
+                'warrant_id': warrant.get('warrant_id', ''),
+                'court_review_state': warrant.get('court_review_state', ''),
+                'execution_state': warrant.get('execution_state', ''),
+                'expires_at': warrant.get('expires_at', ''),
+            }
+    return record
+
+
+def _federation_execution_jobs_snapshot(bound_org_id, *, limit=50):
+    jobs = [
+        _execution_job_view(bound_org_id, job)
+        for job in list_execution_jobs(bound_org_id)[:limit]
+    ]
+    return {
+        'management_mode': 'capsule_backed',
+        'mutation_enabled': False,
+        'mutation_disabled_reason': 'review_via_warrants',
+        'storage_model': 'capsule_canonical',
+        'boundary_name': 'federation_gateway',
+        'identity_model': 'signed_host_service',
+        'summary': execution_job_summary(bound_org_id),
+        'jobs': jobs,
+    }
+
+
+def _queue_received_execution_request(bound_org_id, claims, receipt, *, payload=None):
+    existing = get_execution_job(claims.envelope_id, org_id=bound_org_id)
+    if existing:
+        return _execution_job_view(bound_org_id, existing), (
+            get_warrant(existing.get('local_warrant_id', ''), org_id=bound_org_id)
+            if existing.get('local_warrant_id')
+            else None
+        ), None
+
+    actor_id = claims.actor_id or f'peer:{claims.source_host_id}'
+    blocking_case = _blocking_case_for_delivery(
+        org_id=bound_org_id,
+        commitment_id=claims.commitment_id,
+        target_host_id=claims.source_host_id,
+    )
+    if blocking_case:
+        blocked_job = upsert_execution_job(bound_org_id, {
+            'envelope_id': claims.envelope_id,
+            'source_host_id': claims.source_host_id,
+            'source_institution_id': claims.source_institution_id,
+            'target_host_id': claims.target_host_id,
+            'target_institution_id': claims.target_institution_id,
+            'message_type': claims.message_type,
+            'receipt_id': (receipt or {}).get('receipt_id', ''),
+            'actor_type': claims.actor_type or 'service',
+            'actor_id': actor_id,
+            'session_id': claims.session_id or '',
+            'boundary_name': claims.boundary_name,
+            'identity_model': claims.identity_model,
+            'sender_warrant_id': claims.warrant_id,
+            'local_warrant_id': '',
+            'commitment_id': claims.commitment_id,
+            'payload': payload,
+            'payload_hash': claims.payload_hash,
+            'state': 'blocked',
+            'received_at': (receipt or {}).get('accepted_at', '') or _now(),
+            'note': 'Receiver-side case blocks incoming execution request',
+            'metadata': {
+                'case_id': blocking_case.get('case_id', ''),
+                'case_status': blocking_case.get('status', ''),
+                'claim_type': blocking_case.get('claim_type', ''),
+            },
+        })
+        return _execution_job_view(bound_org_id, blocked_job), None, blocking_case
+
+    receiver_warrant = issue_warrant(
+        bound_org_id,
+        'federated_execution',
+        'federation_gateway',
+        actor_id,
+        session_id='',
+        request_payload=_receiver_execution_warrant_payload(claims, payload),
+        risk_class='high',
+        evidence_refs=[
+            f"federation_envelope:{claims.envelope_id}",
+            f"federation_receipt:{(receipt or {}).get('receipt_id', '')}",
+        ],
+        auto_issue=False,
+        note='Receiver-side local review for incoming execution_request',
+    )
+    job = upsert_execution_job(bound_org_id, {
+        'envelope_id': claims.envelope_id,
+        'source_host_id': claims.source_host_id,
+        'source_institution_id': claims.source_institution_id,
+        'target_host_id': claims.target_host_id,
+        'target_institution_id': claims.target_institution_id,
+        'message_type': claims.message_type,
+        'receipt_id': (receipt or {}).get('receipt_id', ''),
+        'actor_type': claims.actor_type or 'service',
+        'actor_id': actor_id,
+        'session_id': claims.session_id or '',
+        'boundary_name': claims.boundary_name,
+        'identity_model': claims.identity_model,
+        'sender_warrant_id': claims.warrant_id,
+        'local_warrant_id': receiver_warrant['warrant_id'],
+        'commitment_id': claims.commitment_id,
+        'payload': payload,
+        'payload_hash': claims.payload_hash,
+        'state': 'pending_local_warrant',
+        'received_at': (receipt or {}).get('accepted_at', '') or _now(),
+        'note': 'Receiver-side execution request queued for local warrant review',
+        'metadata': {
+            'source_boundary_name': claims.boundary_name,
+        },
+    })
+    return _execution_job_view(bound_org_id, job), receiver_warrant, None
+
+
 def _settlement_notice_ref(claims, receipt, payload=None):
     payload = payload if isinstance(payload, dict) else {}
     execution_refs = payload.get('execution_refs') or {}
@@ -864,6 +1009,59 @@ def _process_received_federation_message(bound_org_id, claims, receipt, *, paylo
         'state': 'received',
         'reason': 'no_receiver_handler',
     }
+    if claims.message_type == 'execution_request':
+        actor_id = claims.actor_id or f'peer:{claims.source_host_id}'
+        execution_job, receiver_warrant, blocking_case = _queue_received_execution_request(
+            bound_org_id,
+            claims,
+            receipt,
+            payload=payload,
+        )
+        inbox_state = 'processed'
+        note = 'queued_for_local_warrant_review'
+        event_name = 'federation_execution_job_created'
+        outcome = 'accepted'
+        if execution_job.get('state') == 'blocked':
+            inbox_state = 'processed'
+            note = 'blocked_by_case'
+            event_name = 'federation_execution_job_blocked'
+            outcome = 'blocked'
+        inbox_entry = _federation_inbox_entry(
+            bound_org_id,
+            claims,
+            receipt,
+            payload=payload,
+            state=inbox_state,
+        )
+        log_event(
+            bound_org_id,
+            actor_id,
+            event_name,
+            resource=execution_job.get('job_id', claims.envelope_id),
+            outcome=outcome,
+            actor_type=claims.actor_type or 'service',
+            details=_federation_audit_details(
+                claims,
+                receipt_id=(receipt or {}).get('receipt_id', ''),
+                execution_job_id=execution_job.get('job_id', ''),
+                local_warrant_id=execution_job.get('local_warrant_id', ''),
+                job_state=execution_job.get('state', ''),
+                reason=note,
+            ),
+            session_id=claims.session_id or None,
+        )
+        result.update({
+            'applied': True,
+            'state': inbox_state,
+            'reason': 'execution_job_created' if execution_job.get('state') != 'blocked' else 'case_blocked',
+            'execution_job': execution_job,
+            'receiver_warrant': receiver_warrant,
+            'inbox_entry': inbox_entry,
+        })
+        if blocking_case:
+            result['case'] = blocking_case
+        return result
+
     if claims.message_type != 'settlement_notice' or not claims.commitment_id:
         return result
 
@@ -2371,6 +2569,8 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
             ))
         elif path == '/api/federation/inbox':
             return self._json(_federation_inbox_snapshot(org_id))
+        elif path == '/api/federation/execution-jobs':
+            return self._json(_federation_execution_jobs_snapshot(org_id))
         elif path == '/api/federation/manifest':
             host_identity, admission_registry = _runtime_host_state(org_id)
             return self._json(_federation_manifest(

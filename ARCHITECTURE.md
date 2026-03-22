@@ -157,6 +157,10 @@ The live workspace now also exposes `GET /api/treasury/accounts` and
 files. `treasury_accounts.json` is synced from the founding ledger and payout
 state, while `funding_sources.json` records owner-capital and future funding
 events as explicit treasury inputs rather than implicit ledger deltas.
+The federation boundary now also exposes `GET /api/federation/execution-jobs`
+as a receiver-side local-review surface for incoming `execution_request`
+envelopes. Those jobs are capsule-backed and local to the bound institution;
+they do not imply that live federation itself is enabled.
 `POST /api/treasury/settlement-adapters/preflight` now exposes the same
 contract as a non-executing validation surface, so live can say honestly
 whether an adapter is merely registered, whether this host supports it, and
