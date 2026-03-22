@@ -697,6 +697,152 @@ def _maybe_suspend_peer_for_case(case_record, actor_id, *, org_id, session_id=No
     }
 
 
+def _maybe_restore_peer_for_case(case_record, actor_id, *, org_id, session_id=None):
+    if not cases.case_targets_peer_block(case_record):
+        return {
+            'applied': False,
+            'peer_host_id': (case_record.get('target_host_id') or '').strip(),
+            'reason': 'case_not_peer_blocking',
+            'trust_state': '',
+        }
+    target_host_id = (case_record.get('target_host_id') or '').strip()
+    if not target_host_id:
+        return None
+    host_identity, admission_registry = _runtime_host_state(org_id)
+    management = _federation_management_state(host_identity)
+    if not management['mutation_enabled']:
+        return {
+            'applied': False,
+            'peer_host_id': target_host_id,
+            'reason': management['mutation_disabled_reason'],
+            'trust_state': '',
+        }
+    if not cases.peer_can_be_thawed(target_host_id, org_id=org_id):
+        return {
+            'applied': False,
+            'peer_host_id': target_host_id,
+            'reason': 'peer_still_blocked',
+            'trust_state': '',
+        }
+    try:
+        peer_registry = set_peer_trust_state(
+            FEDERATION_PEERS_FILE,
+            target_host_id,
+            'trusted',
+            host_identity=host_identity,
+        )
+    except LookupError:
+        return {
+            'applied': False,
+            'peer_host_id': target_host_id,
+            'reason': 'peer_not_registered',
+            'trust_state': '',
+        }
+    def _peer_value(peer, field, default=''):
+        if isinstance(peer, dict):
+            return peer.get(field, default)
+        return getattr(peer, field, default)
+    peer_record = next(
+        (
+            peer
+            for peer in (peer_registry.get('peers', {}) or {}).values()
+            if _peer_value(peer, 'host_id', '') == target_host_id
+        ),
+        None,
+    )
+    log_event(
+        org_id,
+        actor_id,
+        'federation_peer_auto_reinstated',
+        resource=target_host_id,
+        outcome='success',
+        details={
+            'peer_host_id': target_host_id,
+            'case_id': case_record.get('case_id', ''),
+            'claim_type': case_record.get('claim_type', ''),
+            'trust_state': _peer_value(peer_record, 'trust_state', ''),
+        },
+        session_id=session_id,
+    )
+    return {
+        'applied': True,
+        'peer_host_id': target_host_id,
+        'reason': '',
+        'trust_state': _peer_value(peer_record, 'trust_state', ''),
+        'admitted_org_ids': list(_peer_value(peer_record, 'admitted_org_ids', []) or []),
+        'label': _peer_value(peer_record, 'label', ''),
+        'federation': {
+            'host_id': host_identity.host_id,
+            'peer_host_id': target_host_id,
+            'peer_trust_state': _peer_value(peer_record, 'trust_state', ''),
+        },
+    }
+
+
+def _sender_warrant_delivery_ref(commitment_record):
+    for ref in reversed((commitment_record or {}).get('delivery_refs', []) or []):
+        if (ref or {}).get('warrant_id'):
+            return dict(ref or {})
+    return None
+
+
+def _maybe_finalize_sender_warrant_for_commitment(commitment_record, claims, receipt,
+                                                  settlement_ref, *, org_id,
+                                                  actor_id, session_id=None):
+    claim_data = _federation_claims_dict(claims)
+    delivery_ref = _sender_warrant_delivery_ref(commitment_record)
+    if not delivery_ref:
+        return None
+    warrant_id = (delivery_ref.get('warrant_id') or '').strip()
+    if not warrant_id:
+        return None
+    warrant = get_warrant(warrant_id, org_id=org_id)
+    if not warrant:
+        return None
+    if warrant.get('execution_state') == 'executed':
+        return warrant
+    execution_refs = {
+        'message_type': 'settlement_notice',
+        'commitment_id': (commitment_record or {}).get('commitment_id', ''),
+        'sender_warrant_id': warrant_id,
+        'source_delivery_envelope_id': delivery_ref.get('envelope_id', ''),
+        'source_delivery_receipt_id': delivery_ref.get('receipt_id', ''),
+        'source_delivery_target_host_id': delivery_ref.get('target_host_id', ''),
+        'source_delivery_target_institution_id': delivery_ref.get('target_institution_id', ''),
+        'settlement_notice_envelope_id': claim_data.get('envelope_id', ''),
+        'settlement_notice_receipt_id': (receipt or {}).get('receipt_id', ''),
+        'settlement_notice_target_host_id': claim_data.get('target_host_id', ''),
+        'settlement_notice_target_institution_id': claim_data.get('target_institution_id', ''),
+        'settlement_notice_sent_at': (receipt or {}).get('accepted_at', '') or _now(),
+        'proposal_id': (settlement_ref or {}).get('proposal_id', ''),
+        'tx_ref': (settlement_ref or {}).get('tx_ref', ''),
+        'tx_hash': (settlement_ref or {}).get('tx_hash', ''),
+        'settlement_adapter': (settlement_ref or {}).get('settlement_adapter', ''),
+        'proof_type': (settlement_ref or {}).get('proof_type', ''),
+        'verification_state': (settlement_ref or {}).get('verification_state', ''),
+        'finality_state': (settlement_ref or {}).get('finality_state', ''),
+    }
+    warrant = mark_warrant_executed(
+        warrant_id,
+        org_id=org_id,
+        execution_refs=execution_refs,
+    )
+    log_event(
+        org_id,
+        actor_id,
+        'federated_execution_warrant_finalized',
+        resource=warrant_id,
+        outcome='success',
+        details={
+            'commitment_id': execution_refs['commitment_id'],
+            'settlement_notice_envelope_id': execution_refs['settlement_notice_envelope_id'],
+            'settlement_notice_receipt_id': execution_refs['settlement_notice_receipt_id'],
+        },
+        session_id=session_id,
+    )
+    return warrant
+
+
 def _delivery_failure_claim_type(error_message):
     message = (error_message or '').lower()
     if not message:
@@ -1300,6 +1446,15 @@ def _process_received_federation_message(bound_org_id, claims, receipt, *, paylo
         org_id=bound_org_id,
         note='Applied from received settlement_notice envelope',
     )
+    sender_warrant = _maybe_finalize_sender_warrant_for_commitment(
+        commitment,
+        claims,
+        receipt,
+        settlement_ref,
+        org_id=bound_org_id,
+        actor_id=actor_id,
+        session_id=claims.session_id or None,
+    )
     inbox_entry = _federation_inbox_entry(
         bound_org_id,
         claims,
@@ -1332,6 +1487,7 @@ def _process_received_federation_message(bound_org_id, claims, receipt, *, paylo
         'settlement_ref': settlement_ref,
         'settlement_adapter_preflight': settlement_adapter_preflight,
         'inbox_entry': inbox_entry,
+        'warrant': sender_warrant,
     })
     return result
 
@@ -1588,7 +1744,7 @@ def _deliver_federation_envelope(bound_org_id, target_host_id, target_org_id,
             },
             session_id=session_id or None,
         )
-    if execution_warrant:
+    if execution_warrant and not commitment_record:
         mark_warrant_executed(
             warrant_id,
             org_id=bound_org_id,
@@ -3937,11 +4093,17 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                 log_event(org_id, by, 'case_resolved', resource=case_id,
                           outcome='success', details={'status': case_record['status']},
                           session_id=_sid)
+                federation_peer = _maybe_restore_peer_for_case(
+                    case_record,
+                    by,
+                    org_id=org_id,
+                    session_id=_sid,
+                )
                 return self._json({
                     'message': f"Case resolved: {case_id}",
                     'case': case_record,
                     'summary': _case_snapshot(org_id),
-                    'federation_peer': None,
+                    'federation_peer': federation_peer,
                 })
 
             elif path == '/api/federation/send':

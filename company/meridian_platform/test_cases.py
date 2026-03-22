@@ -95,6 +95,19 @@ class CaseModuleTests(unittest.TestCase):
         self.assertCountEqual(self.cases.blocking_commitment_ids(self.org_id), ['cmt_demo', 'cmt_other'])
         self.assertEqual(self.cases.blocked_peer_host_ids(self.org_id), ['host_peer'])
 
+    def test_peer_can_be_thawed_only_after_peer_blocking_case_resolves(self):
+        record = self.cases.open_case(
+            self.org_id,
+            'misrouted_execution',
+            'user_owner',
+            target_host_id='host_peer',
+            target_institution_id='org_peer',
+            linked_commitment_id='cmt_demo',
+        )
+        self.assertFalse(self.cases.peer_can_be_thawed('host_peer', org_id=self.org_id))
+        self.cases.resolve_case(record['case_id'], 'user_owner', org_id=self.org_id, note='Recovered')
+        self.assertTrue(self.cases.peer_can_be_thawed('host_peer', org_id=self.org_id))
+
     def test_delivery_failure_helper_dedupes_active_case(self):
         first, created_first = self.cases.ensure_case_for_delivery_failure(
             'invalid_settlement_notice',

@@ -1019,6 +1019,62 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.assertEqual(result['peer_host_id'], 'host_peer')
         self.assertEqual(result['reason'], 'single_institution_deployment')
 
+    def test_maybe_restore_peer_for_case_reports_founding_lock(self):
+        result = self.workspace._maybe_restore_peer_for_case(
+            {
+                'case_id': 'case_live_demo',
+                'claim_type': 'misrouted_execution',
+                'status': 'resolved',
+                'target_host_id': 'host_peer',
+            },
+            'user_owner',
+            org_id='org_founding',
+            session_id='ses_demo',
+        )
+        self.assertFalse(result['applied'])
+        self.assertEqual(result['peer_host_id'], 'host_peer')
+        self.assertEqual(result['reason'], 'single_institution_deployment')
+
+    def test_maybe_restore_peer_for_case_restores_peer_when_management_allows(self):
+        self.workspace._runtime_host_state = lambda _org_id: (
+            types.SimpleNamespace(host_id='host_live', role='institution_host'),
+            {'admitted_org_ids': ['org_founding']},
+        )
+        self.workspace._federation_management_state = lambda _host_identity=None: {
+            'mutation_enabled': True,
+            'mutation_disabled_reason': '',
+        }
+        self.workspace.cases.peer_can_be_thawed = lambda peer_host_id, org_id=None, claim_types=None: True
+        self.workspace.set_peer_trust_state = lambda *args, **kwargs: {
+            'peers': {
+                'host_peer': {
+                    'host_id': 'host_peer',
+                    'trust_state': 'trusted',
+                    'admitted_org_ids': ['org_peer'],
+                    'label': 'Peer',
+                },
+            }
+        }
+        logs = []
+        self.workspace.log_event = lambda *args, **kwargs: logs.append({'args': args, 'kwargs': kwargs})
+
+        result = self.workspace._maybe_restore_peer_for_case(
+            {
+                'case_id': 'case_live_demo',
+                'claim_type': 'misrouted_execution',
+                'status': 'resolved',
+                'target_host_id': 'host_peer',
+            },
+            'user_owner',
+            org_id='org_founding',
+            session_id='ses_demo',
+        )
+        self.assertTrue(result['applied'])
+        self.assertEqual(result['peer_host_id'], 'host_peer')
+        self.assertEqual(result['trust_state'], 'trusted')
+        self.assertEqual(result['admitted_org_ids'], ['org_peer'])
+        self.assertEqual(logs[-1]['args'][2], 'federation_peer_auto_reinstated')
+
     def test_maybe_open_case_for_delivery_failure_reports_fail_closed_peer_state(self):
         from federation import FederationDeliveryError
 
@@ -1259,10 +1315,30 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         )
         self.workspace._maybe_block_commitment_settlement = lambda *args, **kwargs: (None, None)
         self.workspace.commitments.record_settlement_ref = lambda *args, **kwargs: None
+        self.workspace.get_warrant = lambda warrant_id, org_id=None: {
+            'warrant_id': warrant_id,
+            'court_review_state': 'approved',
+            'execution_state': 'ready',
+        }
         self.workspace.commitments.settle_commitment = lambda commitment_id, by, **_kwargs: {
             'commitment_id': commitment_id,
             'state': 'settled',
             'settled_by': by,
+            'delivery_refs': [
+                {
+                    'message_type': 'execution_request',
+                    'warrant_id': 'war_sender',
+                    'envelope_id': 'fed_exec_sender',
+                    'receipt_id': 'fedrcpt_sender',
+                    'target_host_id': 'host_live',
+                    'target_institution_id': 'org_founding',
+                },
+            ],
+        }
+        sender_warrants = []
+        self.workspace.mark_warrant_executed = lambda warrant_id, **_kwargs: sender_warrants.append(warrant_id) or {
+            'warrant_id': warrant_id,
+            'execution_state': 'executed',
         }
         self.workspace.log_event = lambda *args, **kwargs: audit_events.append({
             'args': args,
@@ -1342,6 +1418,8 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.assertEqual(processing['settlement_ref']['tx_ref'], 'tx_live')
         self.assertEqual(processing['settlement_adapter_preflight']['preflight_ok'], True)
         self.assertEqual(processing['inbox_entry']['state'], 'processed')
+        self.assertEqual(processing['warrant']['warrant_id'], 'war_sender')
+        self.assertEqual(sender_warrants, ['war_sender'])
         self.assertEqual(audit_events[-1]['args'][2], 'federation_settlement_notice_applied')
 
     def test_process_received_settlement_notice_blocks_failed_adapter_preflight(self):
@@ -1357,6 +1435,9 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         )
         self.workspace.commitments.settle_commitment = lambda *args, **kwargs: self.fail(
             'commitment should not settle'
+        )
+        self.workspace.mark_warrant_executed = lambda *args, **kwargs: self.fail(
+            'sender warrant should not finalize when settlement preflight fails'
         )
         self.workspace.log_event = lambda *args, **kwargs: audit_events.append({
             'args': args,
@@ -1508,6 +1589,78 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.assertEqual(exc_info.exception.federation_peer['peer_host_id'], 'host_peer')
         self.assertEqual(exc_info.exception.federation_peer['reason'], 'peer_not_registered')
         self.assertEqual(audit_events[0]['args'][2], 'federation_case_blocked')
+
+    def test_deliver_federation_envelope_keeps_sender_warrant_pending_for_commitment_linked_execution_request(self):
+        from runtime_host import default_host_identity
+
+        calls = []
+
+        class FakeAuthority:
+            def ensure_enabled(self):
+                return True
+
+            def deliver(self, target_host_id, bound_org_id, target_org_id, message_type, **kwargs):
+                return {
+                    'claims': {
+                        'envelope_id': 'fed_exec_demo',
+                        'target_host_id': target_host_id,
+                        'target_institution_id': target_org_id,
+                    },
+                    'receipt': {
+                        'receipt_id': 'fedrcpt_demo',
+                        'receiver_host_id': target_host_id,
+                        'receiver_institution_id': target_org_id,
+                    },
+                    'peer': {'transport': 'https'},
+                }
+
+            def snapshot(self, **kwargs):
+                return {
+                    'enabled': True,
+                    'boundary_name': 'federation_gateway',
+                    'host_id': kwargs.get('bound_org_id', 'org_founding'),
+                }
+
+        self.workspace._runtime_host_state = lambda _org_id: (
+            default_host_identity(
+                host_id='host_live',
+                federation_enabled=True,
+                peer_transport='https',
+                supported_boundaries=['workspace', 'federation_gateway'],
+            ),
+            {'admitted_org_ids': ['org_founding']},
+        )
+        self.workspace._federation_authority = lambda _host: FakeAuthority()
+        self.workspace.commitments.validate_commitment_for_delivery = lambda *args, **kwargs: {
+            'commitment_id': 'cmt_live',
+            'delivery_refs': [],
+        }
+        self.workspace.validate_warrant_for_execution = lambda *args, **kwargs: {
+            'warrant_id': 'war_sender',
+            'execution_state': 'ready',
+        }
+        self.workspace.commitments.record_delivery_ref = lambda *args, **kwargs: {
+            'recorded_at': '2026-03-22T00:00:00Z',
+            'message_type': 'execution_request',
+        }
+        self.workspace.mark_warrant_executed = lambda *args, **kwargs: calls.append(kwargs)
+        self.workspace.log_event = lambda *args, **kwargs: None
+
+        delivery, _snapshot = self.workspace._deliver_federation_envelope(
+            'org_founding',
+            'host_peer',
+            'org_peer',
+            'execution_request',
+            payload={'task': 'demo'},
+            actor_type='service',
+            actor_id='peer:host_peer',
+            session_id='ses_demo',
+            warrant_id='war_sender',
+            commitment_id='cmt_live',
+        )
+
+        self.assertEqual(delivery['receipt']['receipt_id'], 'fedrcpt_demo')
+        self.assertEqual(calls, [])
 
     def test_federation_manifest_reports_founding_locked_runtime(self):
         from runtime_host import default_host_identity

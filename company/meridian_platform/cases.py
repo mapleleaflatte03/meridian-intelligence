@@ -194,6 +194,14 @@ def case_requires_peer_block(case_record):
     )
 
 
+def case_targets_peer_block(case_record):
+    case_record = dict(case_record or {})
+    return (
+        case_record.get('claim_type') in PEER_SUSPENSION_CLAIM_TYPES
+        and bool((case_record.get('target_host_id') or '').strip())
+    )
+
+
 def blocking_commitment_case(commitment_id, org_id=None):
     commitment_id = (commitment_id or '').strip()
     if not commitment_id:
@@ -217,6 +225,13 @@ def blocking_peer_case(peer_host_id, org_id=None, *, claim_types=None):
         ):
             return row
     return None
+
+
+def peer_can_be_thawed(peer_host_id, org_id=None, *, claim_types=None):
+    peer_host_id = (peer_host_id or '').strip()
+    if not peer_host_id:
+        return False
+    return blocking_peer_case(peer_host_id, org_id=org_id, claim_types=claim_types) is None
 
 
 def blocking_commitment_ids(org_id=None):
