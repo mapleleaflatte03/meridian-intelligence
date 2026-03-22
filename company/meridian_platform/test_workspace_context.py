@@ -428,6 +428,78 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.assertIn('federation', status['runtime_core'])
         self.assertFalse(status['runtime_core']['federation']['enabled'])
 
+    def test_api_status_reports_witness_read_only_host_management(self):
+        from runtime_host import default_host_identity
+
+        self.workspace._load_workspace_credentials = lambda: ('owner', 'secret', 'org_founding', 'user_owner')
+        self.workspace._get_founding_org = lambda: (
+            'org_founding',
+            {
+                'id': 'org_founding',
+                'slug': 'meridian',
+                'name': 'Meridian',
+                'owner_id': 'user_owner',
+                'members': [{'user_id': 'user_owner', 'role': 'owner'}],
+                'lifecycle_state': 'founding',
+                'policy_defaults': {},
+            },
+        )
+        self.workspace.load_registry = lambda: {'agents': {}}
+        self.workspace._load_queue = lambda org_id: {
+            'kill_switch': False,
+            'pending_approvals': {},
+            'delegations': {},
+        }
+        self.workspace.treasury_snapshot = lambda org_id: {}
+        self.workspace._phase_mod.evaluate = lambda org_id: (0, {'name': 'Founder-Backed Build'})
+        self.workspace._load_records = lambda org_id: {'violations': {}, 'appeals': {}}
+        self.workspace.list_warrants = lambda org_id=None, **_kwargs: []
+        self.workspace.commitments.commitment_summary = lambda org_id=None: {'total': 0, 'proposed': 0, 'accepted': 0, 'rejected': 0, 'breached': 0, 'settled': 0, 'delivery_refs_total': 0}
+        self.workspace.commitments.list_commitments = lambda org_id=None: []
+        self.workspace.cases.case_summary = lambda org_id=None: {'total': 0, 'open': 0, 'stayed': 0, 'resolved': 0}
+        self.workspace.cases.list_cases = lambda org_id=None: []
+        self.workspace.service_state.subscription_snapshot = lambda org_id=None: {
+            'bound_org_id': org_id,
+            'mutation_enabled': True,
+            'identity_model': 'session',
+            'summary': {'subscriber_count': 0, 'external_target_count': 0},
+        }
+        self.workspace.service_state.accounting_snapshot = lambda org_id=None: {
+            'bound_org_id': org_id,
+            'mutation_enabled': True,
+            'identity_model': 'session',
+            'summary': {'capital_contributed_usd': 0.0, 'unreimbursed_expenses_usd': 0.0},
+        }
+        self.workspace.get_sprint_lead = lambda org_id: ('', 0)
+        self.workspace.get_pending_approvals = lambda org_id=None: []
+        self.workspace._ci_vertical_status = lambda reg, lead_id, org_id: {}
+        self.workspace.get_agent_remediation = lambda economy_key, reg, org_id=None: None
+        self.workspace.capsule_dir = lambda org_id: f'/tmp/capsules/{org_id}'
+        self.workspace.load_host_identity = lambda *args, **kwargs: default_host_identity(
+            host_id='host_live',
+            label='Meridian Live Host',
+            role='witness_host',
+            federation_enabled=False,
+            supported_boundaries=['workspace', 'cli', 'federation_gateway'],
+        )
+        self.workspace.load_admission_registry = lambda *args, **kwargs: {
+            'source': 'derived_bound_default',
+            'host_id': 'host_live',
+            'institutions': {'org_founding': {'status': 'admitted'}},
+            'admitted_org_ids': ['org_founding'],
+        }
+
+        ctx = self.workspace._resolve_workspace_context()
+        status = self.workspace.api_status(institution_context=ctx)
+
+        self.assertEqual(status['runtime_core']['host_identity']['role'], 'witness_host')
+        self.assertEqual(status['runtime_core']['admission']['management_mode'], 'witness_read_only')
+        self.assertFalse(status['runtime_core']['admission']['mutation_enabled'])
+        self.assertEqual(status['runtime_core']['admission']['mutation_disabled_reason'], 'witness_host_read_only')
+        self.assertEqual(status['runtime_core']['federation']['management_mode'], 'witness_read_only')
+        self.assertFalse(status['runtime_core']['federation']['mutation_enabled'])
+        self.assertEqual(status['runtime_core']['federation']['mutation_disabled_reason'], 'witness_host_read_only')
+
     def test_admission_snapshot_reports_founding_lock(self):
         from runtime_host import default_host_identity
 
@@ -448,6 +520,29 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.assertEqual(snapshot['management_mode'], 'founding_locked')
         self.assertFalse(snapshot['mutation_enabled'])
         self.assertEqual(snapshot['institutions']['org_founding']['status'], 'admitted')
+
+    def test_admission_snapshot_reports_witness_read_only(self):
+        from runtime_host import default_host_identity
+
+        snapshot = self.workspace._admission_snapshot(
+            'org_founding',
+            host_identity=default_host_identity(
+                host_id='host_live',
+                label='Meridian Live Host',
+                role='witness_host',
+                federation_enabled=False,
+                supported_boundaries=['workspace', 'cli', 'federation_gateway'],
+            ),
+            admission_registry={
+                'source': 'derived_bound_default',
+                'host_id': 'host_live',
+                'institutions': {'org_founding': {'status': 'admitted'}},
+                'admitted_org_ids': ['org_founding'],
+            },
+        )
+        self.assertEqual(snapshot['management_mode'], 'witness_read_only')
+        self.assertFalse(snapshot['mutation_enabled'])
+        self.assertEqual(snapshot['mutation_disabled_reason'], 'witness_host_read_only')
 
     def test_mutate_admission_fails_closed_for_live_runtime(self):
         with self.assertRaises(PermissionError):
@@ -471,6 +566,25 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.assertEqual(snap['disabled_reason'], 'host_federation_disabled')
         self.assertEqual(snap['management_mode'], 'founding_locked')
         self.assertFalse(snap['mutation_enabled'])
+
+    def test_federation_snapshot_reports_witness_read_only(self):
+        from runtime_host import default_host_identity
+        snap = self.workspace._federation_snapshot(
+            'org_founding',
+            host_identity=default_host_identity(
+                host_id='host_live',
+                label='Meridian Live Host',
+                role='witness_host',
+                federation_enabled=False,
+                supported_boundaries=['workspace', 'cli', 'federation_gateway'],
+            ),
+            admission_registry={'admitted_org_ids': ['org_founding']},
+        )
+        self.assertFalse(snap['enabled'])
+        self.assertFalse(snap['send_enabled'])
+        self.assertEqual(snap['management_mode'], 'witness_read_only')
+        self.assertFalse(snap['mutation_enabled'])
+        self.assertEqual(snap['mutation_disabled_reason'], 'witness_host_read_only')
 
     def test_federation_snapshot_surfaces_inbox_summary(self):
         from runtime_host import default_host_identity

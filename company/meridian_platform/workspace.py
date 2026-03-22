@@ -394,7 +394,17 @@ def _federation_authority(host_identity, peer_registry=None):
     )
 
 
-def _federation_management_state():
+def _witness_read_only_management_state():
+    return {
+        'management_mode': 'witness_read_only',
+        'mutation_enabled': False,
+        'mutation_disabled_reason': 'witness_host_read_only',
+    }
+
+
+def _federation_management_state(host_identity=None):
+    if getattr(host_identity, 'role', '') == 'witness_host':
+        return _witness_read_only_management_state()
     return {
         'management_mode': 'founding_locked',
         'mutation_enabled': False,
@@ -409,7 +419,7 @@ def _federation_snapshot(bound_org_id, host_identity=None, admission_registry=No
         bound_org_id=bound_org_id,
         admission_registry=admission_registry,
     )
-    snapshot.update(_federation_management_state())
+    snapshot.update(_federation_management_state(host_identity))
     snapshot['inbox_summary'] = summarize_inbox_entries(bound_org_id)
     snapshot['execution_job_summary'] = execution_job_summary(bound_org_id)
     return snapshot
@@ -418,7 +428,7 @@ def _federation_snapshot(bound_org_id, host_identity=None, admission_registry=No
 def _federation_manifest(context, host_identity=None, admission_registry=None):
     if host_identity is None or admission_registry is None:
         host_identity, admission_registry = _runtime_host_state(context.org_id)
-    admission_management = _admission_management_state()
+    admission_management = _admission_management_state(host_identity)
     runtime_core = runtime_core_snapshot(
         context,
         additional_institutions_allowed=bool(
@@ -451,7 +461,9 @@ def _federation_manifest(context, host_identity=None, admission_registry=None):
     }
 
 
-def _admission_management_state():
+def _admission_management_state(host_identity=None):
+    if getattr(host_identity, 'role', '') == 'witness_host':
+        return _witness_read_only_management_state()
     return {
         'management_mode': 'founding_locked',
         'mutation_enabled': False,
@@ -474,7 +486,7 @@ def _admission_snapshot(bound_org_id, host_identity=None, admission_registry=Non
         'source': admission_registry.get('source', 'none'),
         'admitted_org_ids': list(admission_registry.get('admitted_org_ids', [])),
         'institutions': institutions,
-        **_admission_management_state(),
+        **_admission_management_state(host_identity),
     }
 
 
@@ -1865,9 +1877,9 @@ def api_status(context_source='founding_default', institution_context=None):
             ),
             host_identity=host_identity,
             admission_registry=admission_registry,
-            admission_management_mode=_admission_management_state()['management_mode'],
-            admission_mutation_enabled=_admission_management_state()['mutation_enabled'],
-            admission_mutation_disabled_reason=_admission_management_state()['mutation_disabled_reason'],
+            admission_management_mode=_admission_management_state(host_identity)['management_mode'],
+            admission_mutation_enabled=_admission_management_state(host_identity)['mutation_enabled'],
+            admission_mutation_disabled_reason=_admission_management_state(host_identity)['mutation_disabled_reason'],
         ),
         'institution': {
             'id': org_id,
@@ -2649,9 +2661,9 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                     ),
                     host_identity=host_identity,
                     admission_registry=admission_registry,
-                    admission_management_mode=_admission_management_state()['management_mode'],
-                    admission_mutation_enabled=_admission_management_state()['mutation_enabled'],
-                    admission_mutation_disabled_reason=_admission_management_state()['mutation_disabled_reason'],
+                    admission_management_mode=_admission_management_state(host_identity)['management_mode'],
+                    admission_mutation_enabled=_admission_management_state(host_identity)['mutation_enabled'],
+                    admission_mutation_disabled_reason=_admission_management_state(host_identity)['mutation_disabled_reason'],
                 ),
             }
             response['runtime_core']['federation'] = _federation_snapshot(
