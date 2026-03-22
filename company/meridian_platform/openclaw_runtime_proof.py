@@ -27,6 +27,17 @@ from agent_registry import load_registry, normalize_agent_record  # noqa: E402
 
 
 AGENT_HANDLE_FIELDS = ('economy_key', 'name', 'id')
+DEFAULT_HEALTH_COMMAND = ['openclaw', 'health']
+DEFAULT_PONG_COMMAND = [
+    'openclaw',
+    'agent',
+    '--agent',
+    'main',
+    '--message',
+    'respond with PONG',
+    '--timeout',
+    '15000',
+]
 
 
 def _now() -> str:
@@ -169,16 +180,44 @@ def parse_openclaw_health(output: str) -> Dict[str, Any]:
     return proof
 
 
+def _run_command(command: List[str], timeout: int) -> Dict[str, Any]:
+    try:
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        return {
+            'command': list(command),
+            'ok': False,
+            'returncode': 124,
+            'stdout': '',
+            'stderr': f'timeout after {timeout}s',
+        }
+    return {
+        'command': list(command),
+        'ok': result.returncode == 0,
+        'returncode': result.returncode,
+        'stdout': (result.stdout or '').strip(),
+        'stderr': (result.stderr or '').strip(),
+    }
+
+
 def collect_openclaw_runtime_proof(
     *,
     health_output: Optional[str] = None,
     health_command: Optional[List[str]] = None,
     agents: Optional[Iterable[Mapping[str, Any]]] = None,
+    include_pong: bool = False,
+    pong_command: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
+    health_probe = None
     if health_output is None:
-        cmd = health_command or ['openclaw', 'health']
-        result = subprocess.run(cmd, capture_output=True, text=True, check=False)
-        health_output = result.stdout.strip()
+        health_probe = _run_command(health_command or DEFAULT_HEALTH_COMMAND, timeout=20)
+        health_output = health_probe['stdout']
 
     health = parse_openclaw_health(health_output)
     mapped_agents = map_governed_agents_to_openclaw_handles(agents=agents)
@@ -188,11 +227,36 @@ def collect_openclaw_runtime_proof(
         for entry in mapped_agents
         if entry.get('openclaw_handle')
     }
+    pong_probe = {
+        'checked': False,
+        'ok': False,
+        'output': '',
+        'stderr': '',
+        'command': list(pong_command or DEFAULT_PONG_COMMAND),
+    }
+    if include_pong:
+        probe = _run_command(pong_command or DEFAULT_PONG_COMMAND, timeout=25)
+        pong_probe = {
+            'checked': True,
+            'ok': probe['ok'] and probe['stdout'] == 'PONG',
+            'output': probe['stdout'],
+            'stderr': probe['stderr'],
+            'command': probe['command'],
+        }
 
     return {
+        'runtime_id': 'openclaw_compatible',
         'proof_type': 'live_single_host_openclaw_deployment',
         'checked_at': _now(),
         'health': health,
+        'health_probe': health_probe or {
+            'command': list(health_command or DEFAULT_HEALTH_COMMAND),
+            'ok': True,
+            'returncode': 0,
+            'stdout': health_output,
+            'stderr': '',
+        },
+        'pong_probe': pong_probe,
         'governed_agents': mapped_agents,
         'handle_overlap': sorted(health_handles & mapped_handles),
         'handle_gap': sorted(mapped_handles - health_handles),
@@ -202,6 +266,58 @@ def collect_openclaw_runtime_proof(
             'deployment_mode': 'live',
             'proof_level': 'read_only',
             'generic_runtime_claim': False,
+        },
+    }
+
+
+def public_openclaw_runtime_receipt(
+    proof: Mapping[str, Any],
+    *,
+    bound_org_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    health = dict(proof.get('health') or {})
+    governed_agents = list(proof.get('governed_agents') or [])
+    return {
+        'runtime_id': proof.get('runtime_id', 'openclaw_compatible'),
+        'proof_type': proof.get('proof_type', 'live_single_host_openclaw_deployment'),
+        'checked_at': proof.get('checked_at', _now()),
+        'bound_org_id': bound_org_id,
+        'deployment_truth': dict(proof.get('deployment_truth') or {}),
+        'health': {
+            'health_ok': bool(health.get('health_ok')),
+            'telegram_ok': bool((health.get('telegram') or {}).get('ok')),
+            'agent_count': health.get('agent_count', 0),
+            'agent_handles': [agent.get('handle', '') for agent in health.get('agents', []) if agent.get('handle')],
+            'heartbeat_interval': (health.get('heartbeat') or {}).get('interval'),
+            'primary_agent': (health.get('heartbeat') or {}).get('primary_agent'),
+            'session_total': health.get('session_total', 0),
+        },
+        'pong_probe': {
+            'checked': bool((proof.get('pong_probe') or {}).get('checked')),
+            'ok': bool((proof.get('pong_probe') or {}).get('ok')),
+            'output': (proof.get('pong_probe') or {}).get('output', ''),
+        },
+        'governed_agents': [
+            {
+                'agent_id': entry.get('agent_id'),
+                'agent_name': entry.get('agent_name'),
+                'org_id': entry.get('org_id'),
+                'role': entry.get('role'),
+                'openclaw_handle': entry.get('openclaw_handle'),
+                'handle_source': entry.get('handle_source'),
+                'runtime_binding': {
+                    'runtime_id': ((entry.get('runtime_binding') or {}).get('runtime_id', '')),
+                    'runtime_registered': bool((entry.get('runtime_binding') or {}).get('runtime_registered', False)),
+                    'registration_status': ((entry.get('runtime_binding') or {}).get('registration_status', '')),
+                    'bound_org_id': ((entry.get('runtime_binding') or {}).get('bound_org_id', '')),
+                },
+            }
+            for entry in governed_agents
+        ],
+        'mapping': {
+            'handle_overlap': list(proof.get('handle_overlap') or []),
+            'handle_gap': list(proof.get('handle_gap') or []),
+            'governed_agent_count': len(governed_agents),
         },
     }
 

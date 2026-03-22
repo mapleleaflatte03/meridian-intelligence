@@ -466,6 +466,8 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.assertTrue(status['service_state']['accounting']['mutation_enabled'])
         self.assertIn('federation', status['runtime_core'])
         self.assertFalse(status['runtime_core']['federation']['enabled'])
+        self.assertEqual(status['runtime_proof']['route'], '/api/runtime-proof')
+        self.assertEqual(status['runtime_proof']['runtime_id'], 'openclaw_compatible')
         self.assertEqual(status['agents'][0]['runtime_binding']['runtime_id'], 'openclaw_compatible')
         self.assertEqual(status['agents'][0]['runtime_binding']['runtime_label'], 'OpenClaw-Compatible Runtime')
         self.assertEqual(status['agents'][0]['runtime_binding']['bound_org_id'], 'org_founding')
@@ -2743,6 +2745,80 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.assertFalse(handler.body_read)
         self.assertEqual(handler.response['data']['witness_archive']['archive_disabled_reason'], 'witness_host_only')
         self.assertIn('Witness archive is disabled', handler.response['data']['error'])
+        self.assertEqual(result, handler.response)
+
+    def test_runtime_proof_route_returns_live_runtime_snapshot(self):
+        calls = []
+
+        class FakeHandler:
+            def __init__(self):
+                self.path = '/api/runtime-proof'
+                self.headers = _Headers({'Content-Length': '0'})
+                self.response = None
+
+            def _require_auth(self, path):
+                calls.append(('require_auth', path))
+                return True
+
+            def _json(self, data, status=200):
+                self.response = {'data': data, 'status': status}
+                return self.response
+
+            def _service_unavailable(self, *args, **kwargs):
+                raise AssertionError('runtime-proof route should return JSON proof snapshot')
+
+            def _session_claims_from_request(self, expected_org_id=None):
+                return None
+
+        handler = FakeHandler()
+        with mock.patch.object(
+            self.workspace,
+            '_resolve_workspace_context',
+            return_value=types.SimpleNamespace(org_id='org_founding', org={}, context_source='configured_org'),
+        ), mock.patch.object(
+            self.workspace,
+            '_enforce_request_context',
+            return_value={'mode': 'process_bound'},
+        ), mock.patch.object(
+            self.workspace,
+            '_resolve_auth_context',
+            return_value={'enabled': True, 'role': 'owner'},
+        ), mock.patch.object(
+            self.workspace,
+            'openclaw_runtime_proof',
+            types.SimpleNamespace(
+                collect_openclaw_runtime_proof=lambda include_pong=False: {
+                    'runtime_id': 'openclaw_compatible',
+                    'proof_type': 'live_single_host_openclaw_deployment',
+                    'checked_at': '2026-03-22T00:00:00Z',
+                    'deployment_truth': {'scope': 'single_host', 'generic_runtime_claim': False},
+                    'health': {
+                        'health_ok': True,
+                        'agent_count': 2,
+                        'session_total': 5,
+                        'agents': [{'handle': 'main'}, {'handle': 'atlas'}],
+                        'heartbeat': {'interval': '30m', 'primary_agent': 'main'},
+                        'telegram': {'ok': True},
+                    },
+                    'pong_probe': {'checked': True, 'ok': True, 'output': 'PONG'},
+                    'governed_agents': [],
+                    'handle_overlap': ['main'],
+                    'handle_gap': [],
+                },
+                public_openclaw_runtime_receipt=lambda proof, bound_org_id=None: {
+                    'runtime_id': 'openclaw_compatible',
+                    'bound_org_id': bound_org_id,
+                    'runtime_health': {'health_ok': True, 'pong_ok': True},
+                    'runtime_inventory': {'runtime_agent_names': ['main', 'atlas'], 'runtime_agent_count': 2},
+                    'governed_agent_summary': {'declared_bound_agent_count': 1},
+                },
+            ),
+        ):
+            result = self.workspace.WorkspaceHandler.do_GET(handler)
+        self.assertEqual(calls, [('require_auth', '/api/runtime-proof')])
+        self.assertEqual(handler.response['status'], 200)
+        self.assertTrue(handler.response['data']['runtime_health']['health_ok'])
+        self.assertEqual(handler.response['data']['bound_org_id'], 'org_founding')
         self.assertEqual(result, handler.response)
 
     def test_admission_snapshot_reports_founding_lock(self):

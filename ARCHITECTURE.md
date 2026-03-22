@@ -435,6 +435,7 @@ which exposes:
 - the live admission model
 - the live federation-gateway state
 - governed agent records with their public `runtime_binding` tranche via `/api/agents` and `/api/status`
+- a public live `GET /api/runtime-proof` receipt for the `openclaw_compatible` runtime binding, including host health, canonical `PONG`, runtime agent inventory, and governed-agent alignment
 
 The owner workspace also now exposes read-only snapshots for two
 institution-owned service boundaries on the founding-locked host:

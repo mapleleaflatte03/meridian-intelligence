@@ -30,6 +30,7 @@ Endpoints:
   GET  /api/federation/execution-jobs → Receiver-side federated execution jobs
   GET  /api/federation/manifest   → Public host federation manifest
   GET  /api/federation/witness/archive → Witness-host archival evidence state
+  GET  /api/runtime-proof         → Public live OpenClaw runtime proof receipt
   POST /api/authority/kill-switch → Engage/disengage kill switch
   POST /api/authority/approve     → Decide an approval
   POST /api/authority/request     → Request approval
@@ -189,6 +190,7 @@ from warrants import (
 import commitments
 import cases
 import accounting_service
+import openclaw_runtime_proof
 import service_state
 import subscription_service
 from federation import (
@@ -3406,6 +3408,11 @@ def api_status(context_source='founding_default', institution_context=None):
             'subscriptions': service_state.subscription_snapshot(org_id),
             'accounting': service_state.accounting_snapshot(org_id),
         },
+        'runtime_proof': {
+            'route': '/api/runtime-proof',
+            'runtime_id': 'openclaw_compatible',
+            'proof_mode': 'live_host_runtime_probe',
+        },
         'ci_vertical': _ci_vertical_status(reg, lead_id, org_id),
         'remediations': remediations,
         'timestamp': _now(),
@@ -4061,7 +4068,7 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
     def _require_auth(self, path):
         # Session validate is a passive introspection endpoint — the token is the proof.
         protected = (path == '/' or path.startswith('/workspace') or path.startswith('/api/')) \
-            and path not in ('/api/session/validate', '/api/federation/manifest')
+            and path not in ('/api/session/validate', '/api/federation/manifest', '/api/runtime-proof')
         if not protected:
             return True
         if self._is_authorized():
@@ -4242,6 +4249,14 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                 org_id,
                 host_identity=host_identity,
             ))
+        elif path == '/api/runtime-proof':
+            proof = openclaw_runtime_proof.collect_openclaw_runtime_proof(include_pong=True)
+            return self._json(
+                openclaw_runtime_proof.public_openclaw_runtime_receipt(
+                    proof,
+                    bound_org_id=org_id,
+                )
+            )
         elif path == '/api/admission':
             host_identity, admission_registry = _runtime_host_state(org_id)
             return self._json(_admission_snapshot(

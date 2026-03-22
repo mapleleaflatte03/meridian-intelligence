@@ -116,12 +116,17 @@ That same local case state now blocks `POST /api/commitments/settle`, and a
 linked execution warrant can be stayed before settlement is retried.
 The proof split is now explicit: the OSS kernel repo carries the reproducible
 3-host and OpenClaw-compatible proof runners, while this live repo exposes the
-truthful single-host surfaces and operator checks that mirror those contracts
-without pretending federation is broadly enabled here.
+truthful single-host OpenClaw host proof surface and operator checks that
+mirror those contracts without pretending federation is broadly enabled here.
 That split now has one public live receipt as well: `GET /api/federation/manifest`
 is intentionally unauthenticated and returns the founding host's public
 federation manifest, so the OSS proof bundle can embed a live host receipt
-without claiming live multi-host federation is already running.
+without claiming live multi-host federation or live OpenClaw deployment wiring
+is already running.
+What this live surface proves today is narrower and stricter: one host, one
+founding institution, one public manifest, one honest receipt. It does not yet
+prove multi-host deployment, cross-host runtime federation, or generic
+OpenClaw-to-Meridian production wiring.
 The live mirror also classifies contradictory delivery proofs into local case
 records if that path is ever exercised, and a linked execution warrant can be
 stayed locally for court-first review. Live federation itself is still disabled
@@ -171,9 +176,17 @@ Agent records now also carry a self-contained `runtime_binding` tranche in the
 registry. The live workspace exposes that binding through `GET /api/agents`
 and the `agents` array inside `/api/status`, so each governed agent record now
 reports its bound org, boundary name, identity model, and boundary scope
-directly in the public truth.
-This is still a founding-locked live deployment, not self-serve multi-
-institution delivery routing.
+directly in the public truth. The live host proof surface also shows whether a
+binding is registered against the runtime registry, so the host can say which
+governed agents are attached to which declared runtime without pretending that
+attachment is the same thing as multi-host execution.
+For live proof, the same host now exposes public
+`GET /api/runtime-proof`, which probes the live OpenClaw runtime, checks the
+canonical `PONG` path, and reports how the governed Meridian agents line up
+with the runtime's actual agent inventory and session-store state.
+This is still a founding-locked live deployment and a single-host OpenClaw
+proof surface, not self-serve multi-institution delivery routing or live
+multi-host deployment proof.
 
 **Live service:** https://app.welliam.codes
 **Product demo:** https://app.welliam.codes/demo.html

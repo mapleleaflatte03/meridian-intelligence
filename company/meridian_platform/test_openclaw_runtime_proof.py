@@ -102,6 +102,49 @@ Session store (main): /root/.openclaw/agents/main/sessions/sessions.json (25 ent
         self.assertEqual(result['handle_gap'], [])
         self.assertEqual(result['deployment_truth']['scope'], 'single_host')
         self.assertFalse(result['deployment_truth']['generic_runtime_claim'])
+        self.assertEqual(result['runtime_id'], 'openclaw_compatible')
+        self.assertFalse(result['pong_probe']['checked'])
+
+    def test_public_receipt_filters_runtime_proof_for_public_route(self):
+        receipt = proof.public_openclaw_runtime_receipt({
+            'runtime_id': 'openclaw_compatible',
+            'proof_type': 'live_single_host_openclaw_deployment',
+            'checked_at': '2026-03-22T00:00:00Z',
+            'deployment_truth': {'scope': 'single_host', 'generic_runtime_claim': False},
+            'health': {
+                'health_ok': True,
+                'agent_count': 2,
+                'session_total': 5,
+                'agents': [{'handle': 'main'}, {'handle': 'atlas'}],
+                'heartbeat': {'interval': '30m', 'primary_agent': 'main'},
+                'telegram': {'ok': True},
+            },
+            'pong_probe': {'checked': True, 'ok': True, 'output': 'PONG'},
+            'governed_agents': [
+                {
+                    'agent_id': 'agent_main',
+                    'agent_name': 'Leviathann',
+                    'org_id': 'org_1',
+                    'role': 'manager',
+                    'openclaw_handle': 'main',
+                    'handle_source': 'economy_key',
+                    'runtime_binding': {
+                        'runtime_id': 'openclaw_compatible',
+                        'runtime_registered': True,
+                        'registration_status': 'registered',
+                        'bound_org_id': 'org_1',
+                    },
+                }
+            ],
+            'handle_overlap': ['main'],
+            'handle_gap': [],
+        }, bound_org_id='org_1')
+
+        self.assertEqual(receipt['bound_org_id'], 'org_1')
+        self.assertEqual(receipt['health']['agent_handles'], ['main', 'atlas'])
+        self.assertEqual(receipt['pong_probe']['output'], 'PONG')
+        self.assertNotIn('session_stores', receipt['health'])
+        self.assertEqual(receipt['governed_agents'][0]['runtime_binding']['runtime_id'], 'openclaw_compatible')
 
 
 if __name__ == '__main__':
