@@ -26,6 +26,19 @@ COMMITMENT_STATES = (
     'settled',
 )
 
+FEDERATED_COMMITMENT_MESSAGE_STATES = {
+    'commitment_proposal': 'proposed',
+    'commitment_acceptance': 'accepted',
+}
+
+COMMITMENT_STATE_RANK = {
+    'proposed': 0,
+    'accepted': 1,
+    'rejected': 2,
+    'breached': 3,
+    'settled': 4,
+}
+
 
 def _default_org_id():
     return 'org_48b05c21'
@@ -72,6 +85,35 @@ def _settlement_ref_matches(existing_ref, candidate_ref):
             if candidate_field == existing_field and candidate_value == existing_value:
                 return True
     return False
+
+
+def _federation_ref_keys(ref):
+    return [
+        (field, value)
+        for field in (
+            'envelope_id',
+            'receipt_id',
+            'proposal_id',
+            'tx_ref',
+            'tx_hash',
+        )
+        for value in [str((ref or {}).get(field) or '').strip()]
+        if value
+    ]
+
+
+def _federation_ref_matches(existing_ref, candidate_ref):
+    existing_keys = _federation_ref_keys(existing_ref)
+    candidate_keys = _federation_ref_keys(candidate_ref)
+    for candidate_field, candidate_value in candidate_keys:
+        for existing_field, existing_value in existing_keys:
+            if candidate_field == existing_field and candidate_value == existing_value:
+                return True
+    return False
+
+
+def _commitment_state_rank(state):
+    return COMMITMENT_STATE_RANK.get((state or '').strip(), -1)
 
 
 def _store_path(org_id=None):
@@ -147,8 +189,18 @@ def _propose_commitment_record(org_id, target_host_id, target_org_id, commitment
         'settled_by': '',
         'delivery_refs': [],
         'settlement_refs': [],
+        'federation_refs': [],
         'last_delivery_at': '',
         'last_settlement_at': '',
+        'last_federation_at': '',
+        'mirror_origin': '',
+        'federation_message_type': '',
+        'mirrored_from_envelope_id': '',
+        'mirrored_from_receipt_id': '',
+        'mirrored_from_host_id': '',
+        'mirrored_from_institution_id': '',
+        'mirrored_to_host_id': '',
+        'mirrored_to_institution_id': '',
         'breached_at': '',
         'settled_at': '',
         'note': note or '',
@@ -266,6 +318,139 @@ def breach_commitment(commitment_id, by, *, org_id=None, note=''):
 
 def settle_commitment(commitment_id, by, *, org_id=None, note=''):
     return review_commitment(commitment_id, 'settle', by, org_id=org_id, note=note)
+
+
+def mirror_federated_commitment(commitment_id, *, org_id=None, message_type='',
+                                source_host_id='', source_institution_id='',
+                                target_host_id='', target_institution_id='',
+                                actor_id='', warrant_id='', envelope_id='',
+                                receipt_id='', payload=None, note='',
+                                metadata=None):
+    message_type = (message_type or '').strip()
+    if message_type not in FEDERATED_COMMITMENT_MESSAGE_STATES:
+        raise ValueError(
+            f'Unsupported federated commitment message_type: {message_type}'
+        )
+    commitment_id = (commitment_id or '').strip()
+    if not commitment_id:
+        raise ValueError('commitment_id is required')
+    source_host_id = (source_host_id or '').strip()
+    source_institution_id = (source_institution_id or '').strip()
+    target_host_id = (target_host_id or '').strip()
+    target_institution_id = _normalize_target_institution_id(
+        target_org_id=target_institution_id,
+    )
+    actor_id = (actor_id or '').strip() or f'peer:{source_host_id}'
+    warrant_id = (warrant_id or '').strip()
+    envelope_id = (envelope_id or '').strip()
+    receipt_id = (receipt_id or '').strip()
+    payload = dict(payload or {})
+    commitment_type = (
+        (payload.get('commitment_type') or '').strip()
+        or (payload.get('summary') or '').strip()
+        or message_type
+    )
+    summary = (
+        (payload.get('summary') or '').strip()
+        or commitment_type
+    )
+    timestamp = _now()
+    metadata = dict(metadata or {})
+    if source_host_id:
+        metadata.setdefault('source_host_id', source_host_id)
+    if source_institution_id:
+        metadata.setdefault('source_institution_id', source_institution_id)
+    if target_host_id:
+        metadata.setdefault('target_host_id', target_host_id)
+    if target_institution_id:
+        metadata.setdefault('target_institution_id', target_institution_id)
+    metadata.setdefault('federation_message_type', message_type)
+    metadata.setdefault('mirror_origin', 'federation')
+    store = _load_store(org_id)
+    record = store.setdefault('commitments', {}).get(commitment_id)
+    if not record:
+        record = _propose_commitment_record(
+            org_id or _default_org_id(),
+            target_host_id or source_host_id or '',
+            target_institution_id or source_institution_id or (org_id or _default_org_id()),
+            commitment_type,
+            actor_id,
+            commitment_id=commitment_id,
+            terms_payload=payload.get('terms_payload') or payload.get('terms') or payload,
+            warrant_id=warrant_id,
+            note=note or f'Federated {message_type}',
+            metadata=metadata,
+        )
+        store = _load_store(org_id)
+        record = store.setdefault('commitments', {}).get(commitment_id)
+    if not record:
+        raise ValueError(f'Commitment not found: {commitment_id}')
+
+    record['mirror_origin'] = 'federation'
+    record['federation_message_type'] = message_type
+    record['mirrored_from_envelope_id'] = envelope_id
+    record['mirrored_from_receipt_id'] = receipt_id
+    record['mirrored_from_host_id'] = source_host_id
+    record['mirrored_from_institution_id'] = source_institution_id
+    record['mirrored_to_host_id'] = target_host_id
+    record['mirrored_to_institution_id'] = target_institution_id
+    record['commitment_type'] = commitment_type
+    record['summary'] = summary
+    if source_institution_id:
+        record['source_institution_id'] = source_institution_id
+    if target_host_id:
+        record['target_host_id'] = target_host_id
+    if target_institution_id:
+        record['target_institution_id'] = target_institution_id
+    if warrant_id:
+        record['warrant_id'] = warrant_id
+    record['metadata'] = dict(record.get('metadata') or {})
+    record['metadata'].update(metadata)
+
+    federation_ref = {
+        'commitment_id': commitment_id,
+        'message_type': message_type,
+        'envelope_id': envelope_id,
+        'receipt_id': receipt_id,
+        'source_host_id': source_host_id,
+        'source_institution_id': source_institution_id,
+        'target_host_id': target_host_id,
+        'target_institution_id': target_institution_id,
+        'warrant_id': warrant_id,
+        'recorded_by': actor_id,
+        'recorded_at': timestamp,
+        'payload_hash': _payload_hash(payload),
+    }
+    refs = list(record.get('federation_refs', []))
+    replaced = False
+    if _federation_ref_keys(federation_ref):
+        for index, existing in enumerate(refs):
+            if _federation_ref_matches(existing, federation_ref):
+                refs[index] = federation_ref
+                replaced = True
+                break
+    if not replaced:
+        refs.append(federation_ref)
+    record['federation_refs'] = refs
+    record['last_federation_at'] = timestamp
+    record['updated_at'] = timestamp
+
+    state = FEDERATED_COMMITMENT_MESSAGE_STATES[message_type]
+    current_state = _canonical_state(record)
+    if _commitment_state_rank(state) >= _commitment_state_rank(current_state):
+        record['state'] = state
+        record['status'] = state
+        if state == 'proposed':
+            record['proposed_by'] = actor_id
+            record['proposed_at'] = timestamp
+        elif state == 'accepted':
+            record['reviewed_by'] = actor_id
+            record['reviewed_at'] = timestamp
+            record['accepted_by'] = actor_id
+            record['accepted_at'] = timestamp
+
+    _save_store(store, org_id)
+    return record
 
 
 def validate_commitment_for_federation(commitment_id, *, org_id=None,

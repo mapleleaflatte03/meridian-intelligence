@@ -397,6 +397,14 @@ class LiveWorkspaceContextTests(unittest.TestCase):
             status['runtime_core']['service_registry']['federation_gateway']['required_warrant_actions']['execution_request'],
             'federated_execution',
         )
+        self.assertEqual(
+            status['runtime_core']['service_registry']['federation_gateway']['required_warrant_actions']['commitment_proposal'],
+            'cross_institution_commitment',
+        )
+        self.assertEqual(
+            status['runtime_core']['service_registry']['federation_gateway']['required_warrant_actions']['commitment_acceptance'],
+            'cross_institution_commitment',
+        )
         self.assertFalse(status['runtime_core']['service_registry']['mcp_service']['supports_institution_routing'])
         self.assertEqual(status['runtime_core']['service_registry']['subscriptions']['identity_model'], 'session')
         self.assertEqual(status['runtime_core']['service_registry']['accounting']['identity_model'], 'session')
@@ -719,6 +727,92 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.assertFalse(handler.response['data']['state_change'])
         self.assertFalse(handler.body_read)
         self.assertEqual(result, handler.response)
+
+    def test_process_received_commitment_proposal_and_acceptance_mirror_records(self):
+        from federation import FederationEnvelopeClaims
+
+        mirrored_records = [
+            {
+                'commitment_id': 'com_fed_demo',
+                'status': 'proposed',
+                'federation_refs': [{'envelope_id': 'fed_commit_env_1'}],
+            },
+            {
+                'commitment_id': 'com_fed_demo',
+                'status': 'accepted',
+                'accepted_by': 'peer:host_peer',
+                'federation_refs': [
+                    {'envelope_id': 'fed_commit_env_1'},
+                    {'envelope_id': 'fed_commit_env_2'},
+                ],
+            },
+        ]
+        commit_calls = []
+        self.workspace.commitments.mirror_federated_commitment = lambda *args, **kwargs: (
+            commit_calls.append({'args': args, 'kwargs': kwargs}) or mirrored_records[len(commit_calls) - 1]
+        )
+        self.workspace._federation_inbox_entry = lambda *args, **kwargs: {
+            'envelope_id': kwargs.get('envelope_id', ''),
+            'state': kwargs.get('state', 'received'),
+        }
+        self.workspace.log_event = lambda *args, **kwargs: None
+
+        proposal_claims = FederationEnvelopeClaims(
+            envelope_id='fed_commit_env_1',
+            source_host_id='host_peer',
+            source_institution_id='org_peer',
+            target_host_id='host_live',
+            target_institution_id='org_founding',
+            actor_type='user',
+            actor_id='user_peer',
+            session_id='ses_peer',
+            boundary_name='federation_gateway',
+            identity_model='signed_host_service',
+            message_type='commitment_proposal',
+            payload_hash='hash_proposal',
+            warrant_id='war_commit',
+            commitment_id='com_fed_demo',
+        )
+        proposal_processing = self.workspace._process_received_federation_message(
+            'org_founding',
+            proposal_claims,
+            {'receipt_id': 'fedrcpt_commit_env_1', 'accepted_at': '2026-03-22T00:00:00Z'},
+            payload={'commitment_type': 'deliver_brief', 'summary': 'Deliver the approved brief'},
+        )
+
+        acceptance_claims = FederationEnvelopeClaims(
+            envelope_id='fed_commit_env_2',
+            source_host_id='host_peer',
+            source_institution_id='org_peer',
+            target_host_id='host_live',
+            target_institution_id='org_founding',
+            actor_type='user',
+            actor_id='user_peer',
+            session_id='ses_peer',
+            boundary_name='federation_gateway',
+            identity_model='signed_host_service',
+            message_type='commitment_acceptance',
+            payload_hash='hash_acceptance',
+            warrant_id='war_commit',
+            commitment_id='com_fed_demo',
+        )
+        acceptance_processing = self.workspace._process_received_federation_message(
+            'org_founding',
+            acceptance_claims,
+            {'receipt_id': 'fedrcpt_commit_env_2', 'accepted_at': '2026-03-22T00:01:00Z'},
+            payload={'commitment_type': 'deliver_brief', 'summary': 'Deliver the approved brief'},
+        )
+
+        self.assertTrue(proposal_processing['applied'])
+        self.assertEqual(proposal_processing['reason'], 'commitment_proposal_mirrored')
+        self.assertEqual(proposal_processing['commitment']['status'], 'proposed')
+        self.assertTrue(acceptance_processing['applied'])
+        self.assertEqual(acceptance_processing['reason'], 'commitment_acceptance_mirrored')
+        self.assertEqual(acceptance_processing['commitment']['status'], 'accepted')
+        self.assertEqual(commit_calls[0]['kwargs']['message_type'], 'commitment_proposal')
+        self.assertEqual(commit_calls[1]['kwargs']['message_type'], 'commitment_acceptance')
+        self.assertEqual(commit_calls[0]['kwargs']['warrant_id'], 'war_commit')
+        self.assertEqual(commit_calls[1]['kwargs']['warrant_id'], 'war_commit')
 
     def test_accounting_expense_route_passes_bound_org_to_writer(self):
         calls = []

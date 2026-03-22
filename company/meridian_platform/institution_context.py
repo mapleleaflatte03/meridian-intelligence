@@ -190,6 +190,8 @@ FEDERATION_GATEWAY_BOUNDARY = ServiceBoundary(
     'Cross-host federation gateway — signed host-service identity',
     requires_warrant_for_messages={
         'execution_request': 'federated_execution',
+        'commitment_proposal': 'cross_institution_commitment',
+        'commitment_acceptance': 'cross_institution_commitment',
     },
 )
 

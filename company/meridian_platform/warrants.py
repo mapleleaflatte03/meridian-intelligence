@@ -48,6 +48,8 @@ EXECUTION_STATES = (
 
 FEDERATION_WARRANT_ACTIONS = {
     'execution_request': 'federated_execution',
+    'commitment_proposal': 'cross_institution_commitment',
+    'commitment_acceptance': 'cross_institution_commitment',
 }
 
 DEFAULT_TTL_SECONDS = 1800

@@ -96,6 +96,60 @@ class CommitmentModuleTests(unittest.TestCase):
                 org_id=self.org_id,
             )
 
+    def test_federated_commitment_mirror_creates_and_updates_record(self):
+        record = self.commitments.mirror_federated_commitment(
+            'com_fed',
+            org_id=self.org_id,
+            message_type='commitment_proposal',
+            source_host_id='host_sender',
+            source_institution_id='org_sender',
+            target_host_id='host_live',
+            target_institution_id='org_peer',
+            actor_id='user_sender',
+            warrant_id='war_commit',
+            envelope_id='fed_env_1',
+            receipt_id='fed_rcpt_1',
+            payload={
+                'commitment_type': 'deliver_brief',
+                'summary': 'Deliver the approved brief',
+                'terms_payload': {'scope': 'brief'},
+            },
+        )
+        self.assertEqual(record['status'], 'proposed')
+        self.assertEqual(record['mirror_origin'], 'federation')
+        self.assertEqual(record['federation_message_type'], 'commitment_proposal')
+        self.assertEqual(record['mirrored_from_envelope_id'], 'fed_env_1')
+        self.assertEqual(record['target_host_id'], 'host_live')
+        self.assertEqual(record['target_institution_id'], 'org_peer')
+        self.assertEqual(len(record['federation_refs']), 1)
+
+        record = self.commitments.mirror_federated_commitment(
+            'com_fed',
+            org_id=self.org_id,
+            message_type='commitment_acceptance',
+            source_host_id='host_sender',
+            source_institution_id='org_sender',
+            target_host_id='host_live',
+            target_institution_id='org_peer',
+            actor_id='user_sender',
+            warrant_id='war_commit',
+            envelope_id='fed_env_2',
+            receipt_id='fed_rcpt_2',
+            payload={
+                'commitment_type': 'deliver_brief',
+                'summary': 'Deliver the approved brief',
+                'terms_payload': {'scope': 'brief'},
+            },
+        )
+        self.assertEqual(record['status'], 'accepted')
+        self.assertEqual(record['accepted_by'], 'user_sender')
+        self.assertEqual(record['accepted_at'], record['reviewed_at'])
+        self.assertEqual(record['mirror_origin'], 'federation')
+        self.assertEqual(record['federation_message_type'], 'commitment_acceptance')
+        self.assertEqual(len(record['federation_refs']), 2)
+        summary = self.commitments.commitment_summary(self.org_id)
+        self.assertEqual(summary['accepted'], 1)
+
     def test_settlement_refs_are_recorded_and_deduped(self):
         self.commitments.propose_commitment(
             'host_peer',
@@ -242,6 +296,67 @@ class WorkspaceCommitmentTests(unittest.TestCase):
         self.assertEqual(recorded_ref['receipt_id'], 'fedrcpt_abc')
         self.assertEqual(recorded_ref['target_host_id'], 'host_peer')
         self.assertEqual(recorded_ref['target_institution_id'], 'org_peer')
+
+    def test_federation_commitment_messages_require_cross_institution_warrant(self):
+        host_identity = types.SimpleNamespace(host_id='host_live')
+        delivery = {
+            'peer': {'transport': 'https'},
+            'claims': {'envelope_id': 'fed_commit_demo'},
+            'receipt': {
+                'receipt_id': 'fedrcpt_commit_demo',
+                'receiver_host_id': 'host_peer',
+                'receiver_institution_id': 'org_peer',
+            },
+            'response': {},
+        }
+        fake_authority = types.SimpleNamespace(
+            ensure_enabled=lambda: None,
+            deliver=mock.Mock(return_value=delivery),
+            snapshot=mock.Mock(return_value={'enabled': True}),
+        )
+        validate_calls = []
+
+        def fake_validate_warrant_for_execution(*args, **kwargs):
+            validate_calls.append(kwargs)
+            return {'warrant_id': kwargs.get('warrant_id', 'war_commit')}
+
+        with mock.patch.object(self.workspace, '_runtime_host_state', return_value=(host_identity, {'admitted_org_ids': ['org_founding']})), \
+             mock.patch.object(self.workspace, '_federation_authority', return_value=fake_authority), \
+             mock.patch.object(self.workspace, 'log_event'), \
+             mock.patch.object(self.workspace.commitments, 'validate_commitment_for_delivery', return_value={
+                 'commitment_id': 'com_demo',
+                 'status': 'accepted',
+                 'target_host_id': 'host_peer',
+                 'target_institution_id': 'org_peer',
+             }), \
+             mock.patch.object(self.workspace.commitments, 'record_delivery_ref', return_value={
+                 'commitment_id': 'com_demo',
+                 'status': 'accepted',
+                 'delivery_refs': [],
+             }), \
+             mock.patch.object(self.workspace, 'validate_warrant_for_execution', side_effect=fake_validate_warrant_for_execution):
+            for message_type in ('commitment_proposal', 'commitment_acceptance'):
+                self.workspace._deliver_federation_envelope(
+                    'org_founding',
+                    'host_peer',
+                    'org_peer',
+                    message_type,
+                    payload={
+                        'commitment_id': 'com_demo',
+                        'commitment_type': 'deliver_brief',
+                        'summary': 'Deliver the approved brief',
+                    },
+                    actor_type='user',
+                    actor_id='user_owner',
+                    session_id='ses_demo',
+                    warrant_id='war_commit',
+                    commitment_id='com_demo',
+                )
+
+        self.assertEqual(
+            [call['action_class'] for call in validate_calls],
+            ['cross_institution_commitment', 'cross_institution_commitment'],
+        )
 
 
 if __name__ == '__main__':

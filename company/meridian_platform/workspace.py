@@ -1259,6 +1259,28 @@ def _settlement_notice_ref(claims, receipt, payload=None):
     }
 
 
+def _commitment_federation_ref(claims, receipt, payload=None):
+    payload = payload if isinstance(payload, dict) else {}
+    claim_data = _federation_claims_dict(claims)
+    return {
+        'commitment_id': claim_data.get('commitment_id', '') or (payload.get('commitment_id') or '').strip(),
+        'message_type': claim_data.get('message_type', ''),
+        'envelope_id': claim_data.get('envelope_id', ''),
+        'receipt_id': (receipt or {}).get('receipt_id', ''),
+        'source_host_id': claim_data.get('source_host_id', ''),
+        'source_institution_id': claim_data.get('source_institution_id', ''),
+        'target_host_id': claim_data.get('target_host_id', ''),
+        'target_institution_id': claim_data.get('target_institution_id', ''),
+        'warrant_id': claim_data.get('warrant_id', ''),
+        'proposal_id': (payload.get('proposal_id') or '').strip(),
+        'commitment_type': (payload.get('commitment_type') or '').strip(),
+        'summary': (payload.get('summary') or '').strip(),
+        'terms_hash': claim_data.get('payload_hash', ''),
+        'recorded_by': claim_data.get('actor_id') or f"peer:{claim_data.get('source_host_id', '')}",
+        'recorded_at': (receipt or {}).get('accepted_at', '') or _now(),
+    }
+
+
 def _preflight_received_settlement_notice(bound_org_id, claims, receipt, *, payload=None):
     settlement_ref = _settlement_notice_ref(claims, receipt, payload)
     host_identity, _admission_registry = _runtime_host_state(bound_org_id)
@@ -1280,6 +1302,90 @@ def _process_received_federation_message(bound_org_id, claims, receipt, *, paylo
         'state': 'received',
         'reason': 'no_receiver_handler',
     }
+    if claims.message_type in ('commitment_proposal', 'commitment_acceptance') and claims.commitment_id:
+        actor_id = claims.actor_id or f'peer:{claims.source_host_id}'
+        commitment_ref = _commitment_federation_ref(claims, receipt, payload)
+        try:
+            commitment = commitments.mirror_federated_commitment(
+                bound_org_id,
+                commitment_ref['commitment_id'],
+                message_type=claims.message_type,
+                source_host_id=claims.source_host_id,
+                source_institution_id=claims.source_institution_id,
+                target_host_id=claims.target_host_id,
+                target_institution_id=claims.target_institution_id,
+                actor_id=actor_id,
+                warrant_id=claims.warrant_id,
+                envelope_id=claims.envelope_id,
+                receipt_id=commitment_ref['receipt_id'],
+                payload=payload,
+                note='Mirrored from received federation envelope',
+                metadata={
+                    'source_boundary_name': claims.boundary_name,
+                    'source_message_type': claims.message_type,
+                },
+            )
+        except (PermissionError, ValueError) as exc:
+            error = str(exc)
+            log_event(
+                bound_org_id,
+                actor_id,
+                'federation_commitment_mirror_blocked',
+                resource=claims.commitment_id,
+                outcome='blocked',
+                actor_type=claims.actor_type or 'service',
+                details=_federation_audit_details(
+                    claims,
+                    receipt_id=commitment_ref['receipt_id'],
+                    error=error,
+                ),
+                session_id=claims.session_id or None,
+            )
+            result.update({
+                'reason': 'commitment_mirror_blocked',
+                'error': error,
+            })
+            return result
+        inbox_entry = _federation_inbox_entry(
+            bound_org_id,
+            claims,
+            receipt,
+            payload=payload,
+            state='processed',
+        )
+        event_name = (
+            'federation_commitment_proposal_applied'
+            if claims.message_type == 'commitment_proposal'
+            else 'federation_commitment_acceptance_applied'
+        )
+        log_event(
+            bound_org_id,
+            actor_id,
+            event_name,
+            resource=claims.commitment_id,
+            outcome='success',
+            actor_type=claims.actor_type or 'service',
+            details=_federation_audit_details(
+                claims,
+                receipt_id=commitment_ref['receipt_id'],
+                commitment_state=commitment.get('status', ''),
+            ),
+            session_id=claims.session_id or None,
+        )
+        result.update({
+            'applied': True,
+            'state': 'processed',
+            'reason': (
+                'commitment_proposal_mirrored'
+                if claims.message_type == 'commitment_proposal'
+                else 'commitment_acceptance_mirrored'
+            ),
+            'commitment': commitment,
+            'commitment_ref': commitment_ref,
+            'inbox_entry': inbox_entry,
+        })
+        return result
+
     if claims.message_type == 'execution_request':
         actor_id = claims.actor_id or f'peer:{claims.source_host_id}'
         execution_job, receiver_warrant, blocking_case = _queue_received_execution_request(
