@@ -174,7 +174,7 @@ from treasury import (treasury_snapshot, get_balance, check_budget,
                       open_payout_dispute_window, reject_payout_proposal,
                       cancel_payout_proposal, execute_payout_proposal,
                       load_payout_proposals)
-from court import (file_violation, get_violations, resolve_violation,
+from court import (file_violation, resolve_violation,
                    file_appeal, decide_appeal, get_agent_record, auto_review,
                    get_restrictions, remediate, _load_records)
 from session import SessionAuthority
