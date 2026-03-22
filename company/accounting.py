@@ -11,8 +11,10 @@ Institution scope:
   points at the canonical economy/transactions.jsonl file.  Owner-ledger
   state is now canonical in the founding institution capsule, while the
   legacy `company/owner_ledger.json` path is retained only as a compatibility
-  symlink.  This module does not support multi-institution operation and is
-  not part of the OSS kernel.
+  symlink.  This module accepts explicit org_id plumbing, but the live capsule
+  still resolves only the founding institution and fails closed for any other
+  org.  This module does not support multi-institution operation and is not
+  part of the OSS kernel.
 
 Usage:
   python3 accounting.py contribute --amount <USD> --note "..."
@@ -21,7 +23,7 @@ Usage:
   python3 accounting.py draw       --amount <USD> --note "..."   # profit draw (respects reserve floor)
   python3 accounting.py show
 """
-import json, sys, os, argparse, datetime
+import argparse, contextlib, datetime, fcntl, json, os, sys, tempfile
 
 COMPANY_DIR      = os.path.dirname(os.path.abspath(__file__))
 ECONOMY_DIR      = os.path.join(COMPANY_DIR, '..', 'economy')
@@ -50,7 +52,38 @@ def save_json(path, data):
         json.dump(data, f, indent=2)
 
 
-def _default_owner():
+def _write_json_atomic(path, data):
+    directory = os.path.dirname(path) or '.'
+    os.makedirs(directory, exist_ok=True)
+    fd, tmp_path = tempfile.mkstemp(
+        prefix=os.path.basename(path) + '.',
+        suffix='.tmp',
+        dir=directory,
+    )
+    try:
+        with os.fdopen(fd, 'w') as f:
+            json.dump(data, f, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, path)
+    finally:
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
+
+
+@contextlib.contextmanager
+def _accounting_lock(org_id=None):
+    lock_path = owner_ledger_path(org_id) + '.lock'
+    os.makedirs(os.path.dirname(lock_path), exist_ok=True)
+    with open(lock_path, 'a+') as lock_file:
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+
+
+def _default_owner(org_id=None):
     return {
         'version': 1,
         'owner': 'Son Nguyen The',
@@ -62,17 +95,17 @@ def _default_owner():
         'entries': [],
         '_meta': {
             'service_scope': 'founding_meridian_service',
-            'bound_org_id': capsule.default_org_id() or '',
+            'bound_org_id': capsule.default_org_id() if org_id is None else org_id or '',
         },
     }
 
 
-def _normalize_owner(data):
+def _normalize_owner(data, org_id=None):
     if not isinstance(data, dict):
-        return _default_owner()
+        return _default_owner(org_id)
 
     payload = dict(data)
-    defaults = _default_owner()
+    defaults = _default_owner(org_id)
     for key, value in defaults.items():
         if key == '_meta':
             continue
@@ -80,70 +113,70 @@ def _normalize_owner(data):
 
     payload.setdefault('_meta', {})
     payload['_meta']['service_scope'] = 'founding_meridian_service'
-    payload['_meta']['bound_org_id'] = capsule.default_org_id() or ''
+    payload['_meta']['bound_org_id'] = capsule.default_org_id() if org_id is None else org_id or ''
     return payload
 
 
-def owner_ledger_path():
-    if OWNER_LEDGER != DEFAULT_OWNER_LEDGER:
+def owner_ledger_path(org_id=None):
+    if org_id is None and OWNER_LEDGER != DEFAULT_OWNER_LEDGER:
         return OWNER_LEDGER
-    ensure_accounting_aliases()
-    return capsule_owner_ledger_path()
+    ensure_accounting_aliases(org_id)
+    return capsule_owner_ledger_path(org_id)
 
-def load_ledger():
-    ensure_treasury_aliases()
-    with open(capsule_ledger_path()) as f:
+def load_ledger(org_id=None):
+    path = os.path.realpath(capsule_ledger_path(org_id))
+    with open(path) as f:
         return json.load(f)
 
-def save_ledger(data):
+def save_ledger(data, org_id=None):
     data['updatedAt'] = now_ts()
-    ensure_treasury_aliases()
-    with open(capsule_ledger_path(), 'w') as f:
-        json.dump(data, f, indent=2)
+    _write_json_atomic(os.path.realpath(capsule_ledger_path(org_id)), data)
 
-def append_tx(entry):
+def append_tx(entry, org_id=None):
     entry['ts'] = now_ts()
-    ensure_treasury_aliases()
-    with open(capsule_transactions_path(), 'a') as f:
+    tx_path = os.path.realpath(capsule_transactions_path(org_id))
+    os.makedirs(os.path.dirname(tx_path), exist_ok=True)
+    with open(tx_path, 'a') as f:
         f.write(json.dumps(entry) + '\n')
 
-def load_owner():
-    return _normalize_owner(load_json(owner_ledger_path()))
+def load_owner(org_id=None):
+    return _normalize_owner(load_json(owner_ledger_path(org_id)), org_id)
 
 # ── reusable helpers ─────────────────────────────────────────────────────────
 
-def contribute_capital(amount_usd, note='', actor='owner'):
+def contribute_capital(amount_usd, note='', actor='owner', org_id=None):
     """Record an owner capital contribution and deposit it into treasury."""
     amount = float(amount_usd)
     if amount <= 0:
         raise ValueError('Capital contribution must be greater than 0')
 
-    owner = load_owner()
-    ledger = load_ledger()
+    with _accounting_lock(org_id):
+        owner = load_owner(org_id)
+        ledger = load_ledger(org_id)
 
-    owner['capital_contributed_usd'] += amount
-    owner['entries'].append({
-        'type': 'capital_contribution',
-        'amount_usd': amount,
-        'note': note,
-        'by': actor,
-        'at': now_ts(),
-    })
-    save_json(owner_ledger_path(), owner)
+        owner['capital_contributed_usd'] += amount
+        owner['entries'].append({
+            'type': 'capital_contribution',
+            'amount_usd': amount,
+            'note': note,
+            'by': actor,
+            'at': now_ts(),
+        })
+        _write_json_atomic(owner_ledger_path(org_id), owner)
 
-    t = ledger['treasury']
-    t['cash_usd'] += amount
-    t['owner_capital_contributed_usd'] += amount
-    save_ledger(ledger)
+        t = ledger['treasury']
+        t['cash_usd'] += amount
+        t['owner_capital_contributed_usd'] += amount
+        save_ledger(ledger, org_id)
 
-    append_tx({
-        'type': 'treasury_deposit',
-        'deposit_type': 'owner_capital',
-        'amount_usd': amount,
-        'cash_after': t['cash_usd'],
-        'note': note,
-        'by': actor,
-    })
+        append_tx({
+            'type': 'treasury_deposit',
+            'deposit_type': 'owner_capital',
+            'amount_usd': amount,
+            'cash_after': t['cash_usd'],
+            'note': note,
+            'by': actor,
+        }, org_id)
     return {
         'amount_usd': amount,
         'cash_after_usd': t['cash_usd'],
@@ -151,28 +184,29 @@ def contribute_capital(amount_usd, note='', actor='owner'):
     }
 
 
-def record_owner_expense(amount_usd, note='', actor='owner'):
+def record_owner_expense(amount_usd, note='', actor='owner', org_id=None):
     """Record an owner-paid expense without mutating treasury cash."""
     amount = float(amount_usd)
     if amount <= 0:
         raise ValueError('Expense amount must be greater than 0')
 
-    owner = load_owner()
-    owner['expenses_paid_usd'] += amount
-    owner['entries'].append({
-        'type': 'owner_expense',
-        'amount_usd': amount,
-        'note': note,
-        'by': actor,
-        'at': now_ts(),
-    })
-    save_json(owner_ledger_path(), owner)
-    append_tx({
-        'type': 'owner_expense_recorded',
-        'amount_usd': amount,
-        'note': note,
-        'by': actor,
-    })
+    with _accounting_lock(org_id):
+        owner = load_owner(org_id)
+        owner['expenses_paid_usd'] += amount
+        owner['entries'].append({
+            'type': 'owner_expense',
+            'amount_usd': amount,
+            'note': note,
+            'by': actor,
+            'at': now_ts(),
+        })
+        _write_json_atomic(owner_ledger_path(org_id), owner)
+        append_tx({
+            'type': 'owner_expense_recorded',
+            'amount_usd': amount,
+            'note': note,
+            'by': actor,
+        }, org_id)
     unreimbursed = owner['expenses_paid_usd'] - owner['reimbursements_received_usd']
     return {
         'amount_usd': amount,
@@ -180,27 +214,28 @@ def record_owner_expense(amount_usd, note='', actor='owner'):
     }
 
 
-def update_reserve_floor(new_floor_usd, note='', actor='owner'):
+def update_reserve_floor(new_floor_usd, note='', actor='owner', org_id=None):
     """Update the treasury reserve floor as an explicit policy action."""
     amount = float(new_floor_usd)
     if amount < 0:
         raise ValueError('Reserve floor cannot be negative')
 
-    ledger = load_ledger()
-    t = ledger['treasury']
-    old = float(t.get('reserve_floor_usd', 50.0))
-    t['reserve_floor_usd'] = amount
-    save_ledger(ledger)
+    with _accounting_lock(org_id):
+        ledger = load_ledger(org_id)
+        t = ledger['treasury']
+        old = float(t.get('reserve_floor_usd', 50.0))
+        t['reserve_floor_usd'] = amount
+        save_ledger(ledger, org_id)
 
-    append_tx({
-        'type': 'treasury_policy_update',
-        'policy': 'reserve_floor_usd',
-        'old_value': old,
-        'new_value': amount,
-        'cash_after': t['cash_usd'],
-        'note': note,
-        'by': actor,
-    })
+        append_tx({
+            'type': 'treasury_policy_update',
+            'policy': 'reserve_floor_usd',
+            'old_value': old,
+            'new_value': amount,
+            'cash_after': t['cash_usd'],
+            'note': note,
+            'by': actor,
+        }, org_id)
     return {
         'old_reserve_floor_usd': old,
         'new_reserve_floor_usd': amount,
@@ -208,46 +243,47 @@ def update_reserve_floor(new_floor_usd, note='', actor='owner'):
     }
 
 
-def reimburse_owner(amount_usd, note='', actor='owner'):
+def reimburse_owner(amount_usd, note='', actor='owner', org_id=None):
     """Draw from treasury to reimburse a previously recorded owner expense."""
     amount = float(amount_usd)
     if amount <= 0:
         raise ValueError('Reimbursement amount must be greater than 0')
 
-    owner = load_owner()
-    ledger = load_ledger()
-    t = ledger['treasury']
+    with _accounting_lock(org_id):
+        owner = load_owner(org_id)
+        ledger = load_ledger(org_id)
+        t = ledger['treasury']
 
-    unreimbursed = owner['expenses_paid_usd'] - owner['reimbursements_received_usd']
-    if amount > unreimbursed:
-        raise ValueError(
-            f'Reimbursement ${amount:.2f} exceeds unreimbursed expenses ${unreimbursed:.2f}'
-        )
-    if t['cash_usd'] - amount < t['reserve_floor_usd']:
-        raise PermissionError(
-            f"Reimbursement ${amount:.2f} would breach reserve floor ${t['reserve_floor_usd']:.2f}"
-        )
+        unreimbursed = owner['expenses_paid_usd'] - owner['reimbursements_received_usd']
+        if amount > unreimbursed:
+            raise ValueError(
+                f'Reimbursement ${amount:.2f} exceeds unreimbursed expenses ${unreimbursed:.2f}'
+            )
+        if t['cash_usd'] - amount < t['reserve_floor_usd']:
+            raise PermissionError(
+                f"Reimbursement ${amount:.2f} would breach reserve floor ${t['reserve_floor_usd']:.2f}"
+            )
 
-    t['cash_usd'] -= amount
-    t['owner_draws_usd'] += amount
-    owner['reimbursements_received_usd'] += amount
-    owner['entries'].append({
-        'type': 'reimbursement',
-        'amount_usd': amount,
-        'note': note,
-        'by': actor,
-        'at': now_ts(),
-    })
-    save_json(owner_ledger_path(), owner)
-    save_ledger(ledger)
-    append_tx({
-        'type': 'treasury_withdraw',
-        'withdraw_type': 'owner_reimbursement',
-        'amount_usd': amount,
-        'cash_after': t['cash_usd'],
-        'note': note,
-        'by': actor,
-    })
+        t['cash_usd'] -= amount
+        t['owner_draws_usd'] += amount
+        owner['reimbursements_received_usd'] += amount
+        owner['entries'].append({
+            'type': 'reimbursement',
+            'amount_usd': amount,
+            'note': note,
+            'by': actor,
+            'at': now_ts(),
+        })
+        _write_json_atomic(owner_ledger_path(org_id), owner)
+        save_ledger(ledger, org_id)
+        append_tx({
+            'type': 'treasury_withdraw',
+            'withdraw_type': 'owner_reimbursement',
+            'amount_usd': amount,
+            'cash_after': t['cash_usd'],
+            'note': note,
+            'by': actor,
+        }, org_id)
     return {
         'amount_usd': amount,
         'cash_after_usd': t['cash_usd'],
@@ -258,42 +294,43 @@ def reimburse_owner(amount_usd, note='', actor='owner'):
     }
 
 
-def take_owner_draw(amount_usd, note='', actor='owner'):
+def take_owner_draw(amount_usd, note='', actor='owner', org_id=None):
     """Take a profit draw from treasury cash while respecting the reserve floor."""
     amount = float(amount_usd)
     if amount <= 0:
         raise ValueError('Draw amount must be greater than 0')
 
-    ledger = load_ledger()
-    t = ledger['treasury']
-    floor = t['reserve_floor_usd']
-    available = max(0.0, t['cash_usd'] - floor)
-    if amount > available:
-        raise ValueError(
-            f'Draw ${amount:.2f} exceeds available above floor ${available:.2f}'
-        )
+    with _accounting_lock(org_id):
+        ledger = load_ledger(org_id)
+        t = ledger['treasury']
+        floor = t['reserve_floor_usd']
+        available = max(0.0, t['cash_usd'] - floor)
+        if amount > available:
+            raise ValueError(
+                f'Draw ${amount:.2f} exceeds available above floor ${available:.2f}'
+            )
 
-    owner = load_owner()
-    t['cash_usd'] -= amount
-    t['owner_draws_usd'] += amount
-    owner['draws_taken_usd'] += amount
-    owner['entries'].append({
-        'type': 'owner_draw',
-        'amount_usd': amount,
-        'note': note,
-        'by': actor,
-        'at': now_ts(),
-    })
-    save_json(owner_ledger_path(), owner)
-    save_ledger(ledger)
-    append_tx({
-        'type': 'treasury_withdraw',
-        'withdraw_type': 'owner_draw',
-        'amount_usd': amount,
-        'cash_after': t['cash_usd'],
-        'note': note,
-        'by': actor,
-    })
+        owner = load_owner(org_id)
+        t['cash_usd'] -= amount
+        t['owner_draws_usd'] += amount
+        owner['draws_taken_usd'] += amount
+        owner['entries'].append({
+            'type': 'owner_draw',
+            'amount_usd': amount,
+            'note': note,
+            'by': actor,
+            'at': now_ts(),
+        })
+        _write_json_atomic(owner_ledger_path(org_id), owner)
+        save_ledger(ledger, org_id)
+        append_tx({
+            'type': 'treasury_withdraw',
+            'withdraw_type': 'owner_draw',
+            'amount_usd': amount,
+            'cash_after': t['cash_usd'],
+            'note': note,
+            'by': actor,
+        }, org_id)
     return {
         'amount_usd': amount,
         'cash_after_usd': t['cash_usd'],

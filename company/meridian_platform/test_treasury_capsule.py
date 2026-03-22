@@ -351,7 +351,7 @@ class TreasuryCapsuleTests(unittest.TestCase):
 
     def test_accounting_writes_through_capsule_alias(self):
         capsule.ensure_treasury_aliases(self.org_id)
-        result = accounting.contribute_capital(1.0, 'test deposit', actor='owner')
+        result = accounting.contribute_capital(1.0, 'test deposit', actor='owner', org_id=self.org_id)
         self.assertEqual(result['cash_after_usd'], 8.5)
         owner_alias = capsule.owner_ledger_path(self.org_id)
         self.assertFalse(os.path.islink(owner_alias))
@@ -369,6 +369,16 @@ class TreasuryCapsuleTests(unittest.TestCase):
         with open(self._legacy_transactions) as f:
             entries = [json.loads(line) for line in f if line.strip()]
         self.assertTrue(any(entry.get('deposit_type') == 'owner_capital' for entry in entries))
+        with open(capsule.transactions_path(self.org_id)) as f:
+            capsule_entries = [json.loads(line) for line in f if line.strip()]
+        self.assertTrue(any(entry.get('deposit_type') == 'owner_capital' for entry in capsule_entries))
+        self.assertEqual(accounting.load_owner(self.org_id)['_meta']['bound_org_id'], self.org_id)
+        self.assertEqual(accounting.load_ledger(self.org_id)['treasury']['cash_usd'], 8.5)
+
+    def test_accounting_rejects_non_founding_org_binding(self):
+        capsule.ensure_treasury_aliases(self.org_id)
+        with self.assertRaisesRegex(ValueError, 'Live capsule only supports founding org'):
+            accounting.contribute_capital(1.0, 'wrong org', actor='owner', org_id='org_other')
 
     def test_treasury_protocol_sync_tracks_owner_capital(self):
         capsule.ensure_treasury_aliases(self.org_id)
@@ -947,27 +957,27 @@ class TreasuryCapsuleTests(unittest.TestCase):
         self.assertEqual(verified['subscription']['payment_evidence']['order_id'], 'ord_verify')
 
     def test_accounting_helpers_record_expense_reimburse_and_draw(self):
-        result = accounting.record_owner_expense(1.25, note='travel', actor='user:owner')
+        result = accounting.record_owner_expense(1.25, note='travel', actor='user:owner', org_id=self.org_id)
         self.assertEqual(result['amount_usd'], 1.25)
         self.assertAlmostEqual(result['unreimbursed_expenses_usd'], 1.25, places=2)
 
-        owner = accounting.load_owner()
-        ledger = accounting.load_ledger()
+        owner = accounting.load_owner(self.org_id)
+        ledger = accounting.load_ledger(self.org_id)
         self.assertAlmostEqual(owner['expenses_paid_usd'], 1.25, places=2)
         self.assertAlmostEqual(ledger['treasury']['cash_usd'], 7.5, places=2)
 
-        result = accounting.reimburse_owner(1.0, note='travel repay', actor='user:owner')
+        result = accounting.reimburse_owner(1.0, note='travel repay', actor='user:owner', org_id=self.org_id)
         self.assertEqual(result['amount_usd'], 1.0)
         self.assertAlmostEqual(result['cash_after_usd'], 6.5, places=2)
         self.assertAlmostEqual(result['unreimbursed_expenses_usd'], 0.25, places=2)
 
-        result = accounting.take_owner_draw(1.0, note='profit', actor='user:owner')
+        result = accounting.take_owner_draw(1.0, note='profit', actor='user:owner', org_id=self.org_id)
         self.assertEqual(result['amount_usd'], 1.0)
         self.assertAlmostEqual(result['cash_after_usd'], 5.5, places=2)
         self.assertAlmostEqual(result['available_for_draw_usd'], 0.5, places=2)
 
-        owner = accounting.load_owner()
-        ledger = accounting.load_ledger()
+        owner = accounting.load_owner(self.org_id)
+        ledger = accounting.load_ledger(self.org_id)
         self.assertAlmostEqual(owner['reimbursements_received_usd'], 1.0, places=2)
         self.assertAlmostEqual(owner['draws_taken_usd'], 1.0, places=2)
         self.assertAlmostEqual(ledger['treasury']['cash_usd'], 5.5, places=2)
