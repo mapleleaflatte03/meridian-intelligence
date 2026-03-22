@@ -1084,6 +1084,7 @@ def _settlement_notice_ref(claims, receipt, payload=None):
     claim_data = _federation_claims_dict(claims)
     return {
         'proposal_id': (payload.get('proposal_id') or '').strip(),
+        'currency': (payload.get('currency') or execution_refs.get('currency') or 'USDC').strip().upper(),
         'tx_ref': (payload.get('tx_ref') or execution_refs.get('tx_ref') or '').strip(),
         'tx_hash': (payload.get('tx_hash') or execution_refs.get('tx_hash') or '').strip(),
         'settlement_adapter': (payload.get('settlement_adapter') or execution_refs.get('settlement_adapter') or '').strip(),
@@ -1102,6 +1103,20 @@ def _settlement_notice_ref(claims, receipt, payload=None):
         'recorded_by': claim_data.get('actor_id') or f"peer:{claim_data.get('source_host_id', '')}",
         'recorded_at': (receipt or {}).get('accepted_at', '') or _now(),
     }
+
+
+def _preflight_received_settlement_notice(bound_org_id, claims, receipt, *, payload=None):
+    settlement_ref = _settlement_notice_ref(claims, receipt, payload)
+    host_identity, _admission_registry = _runtime_host_state(bound_org_id)
+    settlement_adapter_preflight = preflight_settlement_adapter(
+        settlement_ref.get('settlement_adapter', ''),
+        org_id=bound_org_id,
+        currency=settlement_ref.get('currency', 'USDC'),
+        tx_hash=settlement_ref.get('tx_hash', ''),
+        settlement_proof=settlement_ref.get('proof'),
+        host_supported_adapters=getattr(host_identity, 'settlement_adapters', []),
+    )
+    return settlement_ref, settlement_adapter_preflight
 
 
 def _process_received_federation_message(bound_org_id, claims, receipt, *, payload=None):
@@ -1227,7 +1242,45 @@ def _process_received_federation_message(bound_org_id, claims, receipt, *, paylo
         })
         return result
 
-    settlement_ref = _settlement_notice_ref(claims, receipt, payload)
+    settlement_ref, settlement_adapter_preflight = _preflight_received_settlement_notice(
+        bound_org_id,
+        claims,
+        receipt,
+        payload=payload,
+    )
+    if not settlement_adapter_preflight.get('preflight_ok'):
+        error = (
+            settlement_adapter_preflight.get('error', '')
+            or 'Settlement adapter preflight blocked the notice'
+        )
+        log_event(
+            bound_org_id,
+            actor_id,
+            'federation_settlement_notice_blocked',
+            resource=claims.commitment_id,
+            outcome='blocked',
+            actor_type=claims.actor_type or 'service',
+            details=_federation_audit_details(
+                claims,
+                receipt_id=(receipt or {}).get('receipt_id', ''),
+                proposal_id=settlement_ref.get('proposal_id', ''),
+                tx_ref=settlement_ref.get('tx_ref', ''),
+                settlement_adapter=settlement_ref.get('settlement_adapter', ''),
+                currency=settlement_ref.get('currency', ''),
+                error_type=settlement_adapter_preflight.get('error_type', ''),
+                error=error,
+            ),
+            session_id=claims.session_id or None,
+        )
+        result.update({
+            'reason': 'settlement_adapter_preflight_blocked',
+            'error_type': settlement_adapter_preflight.get('error_type', ''),
+            'error': error,
+            'settlement_ref': settlement_ref,
+            'settlement_adapter_preflight': settlement_adapter_preflight,
+        })
+        return result
+
     commitments.record_settlement_ref(
         claims.commitment_id,
         settlement_ref,
@@ -1259,6 +1312,7 @@ def _process_received_federation_message(bound_org_id, claims, receipt, *, paylo
             proposal_id=settlement_ref.get('proposal_id', ''),
             tx_ref=settlement_ref.get('tx_ref', ''),
             settlement_adapter=settlement_ref.get('settlement_adapter', ''),
+            currency=settlement_ref.get('currency', ''),
         ),
         session_id=claims.session_id or None,
     )
@@ -1268,6 +1322,7 @@ def _process_received_federation_message(bound_org_id, claims, receipt, *, paylo
         'reason': 'settlement_notice_applied',
         'commitment': commitment,
         'settlement_ref': settlement_ref,
+        'settlement_adapter_preflight': settlement_adapter_preflight,
         'inbox_entry': inbox_entry,
     })
     return result

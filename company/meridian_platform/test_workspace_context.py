@@ -1025,8 +1025,117 @@ class LiveWorkspaceContextTests(unittest.TestCase):
             'processed_at': '2026-03-22T00:00:00Z' if kwargs.get('state') == 'processed' else '',
         }
         try:
+            with mock.patch.object(
+                self.workspace,
+                '_runtime_host_state',
+                return_value=(
+                    types.SimpleNamespace(settlement_adapters=['internal_ledger']),
+                    {'admitted_org_ids': ['org_founding']},
+                ),
+            ), mock.patch.object(self.workspace, 'preflight_settlement_adapter') as preflight_mock:
+                preflight_mock.return_value = {
+                    'default_payout_adapter': 'internal_ledger',
+                    'requested_adapter_id': 'internal_ledger',
+                    'currency': 'USDC',
+                    'host_supported_adapters': ['internal_ledger'],
+                    'known': True,
+                    'preflight_ok': True,
+                    'can_execute_now': True,
+                    'execution_enabled': True,
+                    'error_type': '',
+                    'error': '',
+                }
+                claims = FederationEnvelopeClaims(
+                    envelope_id='fed_live_settle',
+                    source_host_id='host_peer',
+                    source_institution_id='org_peer',
+                    target_host_id='host_live',
+                    target_institution_id='org_founding',
+                    actor_type='service',
+                    actor_id='peer:host_peer',
+                    session_id='ses_peer',
+                    boundary_name='federation_gateway',
+                    identity_model='signed_host_service',
+                    message_type='settlement_notice',
+                    payload_hash='hash_live',
+                    warrant_id='war_live',
+                    commitment_id='cmt_live',
+                )
+                processing = self.workspace._process_received_federation_message(
+                    'org_founding',
+                    claims,
+                    {'receipt_id': 'fedrcpt_live', 'accepted_at': '2026-03-22T00:00:00Z'},
+                    payload={
+                        'proposal_id': 'ppo_live',
+                        'tx_ref': 'tx_live',
+                        'tx_hash': '0xdeadbeef',
+                        'settlement_adapter': 'internal_ledger',
+                        'currency': 'USDC',
+                        'proof': {'mode': 'institution_transactions_journal'},
+                    },
+                )
+        finally:
+            self.workspace._federation_inbox_entry = original_inbox_entry
+
+        preflight_mock.assert_called_once_with(
+            'internal_ledger',
+            org_id='org_founding',
+            currency='USDC',
+            tx_hash='0xdeadbeef',
+            settlement_proof={'mode': 'institution_transactions_journal'},
+            host_supported_adapters=['internal_ledger'],
+        )
+        self.assertTrue(processing['applied'])
+        self.assertEqual(processing['state'], 'processed')
+        self.assertEqual(processing['reason'], 'settlement_notice_applied')
+        self.assertEqual(processing['commitment']['state'], 'settled')
+        self.assertEqual(processing['settlement_ref']['tx_ref'], 'tx_live')
+        self.assertEqual(processing['settlement_adapter_preflight']['preflight_ok'], True)
+        self.assertEqual(processing['inbox_entry']['state'], 'processed')
+        self.assertEqual(audit_events[-1]['args'][2], 'federation_settlement_notice_applied')
+
+    def test_process_received_settlement_notice_blocks_failed_adapter_preflight(self):
+        from federation import FederationEnvelopeClaims
+
+        audit_events = []
+        self.workspace.commitments.validate_commitment_for_settlement = (
+            lambda commitment_id, **_kwargs: {'commitment_id': commitment_id, 'state': 'accepted'}
+        )
+        self.workspace._maybe_block_commitment_settlement = lambda *args, **kwargs: (None, None)
+        self.workspace.commitments.record_settlement_ref = lambda *args, **kwargs: self.fail(
+            'settlement ref should not be recorded'
+        )
+        self.workspace.commitments.settle_commitment = lambda *args, **kwargs: self.fail(
+            'commitment should not settle'
+        )
+        self.workspace.log_event = lambda *args, **kwargs: audit_events.append({
+            'args': args,
+            'kwargs': kwargs,
+        })
+
+        with mock.patch.object(
+            self.workspace,
+            '_runtime_host_state',
+            return_value=(
+                types.SimpleNamespace(settlement_adapters=['internal_ledger']),
+                {'admitted_org_ids': ['org_founding']},
+            ),
+        ), mock.patch.object(self.workspace, 'preflight_settlement_adapter') as preflight_mock:
+            preflight_mock.return_value = {
+                'default_payout_adapter': 'internal_ledger',
+                'requested_adapter_id': 'base_usdc_x402',
+                'currency': 'USDC',
+                'host_supported_adapters': ['internal_ledger'],
+                'known': True,
+                'preflight_ok': False,
+                'can_execute_now': False,
+                'execution_enabled': False,
+                'error_type': 'permission_error',
+                'error': "Settlement adapter 'base_usdc_x402' is not enabled for payout execution",
+            }
+
             claims = FederationEnvelopeClaims(
-                envelope_id='fed_live_settle',
+                envelope_id='fed_live_blocked',
                 source_host_id='host_peer',
                 source_institution_id='org_peer',
                 target_host_id='host_live',
@@ -1048,19 +1157,20 @@ class LiveWorkspaceContextTests(unittest.TestCase):
                 payload={
                     'proposal_id': 'ppo_live',
                     'tx_ref': 'tx_live',
-                    'settlement_adapter': 'internal_ledger',
+                    'settlement_adapter': 'base_usdc_x402',
+                    'currency': 'USDC',
+                    'proof': {'reference': 'live-proof'},
                 },
             )
-        finally:
-            self.workspace._federation_inbox_entry = original_inbox_entry
 
-        self.assertTrue(processing['applied'])
-        self.assertEqual(processing['state'], 'processed')
-        self.assertEqual(processing['reason'], 'settlement_notice_applied')
-        self.assertEqual(processing['commitment']['state'], 'settled')
-        self.assertEqual(processing['settlement_ref']['tx_ref'], 'tx_live')
-        self.assertEqual(processing['inbox_entry']['state'], 'processed')
-        self.assertEqual(audit_events[-1]['args'][2], 'federation_settlement_notice_applied')
+        preflight_mock.assert_called_once()
+        self.assertFalse(processing['applied'])
+        self.assertEqual(processing['state'], 'received')
+        self.assertEqual(processing['reason'], 'settlement_adapter_preflight_blocked')
+        self.assertEqual(processing['error_type'], 'permission_error')
+        self.assertIn('not enabled for payout execution', processing['error'])
+        self.assertEqual(processing['settlement_adapter_preflight']['requested_adapter_id'], 'base_usdc_x402')
+        self.assertEqual(audit_events[-1]['args'][2], 'federation_settlement_notice_blocked')
 
     def test_process_received_settlement_notice_respects_case_block(self):
         from federation import FederationEnvelopeClaims

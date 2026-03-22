@@ -254,7 +254,10 @@ The live commitment surface is founding-only and capsule-backed. When a
 host and institution before delivery, and successful sends append a local
 sender-side delivery reference back to the commitment record. Live federation
 is still disabled on the host today, so this is not yet cross-host execution
-proof.
+proof. Incoming `settlement_notice` envelopes mirror the live treasury
+settlement-adapter preflight contract before any local settlement record is
+written, so the receiver side still fails closed on unsupported or invalid
+adapter evidence.
 
 ### Cases (cases.py)
 ```

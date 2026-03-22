@@ -67,6 +67,9 @@ The live workspace now also exposes `POST /api/federation/execution-jobs/execute
 for parity with the OSS reference path, but that route is a structural
 rejection only: live receiver-side execution jobs remain review-only until
 federation is explicitly enabled on the host.
+Incoming `settlement_notice` envelopes now replay the live treasury
+settlement-adapter preflight contract before any local commitment settlement
+is recorded.
 The live boundary registry also declares warrant requirements for
 `federation_gateway`, so this disabled host can still say honestly which
 message types would require court-first execution review if federation were
