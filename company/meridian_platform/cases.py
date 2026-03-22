@@ -252,12 +252,27 @@ def blocked_peer_host_ids(org_id=None):
     return sorted(seen)
 
 
+def _commitment_counterparty_binding(commitment_record):
+    commitment_record = dict(commitment_record or {})
+    institution_id = (commitment_record.get('institution_id') or '').strip()
+    source_host_id = (commitment_record.get('source_host_id') or '').strip()
+    source_institution_id = (commitment_record.get('source_institution_id') or '').strip()
+    target_host_id = (commitment_record.get('target_host_id') or '').strip()
+    target_institution_id = (commitment_record.get('target_institution_id') or '').strip()
+    if (
+        institution_id
+        and institution_id == target_institution_id
+        and (source_host_id or source_institution_id)
+    ):
+        return source_host_id, source_institution_id
+    return target_host_id, target_institution_id
+
+
 def ensure_case_for_commitment_breach(commitment_record, actor_id, *, org_id=None, note=''):
     commitment_id = (commitment_record or {}).get('commitment_id', '')
     if not commitment_id:
         raise ValueError('commitment_record.commitment_id is required')
-    target_host_id = (commitment_record or {}).get('target_host_id', '')
-    target_institution_id = (commitment_record or {}).get('target_institution_id', '')
+    target_host_id, target_institution_id = _commitment_counterparty_binding(commitment_record)
     for existing in list_cases(org_id):
         if (
             existing.get('claim_type') == 'breach_of_commitment'

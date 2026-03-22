@@ -261,11 +261,11 @@ proof. Incoming `settlement_notice` envelopes mirror the live treasury
 settlement-adapter preflight contract before any local settlement record is
 written, so the receiver side still fails closed on unsupported or invalid
 adapter evidence.
-The same live mirror now also declares warrant-bound `commitment_proposal` and
-`commitment_acceptance` message types in the boundary registry and routes them
-through the same commitment-specific validators as OSS. That is contract
-parity only: the host still fails closed instead of claiming active
-multi-institution commitment delivery.
+The same live mirror now also declares warrant-bound `commitment_proposal`,
+`commitment_acceptance`, and `commitment_breach_notice` message types in the
+boundary registry and routes them through the same commitment-specific
+validators as OSS. That is contract parity only: the host still fails closed
+instead of claiming active multi-institution commitment delivery.
 
 ### Cases (cases.py)
 ```

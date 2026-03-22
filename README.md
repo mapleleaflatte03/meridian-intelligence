@@ -87,10 +87,11 @@ validated local sender-side `commitment_id`. Live federation remains disabled,
 so this is a founding-workspace commitment surface today, not live
 cross-institution execution proof.
 For parity with the OSS reference path, the live workspace now also declares
-the same warrant mapping for `commitment_proposal` and
-`commitment_acceptance`. That means the live boundary can truthfully describe
-how commitment federation would be authorized and mirrored, while still
-failing closed until federation is explicitly enabled on the host.
+the same warrant mapping for `commitment_proposal`,
+`commitment_acceptance`, and `commitment_breach_notice`. That means the live
+boundary can truthfully describe how commitment federation would be
+authorized and mirrored, while still failing closed until federation is
+explicitly enabled on the host.
 The owner workspace now also exposes a founding-only case surface via
 `/api/cases` and `POST /api/cases/open|stay|resolve`. Commitment breach can
 open a linked local case record, but live federation is still disabled, so

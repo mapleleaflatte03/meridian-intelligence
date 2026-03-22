@@ -67,6 +67,25 @@ class CaseModuleTests(unittest.TestCase):
         self.assertEqual(first['case_id'], second['case_id'])
         self.assertEqual(first['linked_warrant_id'], 'war_live_demo')
 
+    def test_breach_helper_targets_counterparty_for_mirrored_commitment(self):
+        commitment = {
+            'commitment_id': 'com_mirror_demo',
+            'institution_id': self.org_id,
+            'source_host_id': 'host_alpha',
+            'source_institution_id': 'org_alpha',
+            'target_host_id': 'host_live',
+            'target_institution_id': self.org_id,
+            'warrant_id': 'war_live_demo',
+        }
+        record, created = self.cases.ensure_case_for_commitment_breach(
+            commitment,
+            'user_owner',
+            org_id=self.org_id,
+        )
+        self.assertTrue(created)
+        self.assertEqual(record['target_host_id'], 'host_alpha')
+        self.assertEqual(record['target_institution_id'], 'org_alpha')
+
     def test_blocking_helpers_surface_commitments_and_peers(self):
         blocking = self.cases.open_case(
             self.org_id,

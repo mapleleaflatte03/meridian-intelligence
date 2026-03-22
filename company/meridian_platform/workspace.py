@@ -672,11 +672,12 @@ def _maybe_block_commitment_settlement(commitment_id, actor_id, *, org_id, sessi
     return case_record, warrant
 
 
-def _blocking_case_for_delivery(*, org_id, commitment_id='', target_host_id=''):
+def _blocking_case_for_delivery(*, org_id, commitment_id='', target_host_id='', message_type=''):
     try:
-        commitment_case = cases.blocking_commitment_case(commitment_id, org_id=org_id)
-        if commitment_case:
-            return commitment_case
+        if message_type != 'commitment_breach_notice':
+            commitment_case = cases.blocking_commitment_case(commitment_id, org_id=org_id)
+            if commitment_case:
+                return commitment_case
         return cases.blocking_peer_case(target_host_id, org_id=org_id)
     except (SystemExit, ValueError):
         return None
@@ -1790,6 +1791,7 @@ def _deliver_federation_envelope(bound_org_id, target_host_id, target_org_id,
         org_id=bound_org_id,
         commitment_id=commitment_id,
         target_host_id=target_host_id,
+        message_type=message_type,
     )
     if blocking_case:
         message = (

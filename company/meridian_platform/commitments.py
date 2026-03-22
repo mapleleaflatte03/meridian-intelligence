@@ -527,6 +527,7 @@ def validate_commitment_for_breach_notice(commitment_id, *, org_id=None,
                                           target_host_id='',
                                           target_institution_id='',
                                           warrant_id=''):
+    del warrant_id  # breach notices carry a fresh warrant; do not couple to proposal warrant
     record = get_commitment(commitment_id, org_id=org_id)
     if not record:
         raise PermissionError(f"Commitment '{commitment_id}' does not exist")
@@ -535,20 +536,15 @@ def validate_commitment_for_breach_notice(commitment_id, *, org_id=None,
             f"Commitment '{commitment_id}' is not ready for breach notice "
             f"(state={_canonical_state(record)})"
         )
-    if target_host_id and record.get('target_host_id') != target_host_id:
+    if target_host_id and record.get('source_host_id') != target_host_id:
         raise PermissionError(
-            f"Commitment '{commitment_id}' target_host_id "
-            f"{record.get('target_host_id', '')!r} does not match {target_host_id!r}"
+            f"Commitment '{commitment_id}' source_host_id "
+            f"{record.get('source_host_id', '')!r} does not match {target_host_id!r}"
         )
-    if target_institution_id and record.get('target_institution_id') != target_institution_id:
+    if target_institution_id and record.get('source_institution_id') != target_institution_id:
         raise PermissionError(
-            f"Commitment '{commitment_id}' target_institution_id "
-            f"{record.get('target_institution_id', '')!r} does not match {target_institution_id!r}"
-        )
-    if warrant_id and record.get('warrant_id') and record.get('warrant_id') != warrant_id:
-        raise PermissionError(
-            f"Commitment '{commitment_id}' warrant_id "
-            f"{record.get('warrant_id', '')!r} does not match {warrant_id!r}"
+            f"Commitment '{commitment_id}' source_institution_id "
+            f"{record.get('source_institution_id', '')!r} does not match {target_institution_id!r}"
         )
     return record
 
