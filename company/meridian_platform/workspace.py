@@ -526,6 +526,34 @@ def _maybe_stay_warrant_for_case(case_record, actor_id, *, org_id, session_id=No
     }
 
 
+def _maybe_block_commitment_settlement(commitment_id, actor_id, *, org_id, session_id=None, note=''):
+    case_record = cases.blocking_commitment_case(commitment_id, org_id=org_id)
+    if not case_record:
+        return None, None
+    warrant = _maybe_stay_warrant_for_case(
+        case_record,
+        actor_id,
+        org_id=org_id,
+        session_id=session_id,
+        note=note or f"Settlement blocked while case {case_record.get('case_id', '')} remains active",
+    )
+    log_event(
+        org_id,
+        actor_id,
+        'commitment_settlement_blocked',
+        outcome='blocked',
+        resource=commitment_id,
+        details={
+            'case_id': case_record.get('case_id', ''),
+            'claim_type': case_record.get('claim_type', ''),
+            'case_status': case_record.get('status', ''),
+            'linked_warrant_id': case_record.get('linked_warrant_id', ''),
+        },
+        session_id=session_id,
+    )
+    return case_record, warrant
+
+
 def _blocking_case_for_delivery(*, org_id, commitment_id='', target_host_id=''):
     try:
         commitment_case = cases.blocking_commitment_case(commitment_id, org_id=org_id)
@@ -2513,6 +2541,23 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                 commitment_id = (body.get('commitment_id') or '').strip()
                 if not commitment_id:
                     return self._json({'error': 'commitment_id is required'}, 400)
+                case_record, warrant = _maybe_block_commitment_settlement(
+                    commitment_id,
+                    by,
+                    org_id=org_id,
+                    session_id=_sid,
+                    note=body.get('note', ''),
+                )
+                if case_record:
+                    return self._json({
+                        'error': (
+                            f"Commitment '{commitment_id}' cannot settle while case "
+                            f"'{case_record.get('case_id', '')}' is {case_record.get('status', '')}"
+                        ),
+                        'case': case_record,
+                        'warrant': warrant,
+                        'summary': commitments.commitment_summary(org_id),
+                    }, 409)
                 commitment = commitments.settle_commitment(
                     commitment_id,
                     by,

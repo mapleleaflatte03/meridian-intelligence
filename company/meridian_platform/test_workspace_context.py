@@ -497,6 +497,47 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.assertEqual(audit_events[0]['args'][2], 'warrant_stayed_for_case')
         self.assertEqual(audit_events[0]['kwargs']['details']['case_id'], 'case_live_demo')
 
+    def test_maybe_block_commitment_settlement_returns_case_and_warrant(self):
+        audit_events = []
+        self.workspace.cases.blocking_commitment_case = lambda commitment_id, **_kwargs: {
+            'case_id': 'case_live_demo',
+            'claim_type': 'non_delivery',
+            'status': 'open',
+            'linked_commitment_id': commitment_id,
+            'linked_warrant_id': 'war_live_demo',
+        }
+        self.workspace.list_warrants = lambda org_id=None, **_kwargs: [
+            {
+                'warrant_id': 'war_live_demo',
+                'court_review_state': 'approved',
+                'execution_state': 'ready',
+            }
+        ]
+        self.workspace.review_warrant = lambda warrant_id, decision, by, **_kwargs: {
+            'warrant_id': warrant_id,
+            'court_review_state': 'stayed',
+            'execution_state': 'ready',
+            'reviewed_by': by,
+        }
+        self.workspace.log_event = lambda *args, **kwargs: audit_events.append({
+            'args': args,
+            'kwargs': kwargs,
+        })
+
+        case_record, warrant = self.workspace._maybe_block_commitment_settlement(
+            'cmt_demo',
+            'user_owner',
+            org_id='org_founding',
+            session_id='ses_demo',
+            note='Do not settle while case is open',
+        )
+
+        self.assertEqual(case_record['case_id'], 'case_live_demo')
+        self.assertTrue(warrant['applied'])
+        self.assertEqual(warrant['warrant_id'], 'war_live_demo')
+        self.assertEqual(audit_events[-1]['args'][2], 'commitment_settlement_blocked')
+        self.assertEqual(audit_events[-1]['kwargs']['resource'], 'cmt_demo')
+
     def test_deliver_federation_envelope_attaches_case_payload_on_preflight_block(self):
         from runtime_host import default_host_identity
 

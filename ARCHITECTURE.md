@@ -227,8 +227,10 @@ disabled, so these are local court-network records rather than live cross-host
 dispute execution proof. Blocking commitment IDs / peer host IDs are surfaced
 for runtime truth, while any peer-suspension path stays fail-closed until live
 federation is actually enabled. Contradictory delivery proofs can still be
-classified into local case records, but that remains a founding-workspace
-mirror until live federation is truly enabled.
+classified into local case records, and a linked execution warrant can be
+stayed locally. The same active case state now blocks commitment settlement,
+but all of this remains a founding-workspace mirror until live federation is
+truly enabled.
 
 ## State File Locations
 

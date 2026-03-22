@@ -65,9 +65,12 @@ open a linked local case record, but live federation is still disabled, so
 this is not yet live cross-host dispute execution. The live case snapshot now
 surfaces blocking commitment IDs / peer host IDs, and any peer-suspension
 attempt remains explicitly fail-closed under the founding-only runtime lock.
+That same local case state now blocks `POST /api/commitments/settle`, and a
+linked execution warrant can be stayed before settlement is retried.
 The live mirror also classifies contradictory delivery proofs into local case
-records if that path is ever exercised, but live federation itself is still
-disabled today.
+records if that path is ever exercised, and a linked execution warrant can be
+stayed locally for court-first review. Live federation itself is still disabled
+today.
 
 **Live service:** https://app.welliam.codes
 **Product demo:** https://app.welliam.codes/demo.html
