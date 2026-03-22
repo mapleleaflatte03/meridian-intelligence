@@ -17,6 +17,7 @@ import authority
 import capsule
 import court
 import payment_monitor
+import subscriptions
 import treasury
 
 REVENUE_PY = os.path.join(os.path.dirname(COMPANY_DIR), 'economy', 'revenue.py')
@@ -754,6 +755,92 @@ class TreasuryCapsuleTests(unittest.TestCase):
         self.assertFalse(result['can_execute_now'])
         self.assertEqual(result['error_type'], 'permission_error')
         self.assertIn('not enabled', result['error'])
+
+    def test_subscription_helpers_manage_capsule_state(self):
+        created = subscriptions.create_subscription(
+            '100',
+            plan='trial',
+            email='trial@example.com',
+            org_id=self.org_id,
+        )
+        self.assertEqual(created['telegram_id'], '100')
+        self.assertEqual(created['subscription']['plan'], 'trial')
+        self.assertEqual(created['subscription']['email'], 'trial@example.com')
+        self.assertEqual(subscriptions.active_delivery_targets(org_id=self.org_id), ['100'])
+
+        updated = subscriptions.set_subscription_email(
+            '100',
+            'owner@example.com',
+            org_id=self.org_id,
+        )
+        self.assertEqual(updated['subscription']['email'], 'owner@example.com')
+
+        delivery = subscriptions.record_delivery(
+            '100',
+            'daily-brief',
+            brief_date='2026-03-22',
+            org_id=self.org_id,
+        )
+        self.assertEqual(delivery['entry']['brief_date'], '2026-03-22')
+        self.assertEqual(delivery['entry']['product'], 'daily-brief')
+
+        cancelled = subscriptions.cancel_active_subscriptions('100', org_id=self.org_id)
+        self.assertEqual(cancelled['telegram_id'], '100')
+        self.assertEqual(len(cancelled['cancelled_ids']), 1)
+        self.assertEqual(subscriptions.active_delivery_targets(org_id=self.org_id), [])
+
+        stored = subscriptions.load_subs(self.org_id)
+        self.assertEqual(stored['subscribers']['100'][-1]['status'], 'cancelled')
+        self.assertEqual(stored['delivery_log'][-1]['product'], 'daily-brief')
+
+    def test_subscription_helper_convert_trial_to_paid(self):
+        subscriptions.create_subscription('200', plan='trial', org_id=self.org_id)
+        with mock.patch.object(subscriptions, '_require_payment_evidence', return_value={
+            'order_id': 'ord_demo',
+            'payment_key': 'pay_demo',
+            'payment_ref': 'ref_demo',
+            'tx_hash': '0xfeed',
+            'amount': 2.99,
+        }):
+            converted = subscriptions.convert_trial_subscription(
+                '200',
+                'premium-brief-weekly',
+                payment_ref='ref_demo',
+                confirm_payment=True,
+                email='paid@example.com',
+                org_id=self.org_id,
+            )
+        self.assertEqual(converted['subscription']['plan'], 'premium-brief-weekly')
+        self.assertTrue(converted['subscription']['payment_verified'])
+        self.assertEqual(converted['subscription']['payment_evidence']['tx_hash'], '0xfeed')
+
+        stored = subscriptions.load_subs(self.org_id)
+        self.assertEqual(stored['subscribers']['200'][0]['status'], 'converted')
+        self.assertEqual(stored['subscribers']['200'][1]['plan'], 'premium-brief-weekly')
+
+    def test_subscription_helper_verify_payment_binds_evidence(self):
+        created = subscriptions.create_subscription(
+            '300',
+            plan='premium-brief-weekly',
+            payment_ref='ref_initial',
+            org_id=self.org_id,
+        )
+        with mock.patch.object(subscriptions, '_require_payment_evidence', return_value={
+            'order_id': 'ord_verify',
+            'payment_key': 'pay_verify',
+            'payment_ref': 'ref_verified',
+            'tx_hash': '0x1234',
+            'amount': 2.99,
+        }):
+            verified = subscriptions.verify_subscription_payment(
+                '300',
+                subscription_id=created['subscription']['id'],
+                payment_ref='ref_verified',
+                org_id=self.org_id,
+            )
+        self.assertTrue(verified['subscription']['payment_verified'])
+        self.assertEqual(verified['subscription']['payment_ref'], 'ref_verified')
+        self.assertEqual(verified['subscription']['payment_evidence']['order_id'], 'ord_verify')
 
     def test_accounting_helpers_record_expense_reimburse_and_draw(self):
         result = accounting.record_owner_expense(1.25, note='travel', actor='user:owner')

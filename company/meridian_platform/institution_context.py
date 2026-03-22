@@ -171,13 +171,13 @@ PAYMENT_MONITOR_BOUNDARY = ServiceBoundary(
 )
 
 SUBSCRIPTIONS_BOUNDARY = ServiceBoundary(
-    'subscriptions', 'none', 'founding_service_only',
-    'Subscription entitlement state — founding-service-only internal boundary',
+    'subscriptions', 'session', 'founding_service_only',
+    'Workspace-mediated subscription entitlement service — session-authenticated, founding institution only',
 )
 
 ACCOUNTING_BOUNDARY = ServiceBoundary(
-    'accounting', 'none', 'founding_service_only',
-    'Accounting writer — founding-service-only internal ledger boundary',
+    'accounting', 'session', 'founding_service_only',
+    'Workspace-mediated accounting service — session-authenticated, founding institution only',
 )
 
 CLI_BOUNDARY = ServiceBoundary(

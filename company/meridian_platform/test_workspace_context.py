@@ -185,6 +185,12 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.assertTrue(permissions['/api/payouts/review']['allowed'])
         self.assertFalse(permissions['/api/payouts/approve']['allowed'])
         self.assertTrue(permissions['/api/treasury/settlement-adapters/preflight']['allowed'])
+        self.assertTrue(permissions['/api/subscriptions/add']['allowed'])
+        self.assertTrue(permissions['/api/subscriptions/convert']['allowed'])
+        self.assertTrue(permissions['/api/subscriptions/verify-payment']['allowed'])
+        self.assertTrue(permissions['/api/subscriptions/remove']['allowed'])
+        self.assertTrue(permissions['/api/subscriptions/set-email']['allowed'])
+        self.assertTrue(permissions['/api/subscriptions/record-delivery']['allowed'])
         self.assertFalse(permissions['/api/accounting/expense']['allowed'])
         self.assertEqual(permissions['/api/accounting/expense']['required_role'], 'owner')
         self.assertFalse(permissions['/api/accounting/reimburse']['allowed'])
@@ -195,6 +201,10 @@ class LiveWorkspaceContextTests(unittest.TestCase):
             permissions['/api/treasury/settlement-adapters/preflight']['required_role'],
             'member',
         )
+        self.assertEqual(permissions['/api/subscriptions/add']['required_role'], 'admin')
+        self.assertEqual(permissions['/api/subscriptions/convert']['required_role'], 'admin')
+        self.assertEqual(permissions['/api/subscriptions/verify-payment']['required_role'], 'admin')
+        self.assertEqual(permissions['/api/subscriptions/remove']['required_role'], 'admin')
         self.assertEqual(permissions['/api/payouts/execute']['required_role'], 'owner')
         self.assertTrue(permissions['/api/cases/open']['allowed'])
         self.assertTrue(permissions['/api/cases/resolve']['allowed'])
@@ -283,10 +293,14 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         ]
         self.workspace.service_state.subscription_snapshot = lambda org_id=None: {
             'bound_org_id': org_id,
+            'mutation_enabled': True,
+            'identity_model': 'session',
             'summary': {'subscriber_count': 1, 'external_target_count': 0},
         }
         self.workspace.service_state.accounting_snapshot = lambda org_id=None: {
             'bound_org_id': org_id,
+            'mutation_enabled': True,
+            'identity_model': 'session',
             'summary': {'capital_contributed_usd': 2.0, 'unreimbursed_expenses_usd': 0.0},
         }
         self.workspace.get_sprint_lead = lambda org_id: ('', 0)
@@ -356,6 +370,8 @@ class LiveWorkspaceContextTests(unittest.TestCase):
             'federated_execution',
         )
         self.assertFalse(status['runtime_core']['service_registry']['mcp_service']['supports_institution_routing'])
+        self.assertEqual(status['runtime_core']['service_registry']['subscriptions']['identity_model'], 'session')
+        self.assertEqual(status['runtime_core']['service_registry']['accounting']['identity_model'], 'session')
         self.assertEqual(status['runtime_core']['host_identity']['host_id'], 'host_live')
         self.assertEqual(status['runtime_core']['admission']['admitted_org_ids'], ['org_founding'])
         self.assertEqual(status['runtime_core']['admission']['management_mode'], 'founding_locked')
@@ -377,7 +393,10 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.assertEqual(status['cases']['blocking_commitment_ids'], ['com_live_demo'])
         self.assertEqual(status['cases']['blocked_peer_host_ids'], ['host_peer'])
         self.assertEqual(status['service_state']['subscriptions']['summary']['subscriber_count'], 1)
+        self.assertTrue(status['service_state']['subscriptions']['mutation_enabled'])
+        self.assertEqual(status['service_state']['subscriptions']['identity_model'], 'session')
         self.assertEqual(status['service_state']['accounting']['summary']['capital_contributed_usd'], 2.0)
+        self.assertTrue(status['service_state']['accounting']['mutation_enabled'])
         self.assertIn('federation', status['runtime_core'])
         self.assertFalse(status['runtime_core']['federation']['enabled'])
 

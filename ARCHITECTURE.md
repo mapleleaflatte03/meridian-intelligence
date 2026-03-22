@@ -167,6 +167,12 @@ accounting helpers directly, so the founding capsule owner ledger and treasury
 journal stay canonical even when the operator uses the workspace instead of
 the CLI. This is still founding-only service management, not multi-
 institution accounting.
+The live workspace now also exposes admin-gated subscription mutations through
+`POST /api/subscriptions/add|convert|verify-payment|remove|set-email|record-delivery`.
+Those routes call tracked subscription helpers directly, so the founding
+capsule entitlement store stays canonical even when the operator uses the
+workspace instead of the CLI. This remains founding-only service management,
+not a public multi-institution subscription surface.
 
 ### Court (court.py)
 ```
@@ -383,8 +389,9 @@ the two capsule-canonical service-state files that still remain founding-only:
 `GET /api/subscriptions` and `GET /api/accounting`. Those surfaces read
 directly from capsule-canonical state and report their storage model as
 `capsule_canonical_with_legacy_symlink`. Accounting now exposes owner-gated
-workspace mutations, while subscriptions remain read-only and do not claim
-self-serve mutation or multi-institution routing.
+workspace mutations, and subscriptions expose admin-gated workspace mutations.
+Both boundaries remain founding-only and do not claim self-serve multi-
+institution routing.
 
 That admission model is explicitly `single_institution_deployment`. The live
 workspace is institution-bound, but this deployment does not admit additional

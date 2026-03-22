@@ -16,6 +16,7 @@ Endpoints:
   GET  /api/treasury/funding-sources → Funding source records
   GET  /api/treasury/settlement-adapters → Settlement adapter registry
   GET  /api/subscriptions         → Founding subscription service state
+  GET  /api/subscriptions/delivery-targets → Founding delivery-target calculation
   GET  /api/accounting            → Founding accounting owner-ledger state
   GET  /api/payouts              → Payout proposals and summary
   GET  /api/court                 → Court records
@@ -51,6 +52,12 @@ Endpoints:
   POST /api/treasury/contribute   → Record owner capital contribution
   POST /api/treasury/reserve-floor → Update reserve floor policy
   POST /api/treasury/settlement-adapters/preflight → Validate settlement-adapter execution requirements
+  POST /api/subscriptions/add     → Create a founding subscription record
+  POST /api/subscriptions/convert → Convert a trial into a paid subscription
+  POST /api/subscriptions/verify-payment → Bind payment evidence to a subscription
+  POST /api/subscriptions/remove  → Cancel active subscriptions for a Telegram user
+  POST /api/subscriptions/set-email → Update subscription email metadata
+  POST /api/subscriptions/record-delivery → Append a subscription delivery record
   POST /api/accounting/expense    → Record an owner-paid expense in the founding ledger
   POST /api/accounting/reimburse  → Reimburse an owner-paid expense from treasury
   POST /api/accounting/draw       → Take an owner draw from treasury above reserve floor
@@ -172,6 +179,7 @@ from warrants import (
 import commitments
 import cases
 import service_state
+import subscription_service
 from federation import (
     FederationAuthority,
     ReplayStore,
@@ -238,6 +246,12 @@ MUTATION_ROLE_REQUIREMENTS = {
     '/api/treasury/contribute': 'owner',
     '/api/treasury/reserve-floor': 'owner',
     '/api/treasury/settlement-adapters/preflight': 'member',
+    '/api/subscriptions/add': 'admin',
+    '/api/subscriptions/convert': 'admin',
+    '/api/subscriptions/verify-payment': 'admin',
+    '/api/subscriptions/remove': 'admin',
+    '/api/subscriptions/set-email': 'admin',
+    '/api/subscriptions/record-delivery': 'admin',
     '/api/accounting/expense': 'owner',
     '/api/accounting/reimburse': 'owner',
     '/api/accounting/draw': 'owner',
@@ -2136,6 +2150,16 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
             })
         elif path == '/api/subscriptions':
             return self._json(service_state.subscription_snapshot(org_id))
+        elif path == '/api/subscriptions/delivery-targets':
+            external_only = parse_qs(parsed.query).get('external_only', ['0'])[-1].lower() in ('1', 'true', 'yes', 'on')
+            return self._json({
+                'bound_org_id': org_id,
+                'external_only': external_only,
+                'targets': subscription_service.active_delivery_targets(
+                    org_id,
+                    external_only=external_only,
+                ),
+            })
         elif path == '/api/accounting':
             return self._json(service_state.accounting_snapshot(org_id))
         elif path == '/api/payouts':
@@ -2433,6 +2457,163 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                     session_id=_sid,
                 )
                 return self._json(result)
+
+            elif path == '/api/subscriptions/add':
+                result = subscription_service.create_subscription(
+                    body.get('telegram_id'),
+                    plan=body.get('plan') or 'trial',
+                    duration_days=body.get('duration_days'),
+                    payment_method=body.get('payment_method'),
+                    payment_ref=body.get('payment_ref'),
+                    confirm_payment=bool(body.get('confirm_payment')),
+                    trial=bool(body.get('trial')),
+                    email=body.get('email'),
+                    org_id=org_id,
+                    actor=by,
+                )
+                subscription = result['subscription']
+                log_event(
+                    org_id,
+                    by,
+                    'subscription_created',
+                    outcome='success',
+                    resource=subscription['id'],
+                    details={
+                        'telegram_id': result['telegram_id'],
+                        'plan': subscription['plan'],
+                        'payment_verified': bool(subscription.get('payment_verified')),
+                    },
+                    session_id=_sid,
+                )
+                return self._json({
+                    'message': f"Subscription created: {subscription['id']}",
+                    'result': result,
+                    'service_state': service_state.subscription_snapshot(org_id),
+                })
+
+            elif path == '/api/subscriptions/convert':
+                result = subscription_service.convert_trial_subscription(
+                    body.get('telegram_id'),
+                    body.get('plan'),
+                    payment_method=body.get('payment_method'),
+                    payment_ref=body.get('payment_ref'),
+                    confirm_payment=bool(body.get('confirm_payment')),
+                    email=body.get('email'),
+                    org_id=org_id,
+                    actor=by,
+                )
+                subscription = result['subscription']
+                log_event(
+                    org_id,
+                    by,
+                    'subscription_converted',
+                    outcome='success',
+                    resource=subscription['id'],
+                    details={
+                        'telegram_id': result['telegram_id'],
+                        'plan': subscription['plan'],
+                        'payment_verified': bool(subscription.get('payment_verified')),
+                    },
+                    session_id=_sid,
+                )
+                return self._json({
+                    'message': f"Trial converted: {subscription['id']}",
+                    'result': result,
+                    'service_state': service_state.subscription_snapshot(org_id),
+                })
+
+            elif path == '/api/subscriptions/verify-payment':
+                result = subscription_service.verify_subscription_payment(
+                    body.get('telegram_id'),
+                    subscription_id=(body.get('subscription_id') or '').strip() or None,
+                    payment_ref=body.get('payment_ref'),
+                    org_id=org_id,
+                    actor=by,
+                )
+                subscription = result['subscription']
+                log_event(
+                    org_id,
+                    by,
+                    'subscription_payment_verified',
+                    outcome='success',
+                    resource=subscription['id'],
+                    details={
+                        'telegram_id': result['telegram_id'],
+                        'payment_ref': subscription.get('payment_ref', ''),
+                    },
+                    session_id=_sid,
+                )
+                return self._json({
+                    'message': f"Subscription payment verified: {subscription['id']}",
+                    'result': result,
+                    'service_state': service_state.subscription_snapshot(org_id),
+                })
+
+            elif path == '/api/subscriptions/remove':
+                result = subscription_service.cancel_active(
+                    body.get('telegram_id'),
+                    org_id=org_id,
+                    actor=by,
+                )
+                log_event(
+                    org_id,
+                    by,
+                    'subscription_cancelled',
+                    outcome='success',
+                    resource=result['telegram_id'],
+                    details={'cancelled_count': result['cancelled_count']},
+                    session_id=_sid,
+                )
+                return self._json({
+                    'message': f"Subscriptions cancelled for telegram:{result['telegram_id']}",
+                    'result': result,
+                    'service_state': service_state.subscription_snapshot(org_id),
+                })
+
+            elif path == '/api/subscriptions/set-email':
+                subscription = subscription_service.set_email(
+                    (body.get('telegram_id') or '').strip(),
+                    (body.get('email') or '').strip(),
+                    org_id=org_id,
+                    actor=by,
+                )
+                log_event(
+                    org_id,
+                    by,
+                    'subscription_email_updated',
+                    outcome='success',
+                    resource=subscription.get('id', ''),
+                    details={'telegram_id': str(body.get('telegram_id') or '').strip()},
+                    session_id=_sid,
+                )
+                return self._json({
+                    'message': f"Subscription email updated: {subscription.get('id', '')}",
+                    'subscription': subscription,
+                    'service_state': service_state.subscription_snapshot(org_id),
+                })
+
+            elif path == '/api/subscriptions/record-delivery':
+                entry = subscription_service.record_delivery(
+                    (body.get('telegram_id') or '').strip(),
+                    (body.get('product') or '').strip(),
+                    brief_date=(body.get('brief_date') or '').strip(),
+                    org_id=org_id,
+                    actor=by,
+                )
+                log_event(
+                    org_id,
+                    by,
+                    'subscription_delivery_recorded',
+                    outcome='success',
+                    resource=entry['telegram_id'],
+                    details={'product': entry['product']},
+                    session_id=_sid,
+                )
+                return self._json({
+                    'message': f"Delivery recorded: {entry['telegram_id']}",
+                    'entry': entry,
+                    'service_state': service_state.subscription_snapshot(org_id),
+                })
 
             elif path == '/api/payouts/propose':
                 proposal = create_payout_proposal(
