@@ -457,6 +457,48 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.assertEqual(federation_peer['reason'], 'single_institution_deployment')
         self.assertEqual(audit_events[0]['args'][2], 'case_opened')
 
+    def test_deliver_federation_envelope_attaches_case_payload_on_preflight_block(self):
+        from runtime_host import default_host_identity
+
+        audit_events = []
+
+        class FakeAuthority:
+            def ensure_enabled(self):
+                return True
+
+        self.workspace._runtime_host_state = lambda _org_id: (
+            default_host_identity(host_id='host_live', federation_enabled=True, peer_transport='https'),
+            {'admitted_org_ids': ['org_founding']},
+        )
+        self.workspace._federation_authority = lambda _host: FakeAuthority()
+        self.workspace.cases.blocking_peer_case = lambda target_host_id, **_kwargs: {
+            'case_id': 'case_live_demo',
+            'claim_type': 'misrouted_execution',
+            'status': 'open',
+            'target_host_id': target_host_id,
+        }
+        self.workspace.log_event = lambda *args, **kwargs: audit_events.append({
+            'args': args,
+            'kwargs': kwargs,
+        })
+
+        with self.assertRaises(PermissionError) as exc_info:
+            self.workspace._deliver_federation_envelope(
+                'org_founding',
+                'host_peer',
+                'org_peer',
+                'settlement_notice',
+                payload={'tx_ref': '0xabc'},
+                actor_type='user',
+                actor_id='user_owner',
+                session_id='ses_demo',
+            )
+
+        self.assertEqual(exc_info.exception.case_record['case_id'], 'case_live_demo')
+        self.assertEqual(exc_info.exception.federation_peer['peer_host_id'], 'host_peer')
+        self.assertEqual(exc_info.exception.federation_peer['reason'], 'peer_not_registered')
+        self.assertEqual(audit_events[0]['args'][2], 'federation_case_blocked')
+
     def test_federation_manifest_reports_founding_locked_runtime(self):
         from runtime_host import default_host_identity
 

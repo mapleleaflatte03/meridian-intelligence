@@ -606,6 +606,38 @@ def _federation_receipt(bound_org_id, receiver_host_id, claims):
     }
 
 
+def _federation_peer_state(peer_host_id, *, host_identity=None):
+    peer_host_id = (peer_host_id or '').strip()
+    if not peer_host_id:
+        return None
+    try:
+        registry = load_peer_registry(
+            FEDERATION_PEERS_FILE,
+            host_identity=host_identity or load_host_identity(RUNTIME_HOST_IDENTITY_FILE),
+        )
+    except RuntimeError:
+        return {
+            'applied': False,
+            'peer_host_id': peer_host_id,
+            'reason': 'peer_registry_unavailable',
+        }
+    peer = registry.get('peers', {}).get(peer_host_id)
+    if not peer:
+        return {
+            'applied': False,
+            'peer_host_id': peer_host_id,
+            'reason': 'peer_not_registered',
+        }
+    return {
+        'applied': False,
+        'peer_host_id': peer.host_id,
+        'trust_state': peer.trust_state,
+        'admitted_org_ids': list(peer.admitted_org_ids),
+        'label': peer.label,
+        'reason': 'case_blocked',
+    }
+
+
 def _deliver_federation_envelope(bound_org_id, target_host_id, target_org_id,
                                  message_type, payload=None, *,
                                  actor_type='host_service', actor_id='',
@@ -721,7 +753,13 @@ def _deliver_federation_envelope(bound_org_id, target_host_id, target_org_id,
             },
             session_id=session_id or None,
         )
-        raise PermissionError(message)
+        error = PermissionError(message)
+        error.case_record = blocking_case
+        error.federation_peer = _federation_peer_state(
+            target_host_id,
+            host_identity=host_identity,
+        )
+        raise error
     try:
         delivery = authority.deliver(
             target_host_id,
@@ -2489,6 +2527,15 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                     )
                 except FederationUnavailable as e:
                     return self._json({'error': str(e)}, 503)
+                except PermissionError as e:
+                    case_record = getattr(e, 'case_record', None)
+                    if case_record:
+                        return self._json({
+                            'error': str(e),
+                            'case': case_record,
+                            'federation_peer': getattr(e, 'federation_peer', None),
+                        }, 409)
+                    return self._json({'error': str(e)}, 403)
                 except FederationDeliveryError as e:
                     return self._json({
                         'error': str(e),
