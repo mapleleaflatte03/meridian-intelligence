@@ -1,6 +1,6 @@
 # Operator Status — Meridian
 
-Last updated: 2026-03-21
+Last updated: 2026-03-22
 Evidence base: direct commands and local file inspection (see Evidence column).
 
 This document records the current operational truth of the Meridian system.
@@ -18,6 +18,7 @@ It is not promotional copy. Every claim is tagged verified, inferred, or unknown
 | Channel delivery (@MeridianIntelligence) | NOT RUNNING — no new briefs (treasury-blocked) | preflight output |
 | Premium delivery (@eggsama_bot) | NOT RUNNING — no new briefs (treasury-blocked) | preflight output |
 | Workspace runtime-core surface | VERIFIED — `/api/context` and `/api/status` expose host identity, boundary registry, admission truth, and federation-gateway state for founding Meridian | authenticated probes to `http://127.0.0.1:18901/api/context`, `/api/status`, `/api/admission`, and `/api/federation` |
+| Public host receipt | VERIFIED — unauthenticated `GET /api/federation/manifest` returns the founding host's federation manifest and stays honest about `founding_locked` / federation-disabled live state | unauthenticated localhost GET to `http://127.0.0.1:18901/api/federation/manifest` |
 | Admission mutation boundary | VERIFIED — live `POST /api/admission/admit` fails closed with `founding_locked` semantics | authenticated localhost POST to `http://127.0.0.1:18901/api/admission/admit` with a non-founding org |
 | Settlement verifier gate | VERIFIED — `/api/treasury/settlement-adapters` and `/api/treasury/settlement-adapters/preflight` expose verifier mode, readiness, accepted attestation types, and fail-closed blockers for non-ledger adapters | authenticated localhost GET/POST to the treasury adapter endpoints |
 | Trial reminders | Would run for 2 active IDs (owner test accounts) | subscriptions state via founding capsule alias |

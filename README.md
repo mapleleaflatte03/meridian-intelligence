@@ -118,6 +118,10 @@ The proof split is now explicit: the OSS kernel repo carries the reproducible
 3-host and OpenClaw-compatible proof runners, while this live repo exposes the
 truthful single-host surfaces and operator checks that mirror those contracts
 without pretending federation is broadly enabled here.
+That split now has one public live receipt as well: `GET /api/federation/manifest`
+is intentionally unauthenticated and returns the founding host's public
+federation manifest, so the OSS proof bundle can embed a live host receipt
+without claiming live multi-host federation is already running.
 The live mirror also classifies contradictory delivery proofs into local case
 records if that path is ever exercised, and a linked execution warrant can be
 stayed locally for court-first review. Live federation itself is still disabled
