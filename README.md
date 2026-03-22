@@ -30,12 +30,13 @@ endpoint now also reports whether Basic auth is simply process-bound or
 explicitly credential-bound to the founding org. When credentials also carry a
 `user_id`, workspace mutations are role-checked against the founding
 institution membership instead of being treated as a generic Basic-auth user.
-Founding-only service state now follows the same rule: subscriptions and
-accounting owner-ledger state are capsule-canonical for the founding Meridian
-institution, with the legacy `company/subscriptions*.json` and
-`company/owner_ledger.json` paths retained only as compatibility symlinks;
-payment-monitor daemon state likewise resolves through the founding capsule
-boundary instead of hiding behind ad hoc singleton files.
+Institution-owned service state now follows the same rule: subscriptions and
+accounting owner-ledger state are capsule-canonical for the bound Meridian
+institution on this founding-locked deployment, with the legacy
+`company/subscriptions*.json` and `company/owner_ledger.json` paths retained
+only as compatibility symlinks; payment-monitor daemon state likewise resolves
+through the founding capsule boundary instead of hiding behind ad hoc singleton
+files.
 `/api/context` also exposes the effective mutation permission snapshot for the
 bound actor. `/api/context` and `/api/status` now also expose `runtime_core`,
 which surfaces the bound institution context, the serving host identity, the

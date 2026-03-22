@@ -146,12 +146,13 @@ contributor payouts are active; execution remains phase- and reserve-gated.
 The same treasury surface now also validates a founding settlement adapter
 contract. The live host exposes that registry through
 `GET /api/treasury/settlement-adapters`, but only `internal_ledger` is
-execution-enabled today. Founding-only service state now follows the same
-canonical rule: subscriptions, the owner ledger, and payment-monitor daemon
-state all resolve through founding capsule aliases rather than standalone
-singleton files. For subscriptions specifically, the founding capsule file is
-now canonical and the old `company/subscriptions*.json` paths are
-compatibility links back to that capsule state.
+execution-enabled today. Institution-owned service state now follows the same
+canonical rule on the founding-locked live host: subscriptions and the owner
+ledger both resolve through the bound institution capsule instead of standalone
+singleton files, while the payment-monitor daemon remains founding-only. For
+subscriptions specifically, the founding capsule file is now canonical and the
+old `company/subscriptions*.json` paths are compatibility links back to that
+capsule state.
 The live workspace now also exposes `GET /api/treasury/accounts` and
 `GET /api/treasury/funding-sources`, both backed by founding capsule protocol
 files. `treasury_accounts.json` is synced from the founding ledger and payout
