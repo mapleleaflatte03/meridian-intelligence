@@ -2164,6 +2164,21 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.workspace.commitments.settle_commitment = lambda *args, **kwargs: self.fail(
             'commitment should not settle'
         )
+        self.workspace.cases.ensure_case_for_delivery_failure = lambda *args, **kwargs: (
+            {
+                'case_id': 'case_live_invalid_notice',
+                'claim_type': 'invalid_settlement_notice',
+                'status': 'open',
+                'linked_commitment_id': 'cmt_live',
+                'target_host_id': 'host_peer',
+            },
+            True,
+        )
+        self.workspace._maybe_suspend_peer_for_case = lambda *args, **kwargs: {
+            'applied': True,
+            'peer_host_id': 'host_peer',
+            'trust_state': 'suspended',
+        }
         self.workspace.mark_warrant_executed = lambda *args, **kwargs: self.fail(
             'sender warrant should not finalize when settlement preflight fails'
         )
@@ -2222,14 +2237,17 @@ class LiveWorkspaceContextTests(unittest.TestCase):
                 },
             )
 
-        preflight_mock.assert_called_once()
+        self.assertEqual(preflight_mock.call_count, 2)
         self.assertFalse(processing['applied'])
         self.assertEqual(processing['state'], 'received')
-        self.assertEqual(processing['reason'], 'settlement_adapter_preflight_blocked')
-        self.assertEqual(processing['error_type'], 'permission_error')
+        self.assertEqual(processing['reason'], 'invalid_settlement_notice')
         self.assertIn('not enabled for payout execution', processing['error'])
+        self.assertEqual(processing['case']['case_id'], 'case_live_invalid_notice')
+        self.assertTrue(processing['case_created'])
+        self.assertEqual(processing['federation_peer']['trust_state'], 'suspended')
         self.assertEqual(processing['settlement_adapter_preflight']['requested_adapter_id'], 'base_usdc_x402')
-        self.assertEqual(audit_events[-1]['args'][2], 'federation_settlement_notice_blocked')
+        self.assertEqual(processing['settlement_adapter_preflight']['error_type'], 'permission_error')
+        self.assertEqual(audit_events[-1]['args'][2], 'federation_settlement_notice_rejected')
 
     def test_process_received_settlement_notice_blocks_contract_digest_mismatch(self):
         from federation import FederationEnvelopeClaims
@@ -2245,6 +2263,21 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.workspace.commitments.settle_commitment = lambda *args, **kwargs: self.fail(
             'commitment should not settle'
         )
+        self.workspace.cases.ensure_case_for_delivery_failure = lambda *args, **kwargs: (
+            {
+                'case_id': 'case_live_digest_mismatch',
+                'claim_type': 'invalid_settlement_notice',
+                'status': 'open',
+                'linked_commitment_id': 'cmt_live',
+                'target_host_id': 'host_peer',
+            },
+            True,
+        )
+        self.workspace._maybe_suspend_peer_for_case = lambda *args, **kwargs: {
+            'applied': True,
+            'peer_host_id': 'host_peer',
+            'trust_state': 'suspended',
+        }
         self.workspace.mark_warrant_executed = lambda *args, **kwargs: self.fail(
             'sender warrant should not finalize when settlement contract drifts'
         )
@@ -2312,7 +2345,7 @@ class LiveWorkspaceContextTests(unittest.TestCase):
                     'currency': 'USDC',
                     'proof': {'mode': 'institution_transactions_journal'},
                     'settlement_adapter_contract_snapshot': {
-                        'contract_version': 1,
+                        'contract_version': 2,
                         'adapter_id': 'internal_ledger',
                         'status': 'active',
                         'payout_execution_enabled': True,
@@ -2321,6 +2354,10 @@ class LiveWorkspaceContextTests(unittest.TestCase):
                         'supported_currencies': ['USD', 'USDC'],
                         'requires_tx_hash': False,
                         'requires_settlement_proof': False,
+                        'requires_verifier_attestation': False,
+                        'verification_mode': 'host_ledger',
+                        'verification_ready': True,
+                        'accepted_attestation_types': [],
                         'proof_type': 'ledger_transaction',
                         'verification_state': 'host_ledger_final',
                         'finality_state': 'host_local_final',
@@ -2334,10 +2371,12 @@ class LiveWorkspaceContextTests(unittest.TestCase):
 
         self.assertFalse(processing['applied'])
         self.assertEqual(processing['state'], 'received')
-        self.assertEqual(processing['reason'], 'settlement_adapter_preflight_blocked')
-        self.assertEqual(processing['error_type'], 'validation_error')
+        self.assertEqual(processing['reason'], 'invalid_settlement_notice')
         self.assertIn('contract drifted', processing['error'])
-        self.assertEqual(audit_events[-1]['args'][2], 'federation_settlement_notice_blocked')
+        self.assertEqual(processing['case']['case_id'], 'case_live_digest_mismatch')
+        self.assertEqual(processing['federation_peer']['trust_state'], 'suspended')
+        self.assertEqual(processing['settlement_adapter_preflight']['error_type'], 'validation_error')
+        self.assertEqual(audit_events[-1]['args'][2], 'federation_settlement_notice_rejected')
 
     def test_process_received_settlement_notice_respects_case_block(self):
         from federation import FederationEnvelopeClaims

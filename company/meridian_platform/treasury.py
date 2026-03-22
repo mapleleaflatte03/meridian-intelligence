@@ -179,6 +179,10 @@ _PROTOCOL_DEFAULTS = {
                 'requires_tx_hash': False,
                 'requires_settlement_proof': False,
                 'proof_type': 'ledger_transaction',
+                'verification_mode': 'host_ledger',
+                'verification_ready': True,
+                'requires_verifier_attestation': False,
+                'accepted_attestation_types': [],
                 'verification_state': 'host_ledger_final',
                 'finality_state': 'host_local_final',
                 'reversal_or_dispute_capability': 'court_case',
@@ -196,6 +200,10 @@ _PROTOCOL_DEFAULTS = {
                 'requires_tx_hash': True,
                 'requires_settlement_proof': True,
                 'proof_type': 'onchain_receipt',
+                'verification_mode': 'external_attestation',
+                'verification_ready': False,
+                'requires_verifier_attestation': True,
+                'accepted_attestation_types': ['x402_settlement_verifier'],
                 'verification_state': 'external_verification_required',
                 'finality_state': 'external_chain_finality',
                 'reversal_or_dispute_capability': 'court_case_plus_chain_review',
@@ -213,6 +221,10 @@ _PROTOCOL_DEFAULTS = {
                 'requires_tx_hash': False,
                 'requires_settlement_proof': True,
                 'proof_type': 'manual_wire_receipt',
+                'verification_mode': 'manual_attestation',
+                'verification_ready': False,
+                'requires_verifier_attestation': True,
+                'accepted_attestation_types': ['manual_wire_verifier'],
                 'verification_state': 'manual_review_required',
                 'finality_state': 'manual_settlement_pending',
                 'reversal_or_dispute_capability': 'manual_reversal_and_court_case',
@@ -649,6 +661,16 @@ def _settlement_store(org_id=None):
         merged.setdefault('requires_tx_hash', False)
         merged.setdefault('requires_settlement_proof', False)
         merged.setdefault('proof_type', 'external_reference')
+        merged.setdefault(
+            'verification_mode',
+            'host_ledger' if adapter_id == 'internal_ledger' else 'external_attestation',
+        )
+        merged.setdefault('verification_ready', adapter_id == 'internal_ledger')
+        merged.setdefault(
+            'requires_verifier_attestation',
+            adapter_id != 'internal_ledger',
+        )
+        merged.setdefault('accepted_attestation_types', [])
         merged.setdefault('verification_state', 'unknown')
         merged.setdefault('finality_state', 'unknown')
         merged.setdefault('reversal_or_dispute_capability', 'court_case')
@@ -669,6 +691,16 @@ def _settlement_store(org_id=None):
         merged.setdefault('requires_tx_hash', False)
         merged.setdefault('requires_settlement_proof', False)
         merged.setdefault('proof_type', 'external_reference')
+        merged.setdefault(
+            'verification_mode',
+            'host_ledger' if adapter_id == 'internal_ledger' else 'external_attestation',
+        )
+        merged.setdefault('verification_ready', adapter_id == 'internal_ledger')
+        merged.setdefault(
+            'requires_verifier_attestation',
+            adapter_id != 'internal_ledger',
+        )
+        merged.setdefault('accepted_attestation_types', [])
         merged.setdefault('verification_state', 'unknown')
         merged.setdefault('finality_state', 'unknown')
         merged.setdefault('reversal_or_dispute_capability', 'court_case')
@@ -717,8 +749,15 @@ def settlement_adapter_summary(org_id=None, *, host_supported_adapters=None):
 
 def settlement_adapter_contract_snapshot(contract_or_adapter):
     contract = dict(contract_or_adapter or {})
+    requires_verifier_attestation = bool(
+        contract.get(
+            'requires_verifier_attestation',
+            contract.get('execution_mode', 'external_reference') != 'host_ledger'
+            or contract.get('settlement_path', 'external_reference') != 'journal_append',
+        )
+    )
     return {
-        'contract_version': 1,
+        'contract_version': 2,
         'adapter_id': (contract.get('adapter_id') or '').strip(),
         'status': contract.get('status', 'registered'),
         'payout_execution_enabled': bool(contract.get('payout_execution_enabled')),
@@ -733,6 +772,16 @@ def settlement_adapter_contract_snapshot(contract_or_adapter):
         ),
         'requires_tx_hash': bool(contract.get('requires_tx_hash')),
         'requires_settlement_proof': bool(contract.get('requires_settlement_proof')),
+        'requires_verifier_attestation': requires_verifier_attestation,
+        'verification_mode': contract.get('verification_mode', 'unknown'),
+        'verification_ready': bool(contract.get('verification_ready')),
+        'accepted_attestation_types': sorted(
+            {
+                str(item).strip()
+                for item in contract.get('accepted_attestation_types', [])
+                if str(item).strip()
+            }
+        ),
         'proof_type': contract.get('proof_type', 'external_reference'),
         'verification_state': contract.get('verification_state', 'unknown'),
         'finality_state': contract.get('finality_state', 'unknown'),
@@ -757,6 +806,36 @@ def settlement_adapter_contract_digest(contract_or_adapter):
     return hashlib.sha256(raw).hexdigest()
 
 
+def _verification_attestation_types(normalized_proof):
+    proof = (normalized_proof or {}).get('proof') or {}
+    if not isinstance(proof, dict):
+        return []
+    candidates = []
+    for key in ('verification_attestation', 'verification_attestations'):
+        value = proof.get(key)
+        if value in ('', None, [], {}):
+            continue
+        if isinstance(value, list):
+            candidates.extend(value)
+        else:
+            candidates.append(value)
+    attestation_types = set()
+    for item in candidates:
+        if isinstance(item, str):
+            item_type = item.strip()
+        elif isinstance(item, dict):
+            item_type = str(
+                item.get('type')
+                or item.get('attestation_type')
+                or ''
+            ).strip()
+        else:
+            item_type = ''
+        if item_type:
+            attestation_types.add(item_type)
+    return sorted(attestation_types)
+
+
 def _settlement_adapter_contract(adapter, *, host_supported_adapters=None):
     adapter = dict(adapter or {})
     adapter_id = (adapter.get('adapter_id') or '').strip()
@@ -764,6 +843,9 @@ def _settlement_adapter_contract(adapter, *, host_supported_adapters=None):
     host_supported_set = set(host_supported)
     host_supported_known = host_supported_adapters is not None
     host_supported_effective = adapter_id in host_supported_set
+    verification_ready = bool(
+        adapter.get('verification_ready', adapter_id == 'internal_ledger')
+    )
     if host_supported_known and not host_supported_effective and adapter_id == 'internal_ledger':
         host_supported_effective = True
     blockers = []
@@ -771,6 +853,8 @@ def _settlement_adapter_contract(adapter, *, host_supported_adapters=None):
         blockers.append('payout_execution_disabled')
     if host_supported_known and adapter_id and not host_supported_effective:
         blockers.append('host_not_supported')
+    if not verification_ready:
+        blockers.append('verification_not_ready')
     contract = {
         'adapter_id': adapter_id,
         'label': adapter.get('label', adapter_id),
@@ -781,6 +865,20 @@ def _settlement_adapter_contract(adapter, *, host_supported_adapters=None):
         'supported_currencies': list(adapter.get('supported_currencies', [])),
         'requires_tx_hash': bool(adapter.get('requires_tx_hash')),
         'requires_settlement_proof': bool(adapter.get('requires_settlement_proof')),
+        'requires_verifier_attestation': bool(
+            adapter.get(
+                'requires_verifier_attestation',
+                adapter.get('execution_mode', 'external_reference') != 'host_ledger'
+                or adapter.get('settlement_path', 'external_reference') != 'journal_append',
+            )
+        ),
+        'verification_mode': adapter.get('verification_mode', 'unknown'),
+        'verification_ready': verification_ready,
+        'accepted_attestation_types': [
+            str(item).strip()
+            for item in adapter.get('accepted_attestation_types', [])
+            if str(item).strip()
+        ],
         'proof_type': adapter.get('proof_type', 'external_reference'),
         'verification_state': adapter.get('verification_state', 'unknown'),
         'finality_state': adapter.get('finality_state', 'unknown'),
@@ -954,6 +1052,10 @@ def _validate_payout_execution_adapter(adapter_id, *, org_id=None, currency='USD
         raise PermissionError(
             f"Settlement adapter '{adapter_id}' is not supported on this host"
         )
+    if contract['verification_ready'] is False:
+        raise PermissionError(
+            f"Settlement adapter '{adapter_id}' verification path is not ready on this host"
+        )
     supported_currencies = {str(item).upper() for item in adapter.get('supported_currencies', [])}
     if supported_currencies and str(currency or '').upper() not in supported_currencies:
         raise PermissionError(
@@ -968,6 +1070,20 @@ def _validate_payout_execution_adapter(adapter_id, *, org_id=None, currency='USD
     )
     if adapter.get('requires_settlement_proof') and not normalized.get('proof'):
         raise ValueError(f"Settlement adapter '{adapter_id}' requires settlement_proof")
+    attestation_types = _verification_attestation_types(normalized)
+    if attestation_types:
+        normalized['verification_attestation_types'] = attestation_types
+    if contract.get('requires_verifier_attestation'):
+        accepted_types = set(contract.get('accepted_attestation_types') or [])
+        if not attestation_types:
+            raise ValueError(
+                f"Settlement adapter '{adapter_id}' requires verifier attestation"
+            )
+        if accepted_types and not accepted_types.intersection(attestation_types):
+            raise ValueError(
+                f"Settlement adapter '{adapter_id}' requires verifier attestation "
+                f"matching {sorted(accepted_types)!r}"
+            )
     return adapter, normalized, contract
 
 
@@ -989,6 +1105,8 @@ def preflight_settlement_adapter(adapter_id='', *, org_id=None, currency='USDC',
         'can_execute_now': False,
         'error_type': '',
         'error': '',
+        'execution_blockers': [],
+        'execution_blocker_messages': [],
     }
     adapter = get_settlement_adapter(requested_adapter_id, org_id)
     if not adapter:
@@ -1014,6 +1132,16 @@ def preflight_settlement_adapter(adapter_id='', *, org_id=None, currency='USDC',
             'supported_currencies': list(adapter.get('supported_currencies', [])),
             'requires_tx_hash': bool(adapter.get('requires_tx_hash')),
             'requires_settlement_proof': bool(adapter.get('requires_settlement_proof')),
+            'requires_verifier_attestation': bool(contract.get('requires_verifier_attestation')),
+            'verification_mode': adapter.get('verification_mode', 'unknown'),
+            'verification_ready': bool(
+                adapter.get('verification_ready', requested_adapter_id == 'internal_ledger')
+            ),
+            'accepted_attestation_types': [
+                str(item).strip()
+                for item in adapter.get('accepted_attestation_types', [])
+                if str(item).strip()
+            ],
             'proof_type': adapter.get('proof_type', 'external_reference'),
             'verification_state': adapter.get('verification_state', 'unknown'),
             'finality_state': adapter.get('finality_state', 'unknown'),
@@ -1024,6 +1152,8 @@ def preflight_settlement_adapter(adapter_id='', *, org_id=None, currency='USDC',
         },
         'contract': contract,
         'normalized_proof': normalized,
+        'execution_blockers': list(contract.get('execution_blockers', [])),
+        'execution_ready': contract.get('execution_ready'),
     })
     try:
         _validated_adapter, normalized, contract = _validate_payout_execution_adapter(
@@ -1038,12 +1168,18 @@ def preflight_settlement_adapter(adapter_id='', *, org_id=None, currency='USDC',
         result['can_execute_now'] = True
         result['contract'] = contract
         result['normalized_proof'] = normalized
+        result['execution_blockers'] = []
+        result['execution_ready'] = True
     except PermissionError as exc:
         result['error_type'] = 'permission_error'
         result['error'] = str(exc)
+        result['execution_blockers'] = list(contract.get('execution_blockers', []))
+        result['execution_blocker_messages'] = [str(exc)]
     except ValueError as exc:
         result['error_type'] = 'validation_error'
         result['error'] = str(exc)
+        result['execution_blockers'] = list(contract.get('execution_blockers', []))
+        result['execution_blocker_messages'] = [str(exc)]
     return result
 
 

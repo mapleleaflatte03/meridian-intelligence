@@ -146,7 +146,9 @@ contributor payouts are active; execution remains phase- and reserve-gated.
 The same treasury surface now also validates a founding settlement adapter
 contract. The live host exposes that registry through
 `GET /api/treasury/settlement-adapters`, but only `internal_ledger` is
-execution-enabled today. Institution-owned service state now follows the same
+execution-enabled today, and any future non-ledger adapter must also satisfy
+verifier-readiness plus accepted-attestation checks before execution or
+settlement notice application. Institution-owned service state now follows the same
 canonical rule on the founding-locked live host: subscriptions and the owner
 ledger both resolve through the bound institution capsule instead of standalone
 singleton files, while the payment-monitor daemon remains founding-only. For

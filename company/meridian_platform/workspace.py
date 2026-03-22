@@ -1569,9 +1569,18 @@ def _commitment_federation_ref(claims, receipt, payload=None):
 
 def _preflight_received_settlement_notice(bound_org_id, claims, receipt, *, payload=None):
     settlement_ref = _settlement_notice_ref(claims, receipt, payload)
+    adapter_id = (settlement_ref.get('settlement_adapter') or '').strip()
+    if not adapter_id:
+        return settlement_ref, {
+            'preflight_ok': False,
+            'requested_adapter_id': '',
+            'error_type': 'validation_error',
+            'error': 'Settlement notice is missing settlement_adapter',
+            'currency': settlement_ref.get('currency', 'USDC'),
+        }
     host_identity, _admission_registry = _runtime_host_state(bound_org_id)
     settlement_adapter_preflight = preflight_settlement_adapter(
-        settlement_ref.get('settlement_adapter', ''),
+        adapter_id,
         org_id=bound_org_id,
         currency=settlement_ref.get('currency', 'USDC'),
         tx_hash=settlement_ref.get('tx_hash', ''),
@@ -1607,6 +1616,55 @@ def _preflight_received_settlement_notice(bound_org_id, claims, receipt, *, payl
             f"Settlement notice adapter contract digest mismatch for "
             f"{settlement_ref.get('settlement_adapter', '')!r}"
         )
+    settlement_ref['settlement_adapter_contract'] = current_contract
+    settlement_ref['settlement_adapter_contract_snapshot'] = current_snapshot
+    settlement_ref['settlement_adapter_contract_digest'] = current_digest
+    return settlement_ref, settlement_adapter_preflight
+
+
+def _validated_settlement_notice_ref(bound_org_id, claims, receipt, *, payload=None):
+    settlement_ref, settlement_adapter_preflight = _preflight_received_settlement_notice(
+        bound_org_id,
+        claims,
+        receipt,
+        payload=payload,
+    )
+    adapter_id = (settlement_ref.get('settlement_adapter') or '').strip()
+    if not settlement_adapter_preflight.get('preflight_ok'):
+        raise ValueError(
+            settlement_adapter_preflight.get('error')
+            or f"Settlement notice failed adapter preflight for {adapter_id!r}"
+        )
+    normalized = dict(settlement_adapter_preflight.get('normalized_proof') or {})
+    current_contract = dict(settlement_adapter_preflight.get('contract') or {})
+    current_snapshot = dict(
+        current_contract.get('contract_snapshot')
+        or settlement_adapter_contract_snapshot(current_contract)
+    )
+    current_digest = (
+        current_contract.get('contract_digest')
+        or settlement_adapter_contract_digest(current_snapshot)
+    ).strip()
+    settlement_ref['settlement_adapter'] = adapter_id
+    settlement_ref['tx_hash'] = normalized.get('tx_hash', settlement_ref.get('tx_hash', ''))
+    settlement_ref['proof_type'] = normalized.get('proof_type', settlement_ref.get('proof_type', ''))
+    settlement_ref['verification_state'] = normalized.get(
+        'verification_state',
+        settlement_ref.get('verification_state', ''),
+    )
+    settlement_ref['finality_state'] = normalized.get(
+        'finality_state',
+        settlement_ref.get('finality_state', ''),
+    )
+    settlement_ref['proof'] = normalized.get('proof') or settlement_ref.get('proof') or {}
+    settlement_ref['currency'] = settlement_adapter_preflight.get(
+        'currency',
+        settlement_ref.get('currency', 'USDC'),
+    )
+    settlement_ref['reversal_or_dispute_capability'] = normalized.get(
+        'reversal_or_dispute_capability',
+        '',
+    )
     settlement_ref['settlement_adapter_contract'] = current_contract
     settlement_ref['settlement_adapter_contract_snapshot'] = current_snapshot
     settlement_ref['settlement_adapter_contract_digest'] = current_digest
@@ -2371,41 +2429,72 @@ def _process_received_federation_message(bound_org_id, claims, receipt, *, paylo
         })
         return result
 
-    settlement_ref, settlement_adapter_preflight = _preflight_received_settlement_notice(
-        bound_org_id,
-        claims,
-        receipt,
-        payload=payload,
-    )
-    if not settlement_adapter_preflight.get('preflight_ok'):
-        error = (
-            settlement_adapter_preflight.get('error', '')
-            or 'Settlement adapter preflight blocked the notice'
+    try:
+        settlement_ref, settlement_adapter_preflight = _validated_settlement_notice_ref(
+            bound_org_id,
+            claims,
+            receipt,
+            payload=payload,
         )
+    except ValueError as exc:
+        error = str(exc)
+        raw_settlement_ref = _settlement_notice_ref(claims, receipt, payload)
+        case_record, created = cases.ensure_case_for_delivery_failure(
+            'invalid_settlement_notice',
+            actor_id,
+            org_id=bound_org_id,
+            target_host_id=claims.source_host_id,
+            target_institution_id=claims.source_institution_id,
+            linked_commitment_id=claims.commitment_id,
+            linked_warrant_id=claims.warrant_id,
+            note=error,
+            metadata={
+                'receipt_id': (receipt or {}).get('receipt_id', ''),
+                'settlement_adapter': raw_settlement_ref.get('settlement_adapter', ''),
+                'payload_hash': claims.payload_hash,
+            },
+        )
+        federation_peer = None
+        if case_record:
+            federation_peer = _maybe_suspend_peer_for_case(
+                case_record,
+                actor_id,
+                org_id=bound_org_id,
+                session_id=claims.session_id or None,
+            )
         log_event(
             bound_org_id,
             actor_id,
-            'federation_settlement_notice_blocked',
+            'federation_settlement_notice_rejected',
             resource=claims.commitment_id,
             outcome='blocked',
             actor_type=claims.actor_type or 'service',
             details=_federation_audit_details(
                 claims,
                 receipt_id=(receipt or {}).get('receipt_id', ''),
-                proposal_id=settlement_ref.get('proposal_id', ''),
-                tx_ref=settlement_ref.get('tx_ref', ''),
-                settlement_adapter=settlement_ref.get('settlement_adapter', ''),
-                currency=settlement_ref.get('currency', ''),
-                error_type=settlement_adapter_preflight.get('error_type', ''),
                 error=error,
+                case_id=(case_record or {}).get('case_id', ''),
+                settlement_adapter=raw_settlement_ref.get('settlement_adapter', ''),
             ),
             session_id=claims.session_id or None,
         )
+        settlement_adapter_preflight = _preflight_received_settlement_notice(
+            bound_org_id,
+            claims,
+            receipt,
+            payload=payload,
+        )[1]
+        if not settlement_adapter_preflight.get('error_type'):
+            settlement_adapter_preflight = dict(settlement_adapter_preflight)
+            settlement_adapter_preflight['error_type'] = 'validation_error'
+            settlement_adapter_preflight['error'] = error
         result.update({
-            'reason': 'settlement_adapter_preflight_blocked',
-            'error_type': settlement_adapter_preflight.get('error_type', ''),
+            'reason': 'invalid_settlement_notice',
             'error': error,
-            'settlement_ref': settlement_ref,
+            'settlement_preflight': None,
+            'case': case_record,
+            'case_created': created,
+            'federation_peer': federation_peer,
             'settlement_adapter_preflight': settlement_adapter_preflight,
         })
         return result

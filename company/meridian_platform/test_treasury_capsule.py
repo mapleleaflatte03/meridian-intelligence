@@ -895,10 +895,18 @@ class TreasuryCapsuleTests(unittest.TestCase):
         self.assertTrue(result['host_supported'])
         self.assertEqual(result['contract']['execution_mode'], 'host_ledger')
         self.assertEqual(result['contract']['settlement_path'], 'journal_append')
+        self.assertEqual(result['contract']['verification_mode'], 'host_ledger')
+        self.assertTrue(result['contract']['verification_ready'])
+        self.assertFalse(result['contract']['requires_verifier_attestation'])
+        self.assertEqual(result['contract']['accepted_attestation_types'], [])
         self.assertEqual(
             result['contract']['contract_digest'],
             treasury.settlement_adapter_contract_digest(result['contract']['contract_snapshot']),
         )
+        self.assertEqual(result['requirements']['verification_mode'], 'host_ledger')
+        self.assertTrue(result['requirements']['verification_ready'])
+        self.assertFalse(result['requirements']['requires_verifier_attestation'])
+        self.assertEqual(result['requirements']['accepted_attestation_types'], [])
         self.assertEqual(result['normalized_proof']['proof']['mode'], 'institution_transactions_journal')
 
     def test_live_preflight_settlement_adapter_reports_disabled_adapter(self):
@@ -915,6 +923,52 @@ class TreasuryCapsuleTests(unittest.TestCase):
         self.assertFalse(result['can_execute_now'])
         self.assertEqual(result['error_type'], 'permission_error')
         self.assertIn('not enabled', result['error'])
+        self.assertEqual(result['contract']['verification_mode'], 'external_attestation')
+        self.assertFalse(result['contract']['verification_ready'])
+        self.assertTrue(result['contract']['requires_verifier_attestation'])
+        self.assertEqual(
+            result['contract']['accepted_attestation_types'],
+            ['x402_settlement_verifier'],
+        )
+        self.assertIn('verification_not_ready', result['execution_blockers'])
+        self.assertEqual(result['requirements']['verification_mode'], 'external_attestation')
+        self.assertFalse(result['requirements']['verification_ready'])
+        self.assertTrue(result['requirements']['requires_verifier_attestation'])
+        self.assertEqual(
+            result['requirements']['accepted_attestation_types'],
+            ['x402_settlement_verifier'],
+        )
+
+    def test_live_preflight_settlement_adapter_blocks_enabled_external_adapter_without_verifier_readiness(self):
+        capsule.ensure_treasury_aliases(self.org_id)
+        org_dir = os.path.join(self._capsules_dir, self.org_id)
+        os.makedirs(org_dir, exist_ok=True)
+        settlement_adapters_path = os.path.join(org_dir, 'settlement_adapters.json')
+        with open(settlement_adapters_path, 'w') as f:
+            json.dump({
+            'default_payout_adapter': 'base_usdc_x402',
+            'adapters': {
+                'base_usdc_x402': {
+                    'status': 'active',
+                    'payout_execution_enabled': True,
+                },
+            },
+        }, f, indent=2)
+
+        result = treasury.preflight_settlement_adapter(
+            'base_usdc_x402',
+            org_id=self.org_id,
+            currency='USDC',
+            tx_hash='0xdeadbeef',
+            settlement_proof={'reference': 'live-proof'},
+            host_supported_adapters=['base_usdc_x402'],
+        )
+        self.assertTrue(result['known'])
+        self.assertFalse(result['preflight_ok'])
+        self.assertFalse(result['can_execute_now'])
+        self.assertEqual(result['error_type'], 'permission_error')
+        self.assertIn('verification path is not ready', result['error'])
+        self.assertIn('verification_not_ready', result['execution_blockers'])
 
     def test_subscription_helpers_manage_capsule_state(self):
         created = subscriptions.create_subscription(

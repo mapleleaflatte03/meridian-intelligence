@@ -129,7 +129,10 @@ claim that live contributor payouts are already running.
 `GET /api/treasury/settlement-adapters` now exposes the founding settlement
 adapter registry on the live host. Today that registry is still narrow on
 purpose: `internal_ledger` is the only execution-enabled adapter, while
-`base_usdc_x402` and `manual_bank_wire` remain registered but disabled.
+`base_usdc_x402` and `manual_bank_wire` remain registered but disabled. Live
+now also carries the same fail-closed verifier contract as OSS: non-ledger
+adapters stay blocked until a verifier is ready and the proof carries an
+accepted verifier attestation.
 `POST /api/treasury/settlement-adapters/preflight` now exposes the same
 contract as a non-executing validation path, so the owner workspace can check
 host support plus tx-hash / proof requirements without pretending those
