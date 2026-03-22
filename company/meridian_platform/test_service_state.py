@@ -13,14 +13,17 @@ class ServiceStateTests(unittest.TestCase):
         self._tmp = tempfile.mkdtemp(prefix='service-state-')
         self._subs = os.path.join(self._tmp, 'subscriptions.json')
         self._owner = os.path.join(self._tmp, 'owner_ledger.json')
+        self._ledger = os.path.join(self._tmp, 'ledger.json')
         self._orig_subscriptions_path = service_state.subscriptions_path
         self._orig_owner_ledger_path = service_state.owner_ledger_path
+        self._orig_ledger_path = service_state.ledger_path
         self._orig_legacy_subscriptions = service_state.LEGACY_SUBSCRIPTIONS_FILE
         self._orig_legacy_owner = service_state.LEGACY_OWNER_LEDGER_FILE
         self._orig_workspace = service_state.WORKSPACE
 
         service_state.subscriptions_path = lambda org_id=None: self._subs
         service_state.owner_ledger_path = lambda org_id=None: self._owner
+        service_state.ledger_path = lambda org_id=None: self._ledger
         service_state.LEGACY_SUBSCRIPTIONS_FILE = os.path.join(self._tmp, 'company', 'subscriptions.json')
         service_state.LEGACY_OWNER_LEDGER_FILE = os.path.join(self._tmp, 'company', 'owner_ledger.json')
         service_state.WORKSPACE = self._tmp
@@ -28,6 +31,7 @@ class ServiceStateTests(unittest.TestCase):
     def tearDown(self):
         service_state.subscriptions_path = self._orig_subscriptions_path
         service_state.owner_ledger_path = self._orig_owner_ledger_path
+        service_state.ledger_path = self._orig_ledger_path
         service_state.LEGACY_SUBSCRIPTIONS_FILE = self._orig_legacy_subscriptions
         service_state.LEGACY_OWNER_LEDGER_FILE = self._orig_legacy_owner
         service_state.WORKSPACE = self._orig_workspace
@@ -103,6 +107,34 @@ class ServiceStateTests(unittest.TestCase):
         self.assertEqual(snap['summary']['draws_taken_usd'], 0.25)
         self.assertEqual(snap['summary']['unreimbursed_expenses_usd'], 0.75)
         self.assertEqual(snap['summary']['entry_count'], 1)
+
+    def test_accounting_snapshot_backfills_owner_capital_from_treasury(self):
+        with open(self._owner, 'w') as f:
+            json.dump({
+                'capital_contributed_usd': 0.0,
+                'expenses_paid_usd': 0.0,
+                'reimbursements_received_usd': 0.0,
+                'draws_taken_usd': 0.0,
+                'entries': [],
+                '_meta': {'bound_org_id': 'org_demo'},
+            }, f, indent=2)
+        with open(self._ledger, 'w') as f:
+            json.dump({
+                'treasury': {
+                    'owner_capital_contributed_usd': 2.0,
+                }
+            }, f, indent=2)
+
+        snap = service_state.accounting_snapshot('org_demo')
+
+        self.assertEqual(snap['summary']['capital_contributed_usd'], 2.0)
+        self.assertTrue(snap['meta']['capital_sync_backfilled'])
+        self.assertEqual(snap['meta']['capital_sync_source'], 'treasury_ledger')
+
+        with open(self._owner) as f:
+            saved = json.load(f)
+        self.assertEqual(saved['capital_contributed_usd'], 2.0)
+        self.assertEqual(saved['entries'][-1]['type'], 'capital_contribution_backfill')
 
 
 if __name__ == '__main__':

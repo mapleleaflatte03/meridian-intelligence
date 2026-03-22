@@ -4,7 +4,7 @@ import datetime
 import json
 import os
 
-from capsule import subscriptions_path, owner_ledger_path
+from capsule import ledger_path, subscriptions_path, owner_ledger_path
 
 
 PLATFORM_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -35,6 +35,11 @@ def _load_json(path, default):
         return default
     with open(path) as f:
         return json.load(f)
+
+
+def _save_json(path, payload):
+    with open(path, 'w') as f:
+        json.dump(payload, f, indent=2)
 
 
 def _default_subscriptions(org_id=None):
@@ -86,6 +91,31 @@ def load_owner_ledger_state(org_id=None):
     payload.setdefault('_meta', {})
     payload['_meta'].setdefault('service_scope', 'founding_meridian_service')
     payload['_meta'].setdefault('bound_org_id', org_id or '')
+    treasury = _load_json(ledger_path(org_id), {'treasury': {}}).get('treasury', {})
+    treasury_owner_capital = round(float(treasury.get('owner_capital_contributed_usd', 0.0) or 0.0), 4)
+    owner_capital = round(float(payload.get('capital_contributed_usd', 0.0) or 0.0), 4)
+    if treasury_owner_capital > owner_capital:
+        payload['capital_contributed_usd'] = treasury_owner_capital
+        payload['_meta']['capital_sync_source'] = 'treasury_ledger'
+        payload['_meta']['capital_sync_backfilled'] = True
+        backfill_exists = any(
+            entry.get('type') == 'capital_contribution_backfill'
+            and round(float(entry.get('metadata', {}).get('target_owner_capital_usd', -1.0) or -1.0), 4) == treasury_owner_capital
+            for entry in payload['entries']
+        )
+        if not backfill_exists:
+            payload['entries'].append({
+                'type': 'capital_contribution_backfill',
+                'amount_usd': round(treasury_owner_capital - owner_capital, 4),
+                'note': 'Backfilled from treasury owner_capital_contributed_usd',
+                'by': 'system:service_state',
+                'at': _now().strftime('%Y-%m-%dT%H:%M:%SZ'),
+                'metadata': {
+                    'derived_from_treasury_ledger': True,
+                    'target_owner_capital_usd': treasury_owner_capital,
+                },
+            })
+        _save_json(owner_ledger_path(org_id), payload)
     return payload
 
 
