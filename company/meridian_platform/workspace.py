@@ -12,6 +12,7 @@ Endpoints:
   GET  /api/agents                → Agent registry
   GET  /api/authority             → Authority state (kill switch, approvals, delegations)
   GET  /api/treasury              → Treasury snapshot
+  GET  /api/treasury/settlement-adapters → Settlement adapter registry
   GET  /api/payouts              → Payout proposals and summary
   GET  /api/court                 → Court records
   GET  /api/warrants              → Warrant records and summary
@@ -135,6 +136,7 @@ from authority import (check_authority, request_approval, decide_approval,
 from treasury import (treasury_snapshot, get_balance, get_runway, check_budget,
                       contribute_owner_capital, set_reserve_floor_policy,
                       list_payout_proposals, payout_proposal_summary,
+                      list_settlement_adapters, settlement_adapter_summary,
                       create_payout_proposal, submit_payout_proposal,
                       review_payout_proposal, approve_payout_proposal,
                       open_payout_dispute_window, reject_payout_proposal,
@@ -445,7 +447,7 @@ def _commitment_snapshot(bound_org_id):
     }
 
 
-def _payout_snapshot(bound_org_id):
+def _payout_snapshot(bound_org_id, *, host_supported_adapters=None):
     return {
         'bound_org_id': bound_org_id,
         'management_mode': 'founding_workspace_local',
@@ -454,6 +456,11 @@ def _payout_snapshot(bound_org_id):
         'summary': payout_proposal_summary(bound_org_id),
         'proposals': list_payout_proposals(bound_org_id),
         'policy': load_payout_proposals(bound_org_id).get('state_machine', {}),
+        'settlement_adapter_summary': settlement_adapter_summary(
+            bound_org_id,
+            host_supported_adapters=host_supported_adapters,
+        ),
+        'settlement_adapters': list_settlement_adapters(bound_org_id),
     }
 
 
@@ -2089,8 +2096,22 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
             })
         elif path == '/api/treasury':
             return self._json(treasury_snapshot(org_id))
+        elif path == '/api/treasury/settlement-adapters':
+            host_identity, _admission_registry = _runtime_host_state(org_id)
+            return self._json({
+                'bound_org_id': org_id,
+                'summary': settlement_adapter_summary(
+                    org_id,
+                    host_supported_adapters=getattr(host_identity, 'settlement_adapters', []),
+                ),
+                'adapters': list_settlement_adapters(org_id),
+            })
         elif path == '/api/payouts':
-            return self._json(_payout_snapshot(org_id))
+            host_identity, _admission_registry = _runtime_host_state(org_id)
+            return self._json(_payout_snapshot(
+                org_id,
+                host_supported_adapters=getattr(host_identity, 'settlement_adapters', []),
+            ))
         elif path == '/api/federation':
             host_identity, admission_registry = _runtime_host_state(org_id)
             return self._json(_federation_snapshot(
@@ -2553,11 +2574,14 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                     return self._json({'error': 'proposal_id is required'}, 400)
                 if not warrant_id:
                     return self._json({'error': 'warrant_id is required'}, 400)
+                host_identity, _admission_registry = _runtime_host_state(org_id)
                 request_payload = {
                     'proposal_id': proposal_id,
                     'settlement_adapter': (body.get('settlement_adapter') or 'internal_ledger').strip(),
                     'tx_hash': (body.get('tx_hash') or '').strip(),
                 }
+                if 'settlement_proof' in body:
+                    request_payload['settlement_proof'] = body.get('settlement_proof')
                 validate_warrant_for_execution(
                     warrant_id,
                     org_id=org_id,
@@ -2576,6 +2600,8 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                     tx_hash=request_payload['tx_hash'],
                     note=body.get('note', ''),
                     allow_early=bool(body.get('allow_early')),
+                    settlement_proof=body.get('settlement_proof'),
+                    host_supported_adapters=getattr(host_identity, 'settlement_adapters', []),
                 )
                 warrant = mark_warrant_executed(
                     warrant_id,

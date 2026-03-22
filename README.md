@@ -79,6 +79,10 @@ surplus above reserve, and phase-5 contributor-payout eligibility. With live
 readiness still at `OWNER_BLOCKED_TREASURY` / phase `0`, this surface is
 currently infrastructure waiting for honest treasury conditions rather than a
 claim that live contributor payouts are already running.
+`GET /api/treasury/settlement-adapters` now exposes the founding settlement
+adapter registry on the live host. Today that registry is still narrow on
+purpose: `internal_ledger` is the only execution-enabled adapter, while
+`base_usdc_x402` and `manual_bank_wire` remain registered but disabled.
 
 **Live service:** https://app.welliam.codes
 **Product demo:** https://app.welliam.codes/demo.html

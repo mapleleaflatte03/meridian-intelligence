@@ -376,6 +376,10 @@ class TreasuryCapsuleTests(unittest.TestCase):
         self.assertEqual(proposal['warrant_id'], 'war_live_exec')
         self.assertEqual(proposal['tx_hash'], 'tx_live_demo')
         self.assertTrue(proposal['execution_refs']['tx_ref'].startswith('ptx_'))
+        self.assertEqual(proposal['execution_refs']['proof_type'], 'ledger_transaction')
+        self.assertEqual(proposal['execution_refs']['verification_state'], 'host_ledger_final')
+        self.assertEqual(proposal['execution_refs']['finality_state'], 'host_local_final')
+        self.assertEqual(proposal['execution_refs']['proof']['mode'], 'institution_transactions_journal')
 
         with open(self._legacy_ledger) as f:
             ledger = json.load(f)
@@ -387,6 +391,7 @@ class TreasuryCapsuleTests(unittest.TestCase):
         self.assertEqual(entries[-1]['type'], 'payout_execution')
         self.assertEqual(entries[-1]['proposal_id'], proposal['proposal_id'])
         self.assertEqual(entries[-1]['warrant_id'], 'war_live_exec')
+        self.assertEqual(entries[-1]['verification_state'], 'host_ledger_final')
 
     def test_live_payout_creation_blocks_unverified_wallet(self):
         capsule.ensure_treasury_aliases(self.org_id)
@@ -428,6 +433,67 @@ class TreasuryCapsuleTests(unittest.TestCase):
                 org_id=self.org_id,
                 evidence={'description': 'blocked wallet'},
             )
+
+    def test_live_payout_execution_rejects_disabled_settlement_adapter(self):
+        capsule.ensure_treasury_aliases(self.org_id)
+        org_dir = os.path.join(self._capsules_dir, self.org_id)
+        os.makedirs(org_dir, exist_ok=True)
+
+        with open(os.path.join(org_dir, 'wallets.json'), 'w') as f:
+            json.dump({
+                'wallets': {
+                    'wallet_live': {
+                        'id': 'wallet_live',
+                        'verification_level': 3,
+                        'verification_label': 'self_custody_verified',
+                        'payout_eligible': True,
+                        'status': 'active',
+                    }
+                },
+                'verification_levels': {},
+            }, f, indent=2)
+        with open(os.path.join(org_dir, 'contributors.json'), 'w') as f:
+            json.dump({
+                'contributors': {
+                    'contrib_live': {
+                        'id': 'contrib_live',
+                        'name': 'Contributor Live',
+                        'payout_wallet_id': 'wallet_live',
+                    }
+                },
+                'contribution_types': ['code'],
+                'registration_requirements': {},
+            }, f, indent=2)
+
+        proposal = treasury.create_payout_proposal(
+            'contrib_live',
+            1.0,
+            'code',
+            proposed_by='user:proposer',
+            org_id=self.org_id,
+            evidence={'description': 'live adapter gate'},
+            settlement_adapter='base_usdc_x402',
+        )
+        proposal = treasury.submit_payout_proposal(proposal['proposal_id'], 'user:proposer', org_id=self.org_id)
+        proposal = treasury.review_payout_proposal(proposal['proposal_id'], 'user:reviewer', org_id=self.org_id)
+        proposal = treasury.approve_payout_proposal(proposal['proposal_id'], 'user:owner', org_id=self.org_id)
+        proposal = treasury.open_payout_dispute_window(
+            proposal['proposal_id'],
+            'user:owner',
+            org_id=self.org_id,
+            dispute_window_hours=0,
+        )
+        with mock.patch.object(treasury, '_payout_phase_gate', return_value=(True, 'phase 5 test override')):
+            with self.assertRaises(PermissionError):
+                treasury.execute_payout_proposal(
+                    proposal['proposal_id'],
+                    'user:owner',
+                    org_id=self.org_id,
+                    warrant_id='war_live_disabled',
+                    settlement_adapter='base_usdc_x402',
+                    tx_hash='0xdeadbeef',
+                    settlement_proof={'reference': 'live-proof'},
+                )
 
 
 if __name__ == '__main__':

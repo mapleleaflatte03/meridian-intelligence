@@ -143,6 +143,10 @@ proposal records are capsule-backed, execution is warrant-bound through
 `action_class = payout_execution`, and successful execution writes back into
 the same founding ledger + transaction journal. That does **not** mean live
 contributor payouts are active; execution remains phase- and reserve-gated.
+The same treasury surface now also validates a founding settlement adapter
+contract. The live host exposes that registry through
+`GET /api/treasury/settlement-adapters`, but only `internal_ledger` is
+execution-enabled today.
 
 ### Court (court.py)
 ```
@@ -258,6 +262,12 @@ against the founding ledger. Execution requires:
 - surplus above reserve
 - phase-5 contributor-payout eligibility
 - an executable `payout_execution` warrant
+- a settlement adapter that is registered and execution-enabled for the
+  founding host
+
+Execution writes normalized `execution_refs` containing the adapter proof type,
+verification/finality states, and the proof payload or journal reference used
+to justify settlement.
 
 ## State File Locations
 

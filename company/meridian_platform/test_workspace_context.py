@@ -187,6 +187,26 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.assertFalse(permissions['/api/federation/peers/refresh']['allowed'])
         self.assertEqual(permissions['/api/federation/peers/refresh']['required_role'], 'owner')
 
+    def test_payout_snapshot_surfaces_settlement_adapters(self):
+        self.workspace.payout_proposal_summary = lambda org_id=None: {'total': 0, 'executed': 0}
+        self.workspace.list_payout_proposals = lambda org_id=None: []
+        self.workspace.load_payout_proposals = lambda org_id=None: {'state_machine': {'states': []}}
+        self.workspace.list_settlement_adapters = lambda org_id=None: [
+            {'adapter_id': 'internal_ledger', 'payout_execution_enabled': True},
+            {'adapter_id': 'base_usdc_x402', 'payout_execution_enabled': False},
+        ]
+        self.workspace.settlement_adapter_summary = lambda org_id=None, host_supported_adapters=None: {
+            'default_payout_adapter': 'internal_ledger',
+            'host_supported_adapters': list(host_supported_adapters or []),
+        }
+        snapshot = self.workspace._payout_snapshot(
+            'org_founding',
+            host_supported_adapters=['internal_ledger'],
+        )
+        self.assertEqual(snapshot['settlement_adapter_summary']['default_payout_adapter'], 'internal_ledger')
+        self.assertEqual(snapshot['settlement_adapter_summary']['host_supported_adapters'], ['internal_ledger'])
+        self.assertEqual(len(snapshot['settlement_adapters']), 2)
+
     def test_api_status_exposes_runtime_core(self):
         from runtime_host import default_host_identity
         self.workspace._load_workspace_credentials = lambda: ('owner', 'secret', 'org_founding', 'user_owner')

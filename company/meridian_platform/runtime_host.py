@@ -84,7 +84,7 @@ def default_host_identity(*, supported_boundaries=None, label='Meridian Live Hos
         federation_enabled=federation_enabled,
         peer_transport=peer_transport,
         supported_boundaries=supported_boundaries,
-        settlement_adapters=settlement_adapters,
+        settlement_adapters=settlement_adapters or ['internal_ledger'],
     )
 
 
@@ -107,7 +107,7 @@ def load_host_identity(file_path, *, supported_boundaries=None, fallback_label='
         federation_enabled=raw.get('federation_enabled', fallback_federation),
         peer_transport=(raw.get('peer_transport') or 'none').strip(),
         supported_boundaries=raw.get('supported_boundaries', supported_boundaries or []),
-        settlement_adapters=raw.get('settlement_adapters', []),
+        settlement_adapters=raw.get('settlement_adapters', ['internal_ledger']),
     )
 
 

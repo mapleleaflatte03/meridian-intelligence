@@ -144,11 +144,58 @@ _PROTOCOL_DEFAULTS = {
             'reviewed_by': 'string -- who reviewed',
             'approved_by': 'string -- who approved (must be owner or delegated authority)',
             'status': 'string -- from state_machine.states',
+            'settlement_adapter': 'string -- adapter_id from settlement_adapters.json',
+            'warrant_id': 'string or null -- executable warrant bound to payout execution',
             'created_at': 'ISO 8601 timestamp',
             'updated_at': 'ISO 8601 timestamp',
             'dispute_window_ends_at': 'ISO 8601 timestamp or null',
             'executed_at': 'ISO 8601 timestamp or null',
             'tx_hash': 'string or null -- settlement transaction hash or ledger ref',
+            'execution_refs': 'object -- normalized settlement proof, tx_ref, and verification/finality states',
+        },
+    },
+    'settlement_adapters.json': {
+        'default_payout_adapter': 'internal_ledger',
+        'adapters': {
+            'internal_ledger': {
+                'label': 'Internal Ledger',
+                'status': 'active',
+                'payout_execution_enabled': True,
+                'supported_currencies': ['USDC', 'USD'],
+                'requires_tx_hash': False,
+                'requires_settlement_proof': False,
+                'proof_type': 'ledger_transaction',
+                'verification_state': 'host_ledger_final',
+                'finality_state': 'host_local_final',
+                'reversal_or_dispute_capability': 'court_case',
+                'notes': 'Founding-service payout execution settles against the canonical transactions journal.',
+            },
+            'base_usdc_x402': {
+                'label': 'Base USDC via x402',
+                'status': 'registered',
+                'payout_execution_enabled': False,
+                'supported_currencies': ['USDC'],
+                'requires_tx_hash': True,
+                'requires_settlement_proof': True,
+                'proof_type': 'onchain_receipt',
+                'verification_state': 'external_verification_required',
+                'finality_state': 'external_chain_finality',
+                'reversal_or_dispute_capability': 'court_case_plus_chain_review',
+                'notes': 'Registered contract target only. Live payout execution remains disabled until a verified adapter path exists.',
+            },
+            'manual_bank_wire': {
+                'label': 'Manual Bank Wire',
+                'status': 'registered',
+                'payout_execution_enabled': False,
+                'supported_currencies': ['USD'],
+                'requires_tx_hash': False,
+                'requires_settlement_proof': True,
+                'proof_type': 'manual_wire_receipt',
+                'verification_state': 'manual_review_required',
+                'finality_state': 'manual_settlement_pending',
+                'reversal_or_dispute_capability': 'manual_reversal_and_court_case',
+                'notes': 'Registered but intentionally not executable on the live founding path.',
+            },
         },
     },
 }
@@ -340,6 +387,10 @@ def load_payout_proposals(org_id=None):
     return _load_registry_file('payout_proposals.json', org_id)
 
 
+def load_settlement_adapters(org_id=None):
+    return _load_registry_file('settlement_adapters.json', org_id)
+
+
 def _proposal_store(org_id=None):
     store = dict(load_payout_proposals(org_id))
     store.setdefault('proposals', {})
@@ -355,6 +406,83 @@ def _save_proposal_store(store, org_id=None):
     store.setdefault('state_machine', _PROTOCOL_DEFAULTS['payout_proposals.json']['state_machine'])
     store.setdefault('proposal_schema', _PROTOCOL_DEFAULTS['payout_proposals.json']['proposal_schema'])
     _save_registry_file('payout_proposals.json', store, org_id)
+
+
+def _settlement_store(org_id=None):
+    store = dict(load_settlement_adapters(org_id))
+    store.setdefault(
+        'default_payout_adapter',
+        _PROTOCOL_DEFAULTS['settlement_adapters.json']['default_payout_adapter'],
+    )
+    adapters = {}
+    raw_adapters = store.get('adapters', {})
+    for adapter_id, raw in _PROTOCOL_DEFAULTS['settlement_adapters.json']['adapters'].items():
+        merged = dict(raw)
+        merged.update(dict(raw_adapters.get(adapter_id, {})))
+        merged['adapter_id'] = adapter_id
+        merged.setdefault('label', adapter_id)
+        merged.setdefault('status', 'registered')
+        merged.setdefault('payout_execution_enabled', False)
+        merged.setdefault('supported_currencies', ['USDC'])
+        merged.setdefault('requires_tx_hash', False)
+        merged.setdefault('requires_settlement_proof', False)
+        merged.setdefault('proof_type', 'external_reference')
+        merged.setdefault('verification_state', 'unknown')
+        merged.setdefault('finality_state', 'unknown')
+        merged.setdefault('reversal_or_dispute_capability', 'court_case')
+        adapters[adapter_id] = merged
+    for adapter_id, raw in raw_adapters.items():
+        if adapter_id in adapters:
+            continue
+        merged = dict(raw or {})
+        merged['adapter_id'] = adapter_id
+        merged.setdefault('label', adapter_id)
+        merged.setdefault('status', 'registered')
+        merged.setdefault('payout_execution_enabled', False)
+        merged.setdefault('supported_currencies', ['USDC'])
+        merged.setdefault('requires_tx_hash', False)
+        merged.setdefault('requires_settlement_proof', False)
+        merged.setdefault('proof_type', 'external_reference')
+        merged.setdefault('verification_state', 'unknown')
+        merged.setdefault('finality_state', 'unknown')
+        merged.setdefault('reversal_or_dispute_capability', 'court_case')
+        adapters[adapter_id] = merged
+    store['adapters'] = adapters
+    return store
+
+
+def get_settlement_adapter(adapter_id, org_id=None):
+    adapter_id = (adapter_id or '').strip()
+    if not adapter_id:
+        adapter_id = _settlement_store(org_id).get('default_payout_adapter', 'internal_ledger')
+    return _settlement_store(org_id).get('adapters', {}).get(adapter_id)
+
+
+def list_settlement_adapters(org_id=None, *, payout_enabled_only=False):
+    rows = list(_settlement_store(org_id).get('adapters', {}).values())
+    if payout_enabled_only:
+        rows = [row for row in rows if row.get('payout_execution_enabled')]
+    rows.sort(key=lambda row: row.get('adapter_id', ''))
+    return rows
+
+
+def settlement_adapter_summary(org_id=None, *, host_supported_adapters=None):
+    store = _settlement_store(org_id)
+    rows = list(store.get('adapters', {}).values())
+    host_supported = [item for item in (host_supported_adapters or []) if item]
+    payout_enabled = [row for row in rows if row.get('payout_execution_enabled')]
+    return {
+        'default_payout_adapter': store.get('default_payout_adapter', 'internal_ledger'),
+        'total': len(rows),
+        'active': len([row for row in rows if row.get('status') == 'active']),
+        'payout_enabled': len(payout_enabled),
+        'host_supported_adapters': host_supported,
+        'host_supported_payout_adapters': [
+            row.get('adapter_id', '')
+            for row in payout_enabled
+            if row.get('adapter_id', '') in host_supported
+        ],
+    }
 
 
 def get_wallet(wallet_id, org_id=None):
@@ -435,6 +563,84 @@ def _normalize_payout_evidence(evidence):
     ):
         raise ValueError('evidence must include at least one PR URL, commit hash, issue ref, or description')
     return payload
+
+
+def _normalize_settlement_proof(adapter, *, tx_hash='', settlement_proof=None):
+    payload = settlement_proof
+    if payload is None:
+        payload = {}
+    elif isinstance(payload, str):
+        payload = {'reference': payload.strip()}
+    else:
+        payload = dict(payload)
+
+    normalized = {
+        'proof_type': adapter.get('proof_type', 'external_reference'),
+        'verification_state': adapter.get('verification_state', 'unknown'),
+        'finality_state': adapter.get('finality_state', 'unknown'),
+        'reversal_or_dispute_capability': adapter.get(
+            'reversal_or_dispute_capability',
+            'court_case',
+        ),
+    }
+    tx_hash = (tx_hash or '').strip()
+    if tx_hash:
+        normalized['tx_hash'] = tx_hash
+    if adapter.get('adapter_id') == 'internal_ledger':
+        normalized['reference'] = ''
+        normalized['proof'] = {'mode': 'institution_transactions_journal'}
+        return normalized
+
+    cleaned = {}
+    for key, value in payload.items():
+        if isinstance(value, str):
+            value = value.strip()
+        if value in ('', None, [], {}):
+            continue
+        cleaned[key] = value
+    if cleaned:
+        normalized['proof'] = cleaned
+        if 'reference' in cleaned:
+            normalized['reference'] = cleaned['reference']
+    return normalized
+
+
+def _require_known_settlement_adapter(adapter_id, *, org_id=None):
+    adapter = get_settlement_adapter(adapter_id, org_id)
+    if not adapter:
+        raise ValueError(f'Unknown settlement_adapter {adapter_id!r}')
+    return adapter
+
+
+def _validate_payout_execution_adapter(adapter_id, *, org_id=None, currency='USDC',
+                                       tx_hash='', settlement_proof=None,
+                                       host_supported_adapters=None):
+    adapter = _require_known_settlement_adapter(adapter_id, org_id=org_id)
+    if not adapter.get('payout_execution_enabled'):
+        raise PermissionError(
+            f"Settlement adapter '{adapter_id}' is registered but not enabled for payout execution"
+        )
+    if host_supported_adapters:
+        allowed = {item for item in host_supported_adapters if item}
+        if adapter_id not in allowed:
+            raise PermissionError(
+                f"Settlement adapter '{adapter_id}' is not supported on this host"
+            )
+    supported_currencies = {str(item).upper() for item in adapter.get('supported_currencies', [])}
+    if supported_currencies and str(currency or '').upper() not in supported_currencies:
+        raise PermissionError(
+            f"Settlement adapter '{adapter_id}' does not support currency {currency!r}"
+        )
+    if adapter.get('requires_tx_hash') and not (tx_hash or '').strip():
+        raise ValueError(f"Settlement adapter '{adapter_id}' requires tx_hash")
+    normalized = _normalize_settlement_proof(
+        adapter,
+        tx_hash=tx_hash,
+        settlement_proof=settlement_proof,
+    )
+    if adapter.get('requires_settlement_proof') and not normalized.get('proof'):
+        raise ValueError(f"Settlement adapter '{adapter_id}' requires settlement_proof")
+    return adapter, normalized
 
 
 def _resolve_recipient_wallet(contributor_id, recipient_wallet_id='', org_id=None):
@@ -523,6 +729,7 @@ def create_payout_proposal(contributor_id, amount_usd, contribution_type, *,
     allowed_types = load_contributors(org_id).get('contribution_types') or _PROTOCOL_DEFAULTS['contributors.json']['contribution_types']
     if contribution_type not in allowed_types:
         raise ValueError(f'Unknown contribution_type {contribution_type!r}')
+    _require_known_settlement_adapter(settlement_adapter, org_id=org_id)
     normalized_evidence = _normalize_payout_evidence(evidence)
     contributor, wallet_id = _resolve_recipient_wallet(
         contributor_id,
@@ -708,7 +915,8 @@ def cancel_payout_proposal(proposal_id, actor_id, *, org_id=None, note='', owner
 
 def execute_payout_proposal(proposal_id, actor_id, *, org_id=None, warrant_id='',
                             settlement_adapter='', tx_hash='', note='',
-                            allow_early=False):
+                            allow_early=False, settlement_proof=None,
+                            host_supported_adapters=None):
     org_id = _resolve_org_id(org_id)
     actor_id = (actor_id or '').strip()
     if not actor_id:
@@ -748,8 +956,16 @@ def execute_payout_proposal(proposal_id, actor_id, *, org_id=None, warrant_id=''
     with open(capsule_ledger_path(org_id), 'w') as f:
         json.dump(ledger, f, indent=2)
 
-    tx_ref = f'ptx_{uuid.uuid4().hex[:12]}'
     settlement_adapter = (settlement_adapter or record.get('settlement_adapter') or 'internal_ledger').strip()
+    adapter, normalized_proof = _validate_payout_execution_adapter(
+        settlement_adapter,
+        org_id=org_id,
+        currency=record.get('currency', 'USDC'),
+        tx_hash=tx_hash,
+        settlement_proof=settlement_proof,
+        host_supported_adapters=host_supported_adapters,
+    )
+    tx_ref = f'ptx_{uuid.uuid4().hex[:12]}'
     tx_row = _append_transaction(org_id, {
         'tx_ref': tx_ref,
         'type': 'payout_execution',
@@ -759,11 +975,14 @@ def execute_payout_proposal(proposal_id, actor_id, *, org_id=None, warrant_id=''
         'amount_usd': amount,
         'currency': record.get('currency', 'USDC'),
         'settlement_adapter': settlement_adapter,
-        'tx_hash': (tx_hash or '').strip(),
+        'tx_hash': normalized_proof.get('tx_hash', ''),
+        'verification_state': normalized_proof.get('verification_state', ''),
+        'finality_state': normalized_proof.get('finality_state', ''),
         'warrant_id': (warrant_id or '').strip(),
         'cash_after': treasury['cash_usd'],
         'by': actor_id,
         'note': note or '',
+        'settlement_proof': normalized_proof.get('proof', {}),
     })
     timestamp = _now()
     record['status'] = 'executed'
@@ -772,11 +991,19 @@ def execute_payout_proposal(proposal_id, actor_id, *, org_id=None, warrant_id=''
     record['executed_by'] = actor_id
     record['warrant_id'] = (warrant_id or '').strip()
     record['settlement_adapter'] = settlement_adapter
-    record['tx_hash'] = (tx_hash or '').strip()
+    record['tx_hash'] = normalized_proof.get('tx_hash', '')
     record['execution_refs'] = {
         'tx_ref': tx_row['tx_ref'],
         'settlement_adapter': settlement_adapter,
-        'tx_hash': (tx_hash or '').strip(),
+        'tx_hash': normalized_proof.get('tx_hash', ''),
+        'proof_type': adapter.get('proof_type', ''),
+        'verification_state': normalized_proof.get('verification_state', ''),
+        'finality_state': normalized_proof.get('finality_state', ''),
+        'reversal_or_dispute_capability': normalized_proof.get(
+            'reversal_or_dispute_capability',
+            '',
+        ),
+        'proof': normalized_proof.get('proof', {}),
     }
     if note:
         record['execution_note'] = note
@@ -836,6 +1063,24 @@ def treasury_snapshot(org_id=None):
         'spend_30d_usd': spend_usd,
         'clients': rev_summary['clients'],
         'paid_orders': rev_summary['paid_orders'],
+        'protocol': {
+            'wallet_count': len(load_wallets(org_id).get('wallets', {})),
+            'payout_eligible_wallets': len([
+                wallet_id for wallet_id in load_wallets(org_id).get('wallets', {})
+                if can_receive_payout(wallet_id, org_id)[0]
+            ]),
+            'contributor_count': len(load_contributors(org_id).get('contributors', {})),
+            'pending_proposals': len([
+                proposal for proposal in load_payout_proposals(org_id).get('proposals', {}).values()
+                if proposal.get('status') in ('submitted', 'under_review')
+            ]),
+            'settlement_adapter_count': len(list_settlement_adapters(org_id)),
+            'payout_enabled_settlement_adapters': len(
+                list_settlement_adapters(org_id, payout_enabled_only=True)
+            ),
+        },
+        'settlement_adapter_summary': settlement_adapter_summary(org_id),
+        'settlement_adapters': list_settlement_adapters(org_id),
         'remediation': remediation,
         'snapshot_at': _now(),
     }
