@@ -38,6 +38,7 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.orig_runtime_host_state = self.workspace._runtime_host_state
         self.orig_federation_authority = self.workspace._federation_authority
         self.orig_log_event = self.workspace.log_event
+        self.orig_list_warrants = self.workspace.list_warrants
 
     def tearDown(self):
         self.workspace.WORKSPACE_ORG_ID = self.orig_workspace_org_id
@@ -54,6 +55,7 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.workspace._runtime_host_state = self.orig_runtime_host_state
         self.workspace._federation_authority = self.orig_federation_authority
         self.workspace.log_event = self.orig_log_event
+        self.workspace.list_warrants = self.orig_list_warrants
 
     def test_live_workspace_rejects_non_founding_configured_org(self):
         self.workspace._load_workspace_credentials = lambda: (None, None, None, None)
@@ -154,6 +156,8 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.assertTrue(permissions['/api/authority/kill-switch']['allowed'])
         self.assertTrue(permissions['/api/institution/charter']['allowed'])
         self.assertFalse(permissions['/api/treasury/contribute']['allowed'])
+        self.assertTrue(permissions['/api/warrants/issue']['allowed'])
+        self.assertTrue(permissions['/api/warrants/approve']['allowed'])
         self.assertTrue(permissions['/api/federation/send']['allowed'])
         self.assertFalse(permissions['/api/federation/peers/refresh']['allowed'])
         self.assertEqual(permissions['/api/federation/peers/refresh']['required_role'], 'owner')
@@ -182,6 +186,13 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.workspace.treasury_snapshot = lambda org_id: {}
         self.workspace._phase_mod.evaluate = lambda org_id: (0, {'name': 'Founder-Backed Build'})
         self.workspace._load_records = lambda org_id: {'violations': {}, 'appeals': {}}
+        self.workspace.list_warrants = lambda org_id=None, **_kwargs: [
+            {
+                'warrant_id': 'war_live_demo',
+                'court_review_state': 'approved',
+                'execution_state': 'ready',
+            }
+        ]
         self.workspace.get_sprint_lead = lambda org_id: ('', 0)
         self.workspace.get_pending_approvals = lambda org_id=None: []
         self.workspace._ci_vertical_status = lambda reg, lead_id, org_id: {}
@@ -214,6 +225,8 @@ class LiveWorkspaceContextTests(unittest.TestCase):
             status['runtime_core']['admission']['mutation_disabled_reason'],
             'single_institution_deployment',
         )
+        self.assertEqual(status['warrants']['total'], 1)
+        self.assertEqual(status['warrants']['executable'], 1)
         self.assertIn('federation', status['runtime_core'])
         self.assertFalse(status['runtime_core']['federation']['enabled'])
 

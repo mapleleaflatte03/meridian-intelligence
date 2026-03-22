@@ -43,6 +43,12 @@ with a structural rejection instead of pretending live multi-institution
 admission exists. The same surface now also exposes `runtime_core.federation`: on live today that
 federation gateway stays explicitly disabled unless the host is configured with
 peer transport, a signing secret, and trusted peers.
+The owner workspace now also exposes `/api/warrants` plus
+`POST /api/warrants/issue|approve|stay|revoke` as founding-org-only court
+surfaces. Live federation remains disabled today, but the sender-side delivery
+path is already warrant-aware in code: if federated `execution_request`
+delivery is ever enabled on this host, it must carry an executable warrant and
+the resulting audit trail preserves `warrant_id` provenance.
 
 **Live service:** https://app.welliam.codes
 **Product demo:** https://app.welliam.codes/demo.html

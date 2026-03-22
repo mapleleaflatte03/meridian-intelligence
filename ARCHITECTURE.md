@@ -153,6 +153,28 @@ Severity-to-sanction mapping (CLAUDE.md §9):
 - 5: zero_authority (false confidence)
 - 6: remediation_only (critical failure)
 
+### Warrants (warrants.py)
+```
+Warrant {
+  warrant_id: string
+  institution_id: string
+  boundary_name: string
+  action_class: routine_internal|budget_spend|payout_execution|cross_institution_commitment|sanction_execution|federated_execution
+  risk_class: low|moderate|high|critical
+  actor_id: string
+  session_id: string
+  request_hash: string
+  court_review_state: auto_issued|pending_review|approved|stayed|revoked
+  execution_state: ready|executed
+  expires_at: timestamp
+  execution_refs: object
+}
+```
+
+Today the live warrant surface is still founding-org-only, but it is already a
+first-class capsule-backed record instead of an ad hoc field on delivery
+payloads.
+
 ## State File Locations
 
 | File | Owner | Purpose |
@@ -201,6 +223,8 @@ institution, not the live source of truth.
 - Founder-led manual pilot path
 - Support path separated from customer revenue in doctrine and public surfaces
 - Founding-org authority and court state moved behind capsule-backed paths
+- Founding-org warrant state exposed through `/api/warrants` and reflected in `/api/status`
+- Sender-side federated `execution_request` delivery path now requires an executable warrant in code, even though live federation remains disabled
 
 ### What is intentionally not claimed as live:
 - Automated subscriber delivery for external customers
@@ -208,6 +232,7 @@ institution, not the live source of truth.
 - Institution-scoped subscription storage or MCP session routing
 - Telegram bot/channel as the honest default customer path
 - Multi-institution isolation with zero founding-org shared state in the live system
+- Active cross-host federation execution on the live host
 - Treasury registries fully cut over from founding ledger pointers into capsule-owned state
 
 The owner-facing workspace API is process-bound to the founding Meridian
