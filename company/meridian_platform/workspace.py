@@ -221,7 +221,7 @@ from federated_execution_jobs import (
     upsert_execution_job,
 )
 from capsule import capsule_dir
-from ci_vertical import PIPELINE_PHASES, _phase_gate_snapshot, get_agent_remediation
+from ci_vertical import _phase_gate_snapshot, get_agent_remediation
 from institution_context import InstitutionContext, WORKSPACE_BOUNDARY, runtime_core_snapshot
 from runtime_host import (
     load_host_identity,
