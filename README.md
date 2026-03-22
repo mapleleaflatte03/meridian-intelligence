@@ -89,6 +89,10 @@ claim that live contributor payouts are already running.
 adapter registry on the live host. Today that registry is still narrow on
 purpose: `internal_ledger` is the only execution-enabled adapter, while
 `base_usdc_x402` and `manual_bank_wire` remain registered but disabled.
+`POST /api/treasury/settlement-adapters/preflight` now exposes the same
+contract as a non-executing validation path, so the owner workspace can check
+host support plus tx-hash / proof requirements without pretending those
+disabled adapters already execute on live.
 `GET /api/treasury/accounts` and `GET /api/treasury/funding-sources` now
 surface the same founding-only treasury truth in protocol form: ledger-synced
 sub-accounts and recorded funding-source entries that stay aligned with owner

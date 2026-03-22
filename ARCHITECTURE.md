@@ -157,6 +157,10 @@ The live workspace now also exposes `GET /api/treasury/accounts` and
 files. `treasury_accounts.json` is synced from the founding ledger and payout
 state, while `funding_sources.json` records owner-capital and future funding
 events as explicit treasury inputs rather than implicit ledger deltas.
+`POST /api/treasury/settlement-adapters/preflight` now exposes the same
+contract as a non-executing validation surface, so live can say honestly
+whether an adapter is merely registered, whether this host supports it, and
+whether the supplied proof shape would be acceptable before execution.
 
 ### Court (court.py)
 ```

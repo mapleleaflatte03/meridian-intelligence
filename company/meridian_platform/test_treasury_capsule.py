@@ -643,6 +643,118 @@ class TreasuryCapsuleTests(unittest.TestCase):
                     settlement_proof={'reference': 'live-proof'},
                 )
 
+    def test_live_payout_execution_disabled_adapter_is_atomic(self):
+        capsule.ensure_treasury_aliases(self.org_id)
+        org_dir = os.path.join(self._capsules_dir, self.org_id)
+        os.makedirs(org_dir, exist_ok=True)
+
+        with open(os.path.join(org_dir, 'wallets.json'), 'w') as f:
+            json.dump({
+                'wallets': {
+                    'wallet_live': {
+                        'id': 'wallet_live',
+                        'verification_level': 3,
+                        'verification_label': 'self_custody_verified',
+                        'payout_eligible': True,
+                        'status': 'active',
+                    }
+                },
+                'verification_levels': {},
+            }, f, indent=2)
+        with open(os.path.join(org_dir, 'contributors.json'), 'w') as f:
+            json.dump({
+                'contributors': {
+                    'contrib_live': {
+                        'id': 'contrib_live',
+                        'name': 'Contributor Live',
+                        'payout_wallet_id': 'wallet_live',
+                    }
+                },
+                'contribution_types': ['code'],
+                'registration_requirements': {},
+            }, f, indent=2)
+
+        proposal = treasury.create_payout_proposal(
+            'contrib_live',
+            1.0,
+            'code',
+            proposed_by='user:proposer',
+            org_id=self.org_id,
+            evidence={'description': 'live adapter atomicity gate'},
+            settlement_adapter='base_usdc_x402',
+        )
+        proposal = treasury.submit_payout_proposal(proposal['proposal_id'], 'user:proposer', org_id=self.org_id)
+        proposal = treasury.review_payout_proposal(proposal['proposal_id'], 'user:reviewer', org_id=self.org_id)
+        proposal = treasury.approve_payout_proposal(proposal['proposal_id'], 'user:owner', org_id=self.org_id)
+        proposal = treasury.open_payout_dispute_window(
+            proposal['proposal_id'],
+            'user:owner',
+            org_id=self.org_id,
+            dispute_window_hours=0,
+        )
+        ledger_path = os.path.join(org_dir, 'ledger.json')
+        tx_path = os.path.join(org_dir, 'transactions.jsonl')
+        with open(ledger_path) as f:
+            ledger_before = json.load(f)
+        with open(tx_path) as f:
+            tx_lines_before = [line for line in f.read().splitlines() if line.strip()]
+
+        with mock.patch.object(treasury, '_payout_phase_gate', return_value=(True, 'phase 5 test override')):
+            with self.assertRaises(PermissionError):
+                treasury.execute_payout_proposal(
+                    proposal['proposal_id'],
+                    'user:owner',
+                    org_id=self.org_id,
+                    warrant_id='war_live_disabled_atomic',
+                    settlement_adapter='base_usdc_x402',
+                    tx_hash='0xdeadbeef',
+                    settlement_proof={'reference': 'live-proof'},
+                )
+
+        with open(ledger_path) as f:
+            ledger_after = json.load(f)
+        with open(tx_path) as f:
+            tx_lines_after = [line for line in f.read().splitlines() if line.strip()]
+        self.assertEqual(
+            ledger_after['treasury']['cash_usd'],
+            ledger_before['treasury']['cash_usd'],
+        )
+        self.assertEqual(
+            ledger_after['treasury'].get('expenses_recorded_usd', 0.0),
+            ledger_before['treasury'].get('expenses_recorded_usd', 0.0),
+        )
+        self.assertEqual(tx_lines_after, tx_lines_before)
+        proposal_after = treasury.get_payout_proposal(proposal['proposal_id'], org_id=self.org_id)
+        self.assertEqual(proposal_after['status'], 'dispute_window')
+
+    def test_live_preflight_settlement_adapter_accepts_internal_ledger(self):
+        result = treasury.preflight_settlement_adapter(
+            'internal_ledger',
+            org_id=self.org_id,
+            host_supported_adapters=['internal_ledger'],
+        )
+        self.assertTrue(result['known'])
+        self.assertTrue(result['preflight_ok'])
+        self.assertTrue(result['can_execute_now'])
+        self.assertTrue(result['execution_enabled'])
+        self.assertTrue(result['host_supported'])
+        self.assertEqual(result['normalized_proof']['proof']['mode'], 'institution_transactions_journal')
+
+    def test_live_preflight_settlement_adapter_reports_disabled_adapter(self):
+        result = treasury.preflight_settlement_adapter(
+            'base_usdc_x402',
+            org_id=self.org_id,
+            currency='USDC',
+            tx_hash='0xdeadbeef',
+            settlement_proof={'reference': 'live-proof'},
+            host_supported_adapters=['internal_ledger'],
+        )
+        self.assertTrue(result['known'])
+        self.assertFalse(result['preflight_ok'])
+        self.assertFalse(result['can_execute_now'])
+        self.assertEqual(result['error_type'], 'permission_error')
+        self.assertIn('not enabled', result['error'])
+
 
 if __name__ == '__main__':
     unittest.main()

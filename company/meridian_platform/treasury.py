@@ -851,6 +851,79 @@ def _validate_payout_execution_adapter(adapter_id, *, org_id=None, currency='USD
     return adapter, normalized
 
 
+def preflight_settlement_adapter(adapter_id='', *, org_id=None, currency='USDC',
+                                 tx_hash='', settlement_proof=None,
+                                 host_supported_adapters=None):
+    store = _settlement_store(org_id)
+    requested_adapter_id = (
+        (adapter_id or '').strip()
+        or store.get('default_payout_adapter', 'internal_ledger')
+    )
+    result = {
+        'default_payout_adapter': store.get('default_payout_adapter', 'internal_ledger'),
+        'requested_adapter_id': requested_adapter_id,
+        'currency': (currency or 'USDC').strip().upper(),
+        'host_supported_adapters': list(host_supported_adapters or []),
+        'known': False,
+        'preflight_ok': False,
+        'can_execute_now': False,
+        'error_type': '',
+        'error': '',
+    }
+    adapter = get_settlement_adapter(requested_adapter_id, org_id)
+    if not adapter:
+        result['error_type'] = 'unknown_adapter'
+        result['error'] = f'Unknown settlement_adapter {requested_adapter_id!r}'
+        return result
+
+    normalized = _normalize_settlement_proof(
+        adapter,
+        tx_hash=tx_hash,
+        settlement_proof=settlement_proof,
+    )
+    result.update({
+        'known': True,
+        'adapter': adapter,
+        'execution_enabled': bool(adapter.get('payout_execution_enabled')),
+        'host_supported': (
+            requested_adapter_id in {item for item in host_supported_adapters if item}
+            if host_supported_adapters is not None else None
+        ),
+        'requirements': {
+            'supported_currencies': list(adapter.get('supported_currencies', [])),
+            'requires_tx_hash': bool(adapter.get('requires_tx_hash')),
+            'requires_settlement_proof': bool(adapter.get('requires_settlement_proof')),
+            'proof_type': adapter.get('proof_type', 'external_reference'),
+            'verification_state': adapter.get('verification_state', 'unknown'),
+            'finality_state': adapter.get('finality_state', 'unknown'),
+            'reversal_or_dispute_capability': adapter.get(
+                'reversal_or_dispute_capability',
+                'court_case',
+            ),
+        },
+        'normalized_proof': normalized,
+    })
+    try:
+        _validated_adapter, normalized = _validate_payout_execution_adapter(
+            requested_adapter_id,
+            org_id=org_id,
+            currency=result['currency'],
+            tx_hash=tx_hash,
+            settlement_proof=settlement_proof,
+            host_supported_adapters=host_supported_adapters,
+        )
+        result['preflight_ok'] = True
+        result['can_execute_now'] = True
+        result['normalized_proof'] = normalized
+    except PermissionError as exc:
+        result['error_type'] = 'permission_error'
+        result['error'] = str(exc)
+    except ValueError as exc:
+        result['error_type'] = 'validation_error'
+        result['error'] = str(exc)
+    return result
+
+
 def _resolve_recipient_wallet(contributor_id, recipient_wallet_id='', org_id=None):
     contributor = get_contributor(contributor_id, org_id)
     if not contributor:
@@ -1158,6 +1231,15 @@ def execute_payout_proposal(proposal_id, actor_id, *, org_id=None, warrant_id=''
             f"Payout proposal '{proposal_id}' would breach treasury reserve floor"
         )
 
+    settlement_adapter = (settlement_adapter or record.get('settlement_adapter') or 'internal_ledger').strip()
+    adapter, normalized_proof = _validate_payout_execution_adapter(
+        settlement_adapter,
+        org_id=org_id,
+        currency=record.get('currency', 'USDC'),
+        tx_hash=tx_hash,
+        settlement_proof=settlement_proof,
+        host_supported_adapters=host_supported_adapters,
+    )
     ledger = _load_ledger(org_id)
     treasury = ledger.setdefault('treasury', {})
     amount = round(float(record.get('amount_usd') or 0.0), 4)
@@ -1171,15 +1253,6 @@ def execute_payout_proposal(proposal_id, actor_id, *, org_id=None, warrant_id=''
     with open(capsule_ledger_path(org_id), 'w') as f:
         json.dump(ledger, f, indent=2)
 
-    settlement_adapter = (settlement_adapter or record.get('settlement_adapter') or 'internal_ledger').strip()
-    adapter, normalized_proof = _validate_payout_execution_adapter(
-        settlement_adapter,
-        org_id=org_id,
-        currency=record.get('currency', 'USDC'),
-        tx_hash=tx_hash,
-        settlement_proof=settlement_proof,
-        host_supported_adapters=host_supported_adapters,
-    )
     tx_ref = f'ptx_{uuid.uuid4().hex[:12]}'
     tx_row = _append_transaction(org_id, {
         'tx_ref': tx_ref,

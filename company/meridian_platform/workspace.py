@@ -50,6 +50,7 @@ Endpoints:
   POST /api/cases/resolve         → Resolve a founding-workspace case
   POST /api/treasury/contribute   → Record owner capital contribution
   POST /api/treasury/reserve-floor → Update reserve floor policy
+  POST /api/treasury/settlement-adapters/preflight → Validate settlement-adapter execution requirements
   POST /api/payouts/propose       → Create a payout proposal draft
   POST /api/payouts/submit        → Submit a payout proposal for review
   POST /api/payouts/review        → Move a payout proposal into review
@@ -142,6 +143,7 @@ from treasury import (treasury_snapshot, get_balance, get_runway, check_budget,
                       load_treasury_accounts, load_funding_sources,
                       list_payout_proposals, payout_proposal_summary,
                       list_settlement_adapters, settlement_adapter_summary,
+                      preflight_settlement_adapter,
                       create_payout_proposal, submit_payout_proposal,
                       review_payout_proposal, approve_payout_proposal,
                       open_payout_dispute_window, reject_payout_proposal,
@@ -227,6 +229,7 @@ MUTATION_ROLE_REQUIREMENTS = {
     '/api/cases/resolve': 'admin',
     '/api/treasury/contribute': 'owner',
     '/api/treasury/reserve-floor': 'owner',
+    '/api/treasury/settlement-adapters/preflight': 'member',
     '/api/payouts/propose': 'member',
     '/api/payouts/submit': 'member',
     '/api/payouts/review': 'admin',
@@ -2394,6 +2397,31 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                     'message': 'Reserve floor updated',
                     'snapshot': treasury_snapshot(org_id),
                 })
+
+            elif path == '/api/treasury/settlement-adapters/preflight':
+                host_identity, _admission_registry = _runtime_host_state(org_id)
+                result = preflight_settlement_adapter(
+                    (body.get('adapter_id') or '').strip(),
+                    org_id=org_id,
+                    currency=body.get('currency') or 'USDC',
+                    tx_hash=(body.get('tx_hash') or '').strip(),
+                    settlement_proof=body.get('settlement_proof'),
+                    host_supported_adapters=getattr(host_identity, 'settlement_adapters', []),
+                )
+                log_event(
+                    org_id,
+                    by,
+                    'settlement_adapter_preflight_checked',
+                    outcome=('success' if result.get('preflight_ok') else 'warning'),
+                    details={
+                        'requested_adapter_id': result.get('requested_adapter_id', ''),
+                        'preflight_ok': result.get('preflight_ok', False),
+                        'error_type': result.get('error_type', ''),
+                        'error': result.get('error', ''),
+                    },
+                    session_id=_sid,
+                )
+                return self._json(result)
 
             elif path == '/api/payouts/propose':
                 proposal = create_payout_proposal(
