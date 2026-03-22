@@ -138,6 +138,11 @@ Read facade — no state file. Reads from:
 On the live host today, treasury resolves through founding-institution capsule
 aliases backed by the live ledger and revenue state. Authority and court state
 have already moved behind the founding institution capsule boundary.
+The founding treasury surface now also carries a payout proposal lifecycle:
+proposal records are capsule-backed, execution is warrant-bound through
+`action_class = payout_execution`, and successful execution writes back into
+the same founding ledger + transaction journal. That does **not** mean live
+contributor payouts are active; execution remains phase- and reserve-gated.
 
 ### Court (court.py)
 ```
@@ -231,6 +236,28 @@ classified into local case records, and a linked execution warrant can be
 stayed locally. The same active case state now blocks commitment settlement,
 but all of this remains a founding-workspace mirror until live federation is
 truly enabled.
+
+### Payout Proposals (treasury.py)
+```
+PayoutProposal {
+  proposal_id: string
+  contributor_id: string
+  amount_usd: number
+  recipient_wallet_id: string
+  status: draft|submitted|under_review|approved|dispute_window|executed|rejected|cancelled
+  warrant_id: string
+  settlement_adapter: string
+  execution_refs: object
+}
+```
+
+This surface is founding-only on the live host. Workspace APIs can propose,
+submit, review, approve, reject, cancel, open the dispute window, and execute
+against the founding ledger. Execution requires:
+- a payout-eligible wallet
+- surplus above reserve
+- phase-5 contributor-payout eligibility
+- an executable `payout_execution` warrant
 
 ## State File Locations
 

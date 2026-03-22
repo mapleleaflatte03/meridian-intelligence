@@ -71,6 +71,14 @@ The live mirror also classifies contradictory delivery proofs into local case
 records if that path is ever exercised, and a linked execution warrant can be
 stayed locally for court-first review. Live federation itself is still disabled
 today.
+The owner workspace now also exposes a founding-only payout proposal surface
+via `/api/payouts` and `POST /api/payouts/propose|submit|review|approve|open-dispute-window|reject|cancel|execute`.
+This is real live code, but it is still bounded by live truth: execution
+requires an executable `payout_execution` warrant, a payout-eligible wallet,
+surplus above reserve, and phase-5 contributor-payout eligibility. With live
+readiness still at `OWNER_BLOCKED_TREASURY` / phase `0`, this surface is
+currently infrastructure waiting for honest treasury conditions rather than a
+claim that live contributor payouts are already running.
 
 **Live service:** https://app.welliam.codes
 **Product demo:** https://app.welliam.codes/demo.html
