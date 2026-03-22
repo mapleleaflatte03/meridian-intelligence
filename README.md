@@ -56,10 +56,17 @@ founding institution capsule instead of existing only as audit lines.
 incoming `execution_request` envelopes as local review objects with pending
 local warrants. This is a live codepath mirror, not evidence that live
 federation is broadly enabled.
+`POST /api/federation/execution-jobs/execute` is present as the OSS parity
+route, but on live it fails closed without changing state because receiver-side
+execution jobs remain review-only while federation is disabled/founding-only.
 When an operator reviews one of those local warrants, the mirrored execution
 job now moves to `ready`, `blocked`, or `rejected` in lockstep with the court
 review decision, while the federation gateway itself remains disabled on the
 host.
+The live workspace now also exposes `POST /api/federation/execution-jobs/execute`
+for parity with the OSS reference path, but that route is a structural
+rejection only: live receiver-side execution jobs remain review-only until
+federation is explicitly enabled on the host.
 The live boundary registry also declares warrant requirements for
 `federation_gateway`, so this disabled host can still say honestly which
 message types would require court-first execution review if federation were

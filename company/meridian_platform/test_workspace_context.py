@@ -211,6 +211,8 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.assertTrue(permissions['/api/payouts/review']['allowed'])
         self.assertFalse(permissions['/api/payouts/approve']['allowed'])
         self.assertTrue(permissions['/api/treasury/settlement-adapters/preflight']['allowed'])
+        self.assertTrue(permissions['/api/federation/execution-jobs/execute']['allowed'])
+        self.assertEqual(permissions['/api/federation/execution-jobs/execute']['required_role'], 'admin')
         self.assertTrue(permissions['/api/subscriptions/add']['allowed'])
         self.assertTrue(permissions['/api/subscriptions/convert']['allowed'])
         self.assertTrue(permissions['/api/subscriptions/verify-payment']['allowed'])
@@ -537,6 +539,8 @@ class LiveWorkspaceContextTests(unittest.TestCase):
             'expires_at': '2026-03-22T01:00:00Z',
         }
         snapshot = self.workspace._federation_execution_jobs_snapshot('org_founding')
+        self.assertFalse(snapshot['mutation_enabled'])
+        self.assertEqual(snapshot['mutation_disabled_reason'], 'review_via_warrants')
         self.assertEqual(snapshot['summary']['total'], 1)
         self.assertEqual(snapshot['summary']['pending_local_warrant'], 1)
         self.assertEqual(snapshot['jobs'][0]['envelope_id'], 'fed_exec_demo')
@@ -544,6 +548,63 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.assertEqual(snapshot['jobs'][0]['local_warrant']['warrant_id'], 'war_local_demo')
         self.assertEqual(snapshot['jobs'][0]['local_warrant']['court_review_state'], 'pending_review')
         self.assertEqual(snapshot['jobs'][0]['local_warrant']['execution_state'], 'ready')
+
+    def test_reject_live_execution_job_completion_reports_review_only_boundary(self):
+        result = self.workspace._reject_live_execution_job_completion('org_founding')
+        self.assertEqual(result['management_mode'], 'founding_locked')
+        self.assertFalse(result['mutation_enabled'])
+        self.assertFalse(result['state_change'])
+        self.assertEqual(result['boundary_name'], 'federation_gateway')
+        self.assertEqual(result['identity_model'], 'signed_host_service')
+        self.assertEqual(result['mutation_disabled_reason'], 'single_institution_deployment')
+        self.assertIn('review-only', result['error'])
+        self.assertFalse(result['execution_jobs']['mutation_enabled'])
+
+    def test_federation_execution_jobs_execute_fails_closed_without_state_change(self):
+        calls = []
+
+        class FakeHandler:
+            def __init__(self):
+                self.path = '/api/federation/execution-jobs/execute'
+                self.headers = _Headers()
+                self.response = None
+                self.body_read = False
+
+            def _require_auth(self, path):
+                calls.append(('require_auth', path))
+                return True
+
+            def _resolve_workspace_context(self):
+                raise AssertionError('route should fail closed before resolving workspace context')
+
+            def _enforce_request_context(self, *args, **kwargs):
+                raise AssertionError('route should fail closed before request-context enforcement')
+
+            def _resolve_auth_context(self, *args, **kwargs):
+                raise AssertionError('route should fail closed before auth-context resolution')
+
+            def _enforce_mutation_authorization(self, *args, **kwargs):
+                raise AssertionError('route should fail closed before mutation authorization')
+
+            def _read_body(self):
+                self.body_read = True
+                raise AssertionError('route should fail closed before body parsing')
+
+            def _json(self, data, status=200):
+                self.response = {'data': data, 'status': status}
+                return self.response
+
+        handler = FakeHandler()
+        result = self.workspace.WorkspaceHandler.do_POST(handler)
+
+        self.assertEqual(calls, [('require_auth', '/api/federation/execution-jobs/execute')])
+        self.assertEqual(handler.response['status'], 503)
+        self.assertEqual(handler.response['data']['route'], '/api/federation/execution-jobs/execute')
+        self.assertEqual(handler.response['data']['management_mode'], 'founding_locked')
+        self.assertFalse(handler.response['data']['mutation_enabled'])
+        self.assertFalse(handler.response['data']['state_change'])
+        self.assertFalse(handler.body_read)
+        self.assertEqual(result, handler.response)
 
     def test_federation_receipt_is_bound_to_receiver_host_and_org(self):
         from federation import FederationEnvelopeClaims

@@ -161,10 +161,18 @@ The federation boundary now also exposes `GET /api/federation/execution-jobs`
 as a receiver-side local-review surface for incoming `execution_request`
 envelopes. Those jobs are capsule-backed and local to the bound institution;
 they do not imply that live federation itself is enabled.
+The OSS parity route `POST /api/federation/execution-jobs/execute` exists in
+the live workspace, but it fails closed without changing state because those
+receiver-side jobs stay review-only while federation remains disabled on this
+host.
 Local warrant review now also drives that queue honestly: approving the
 receiver-side warrant moves the job to `ready`, while staying or revoking it
 changes the job to `blocked` or `rejected` without pretending live
 cross-host execution is active.
+For parity, the live workspace also declares `POST /api/federation/execution-jobs/execute`,
+but that route fails closed with no state change. It exists so the public
+boundary stays explicit: live jobs are still review-only objects while
+federation remains disabled on the host.
 `POST /api/treasury/settlement-adapters/preflight` now exposes the same
 contract as a non-executing validation surface, so live can say honestly
 whether an adapter is merely registered, whether this host supports it, and

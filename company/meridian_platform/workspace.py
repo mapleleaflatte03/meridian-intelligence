@@ -51,6 +51,7 @@ Endpoints:
   POST /api/cases/open            → Open a founding-workspace case
   POST /api/cases/stay            → Stay a founding-workspace case
   POST /api/cases/resolve         → Resolve a founding-workspace case
+  POST /api/federation/execution-jobs/execute → Structurally reject live receiver-side execution completion
   POST /api/treasury/contribute   → Record owner capital contribution
   POST /api/treasury/reserve-floor → Update reserve floor policy
   POST /api/treasury/settlement-adapters/preflight → Validate settlement-adapter execution requirements
@@ -79,6 +80,7 @@ Endpoints:
   POST /api/federation/peers/suspend → Structurally reject peer suspension changes on live
   POST /api/federation/peers/revoke → Structurally reject peer revocation changes on live
   POST /api/federation/send       → Attempt a federation delivery and fail closed when disabled
+  POST /api/federation/execution-jobs/execute → Fail closed; receiver-side execution jobs stay review-only
   POST /api/federation/receive    → Validate and consume a federation envelope
   POST /api/institution/charter   → Set charter
   POST /api/institution/lifecycle → Transition lifecycle
@@ -260,6 +262,7 @@ MUTATION_ROLE_REQUIREMENTS = {
     '/api/cases/open': 'admin',
     '/api/cases/stay': 'admin',
     '/api/cases/resolve': 'admin',
+    '/api/federation/execution-jobs/execute': 'admin',
     '/api/treasury/contribute': 'owner',
     '/api/treasury/reserve-floor': 'owner',
     '/api/treasury/settlement-adapters/preflight': 'member',
@@ -897,6 +900,22 @@ def _federation_execution_jobs_snapshot(bound_org_id, *, limit=50):
         'identity_model': 'signed_host_service',
         'summary': execution_job_summary(bound_org_id),
         'jobs': jobs,
+    }
+
+
+def _reject_live_execution_job_completion(bound_org_id):
+    return {
+        'error': (
+            f"Live runtime remains founding-only; receiver-side execution jobs stay "
+            f"review-only for institution '{bound_org_id}'"
+        ),
+        'management_mode': 'founding_locked',
+        'mutation_enabled': False,
+        'state_change': False,
+        'boundary_name': 'federation_gateway',
+        'identity_model': 'signed_host_service',
+        'mutation_disabled_reason': 'single_institution_deployment',
+        'execution_jobs': _federation_execution_jobs_snapshot(bound_org_id),
     }
 
 
@@ -2792,6 +2811,15 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
 
         if not self._require_auth(path):
             return
+        if path == '/api/federation/execution-jobs/execute':
+            return self._json({
+                'error': 'Federation execution jobs remain review-only on the live founding-only host',
+                'route': path,
+                'management_mode': 'founding_locked',
+                'mutation_enabled': False,
+                'mutation_disabled_reason': 'single_institution_deployment',
+                'state_change': False,
+            }, 503)
         try:
             inst_ctx = _resolve_workspace_context()
             org_id = inst_ctx.org_id
@@ -3902,6 +3930,12 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                         'federation': federation_state,
                     },
                 })
+
+            elif path == '/api/federation/execution-jobs/execute':
+                return self._json(
+                    _reject_live_execution_job_completion(org_id),
+                    503,
+                )
 
             elif path in (
                 '/api/federation/peers/upsert',
