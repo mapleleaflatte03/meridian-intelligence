@@ -45,6 +45,8 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.orig_list_commitments = self.workspace.commitments.list_commitments
         self.orig_case_summary = self.workspace.cases.case_summary
         self.orig_list_cases = self.workspace.cases.list_cases
+        self.orig_blocking_commitment_ids = self.workspace.cases.blocking_commitment_ids
+        self.orig_blocked_peer_host_ids = self.workspace.cases.blocked_peer_host_ids
 
     def tearDown(self):
         self.workspace.WORKSPACE_ORG_ID = self.orig_workspace_org_id
@@ -66,6 +68,8 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.workspace.commitments.list_commitments = self.orig_list_commitments
         self.workspace.cases.case_summary = self.orig_case_summary
         self.workspace.cases.list_cases = self.orig_list_cases
+        self.workspace.cases.blocking_commitment_ids = self.orig_blocking_commitment_ids
+        self.workspace.cases.blocked_peer_host_ids = self.orig_blocked_peer_host_ids
 
     def test_live_workspace_rejects_non_founding_configured_org(self):
         self.workspace._load_workspace_credentials = lambda: (None, None, None, None)
@@ -276,12 +280,14 @@ class LiveWorkspaceContextTests(unittest.TestCase):
                 'stayed': 0,
                 'resolved': 0,
             },
+            blocking_commitment_ids=lambda org_id=None: ['com_live_demo'],
             list_cases=lambda org_id=None: [{
                 'case_id': 'case_live_demo',
                 'status': 'open',
                 'claim_type': 'breach_of_commitment',
                 'linked_commitment_id': 'com_live_demo',
             }],
+            blocked_peer_host_ids=lambda org_id=None: ['host_peer'],
         )
         ctx = self.workspace._resolve_workspace_context()
         with mock.patch.object(self.workspace, 'commitments', fake_commitments), \
@@ -316,6 +322,8 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.assertEqual(status['cases']['total'], 1)
         self.assertEqual(status['cases']['open'], 1)
         self.assertEqual(status['cases']['management_mode'], 'founding_workspace_local')
+        self.assertEqual(status['cases']['blocking_commitment_ids'], ['com_live_demo'])
+        self.assertEqual(status['cases']['blocked_peer_host_ids'], ['host_peer'])
         self.assertIn('federation', status['runtime_core'])
         self.assertFalse(status['runtime_core']['federation']['enabled'])
 
@@ -393,6 +401,22 @@ class LiveWorkspaceContextTests(unittest.TestCase):
             self.workspace._mutate_federation_peer('org_founding', 'refresh', {
                 'peer_host_id': 'host_beta',
             })
+
+    def test_maybe_suspend_peer_for_case_reports_founding_lock(self):
+        result = self.workspace._maybe_suspend_peer_for_case(
+            {
+                'case_id': 'case_live_demo',
+                'claim_type': 'misrouted_execution',
+                'status': 'open',
+                'target_host_id': 'host_peer',
+            },
+            'user_owner',
+            org_id='org_founding',
+            session_id='ses_demo',
+        )
+        self.assertFalse(result['applied'])
+        self.assertEqual(result['peer_host_id'], 'host_peer')
+        self.assertEqual(result['reason'], 'single_institution_deployment')
 
     def test_federation_manifest_reports_founding_locked_runtime(self):
         from runtime_host import default_host_identity

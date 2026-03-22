@@ -435,6 +435,8 @@ def _case_snapshot(bound_org_id):
         'bound_org_id': bound_org_id,
         **_case_management_state(),
         **cases.case_summary(bound_org_id),
+        'blocking_commitment_ids': cases.blocking_commitment_ids(bound_org_id),
+        'blocked_peer_host_ids': cases.blocked_peer_host_ids(bound_org_id),
         'cases': cases.list_cases(bound_org_id),
     }
 
@@ -446,6 +448,31 @@ def _maybe_open_case_for_commitment_breach(commitment_record, actor_id, *, org_i
         org_id=org_id,
         note=note,
     )
+
+
+def _blocking_case_for_delivery(*, org_id, commitment_id='', target_host_id=''):
+    try:
+        commitment_case = cases.blocking_commitment_case(commitment_id, org_id=org_id)
+        if commitment_case:
+            return commitment_case
+        return cases.blocking_peer_case(target_host_id, org_id=org_id)
+    except (SystemExit, ValueError):
+        return None
+
+
+def _maybe_suspend_peer_for_case(case_record, actor_id, *, org_id, session_id=None):
+    if not cases.case_requires_peer_block(case_record):
+        return None
+    target_host_id = (case_record.get('target_host_id') or '').strip()
+    if not target_host_id:
+        return None
+    management = _federation_management_state()
+    return {
+        'applied': False,
+        'peer_host_id': target_host_id,
+        'reason': management['mutation_disabled_reason'],
+        'trust_state': '',
+    }
 
 
 def _accept_federation_request(bound_org_id, envelope, payload=None):
@@ -607,6 +634,36 @@ def _deliver_federation_envelope(bound_org_id, target_host_id, target_org_id,
                 session_id=session_id or None,
             )
             raise
+    blocking_case = _blocking_case_for_delivery(
+        org_id=bound_org_id,
+        commitment_id=commitment_id,
+        target_host_id=target_host_id,
+    )
+    if blocking_case:
+        message = (
+            f"Federation delivery is blocked by case '{blocking_case.get('case_id', '')}' "
+            f"(claim_type={blocking_case.get('claim_type', '')}, "
+            f"status={blocking_case.get('status', '')})"
+        )
+        log_event(
+            bound_org_id,
+            actor_id or f'host:{host_identity.host_id}',
+            'federation_case_blocked',
+            resource=message_type,
+            outcome='blocked',
+            actor_type=actor_type or 'service',
+            details={
+                'target_host_id': target_host_id,
+                'target_institution_id': target_org_id,
+                'commitment_id': commitment_id,
+                'case_id': blocking_case.get('case_id', ''),
+                'claim_type': blocking_case.get('claim_type', ''),
+                'case_status': blocking_case.get('status', ''),
+                'error': message,
+            },
+            session_id=session_id or None,
+        )
+        raise PermissionError(message)
     try:
         delivery = authority.deliver(
             target_host_id,
@@ -2287,10 +2344,17 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                               'claim_type': claim_type,
                               'linked_commitment_id': case_record.get('linked_commitment_id', ''),
                           }, session_id=_sid)
+                federation_peer = _maybe_suspend_peer_for_case(
+                    case_record,
+                    by,
+                    org_id=org_id,
+                    session_id=_sid,
+                )
                 return self._json({
                     'message': f"Case opened: {case_record['case_id']}",
                     'case': case_record,
                     'summary': _case_snapshot(org_id),
+                    'federation_peer': federation_peer,
                 })
 
             elif path == '/api/cases/stay':
@@ -2301,10 +2365,17 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                 log_event(org_id, by, 'case_stayed', resource=case_id,
                           outcome='success', details={'status': case_record['status']},
                           session_id=_sid)
+                federation_peer = _maybe_suspend_peer_for_case(
+                    case_record,
+                    by,
+                    org_id=org_id,
+                    session_id=_sid,
+                )
                 return self._json({
                     'message': f"Case stayed: {case_id}",
                     'case': case_record,
                     'summary': _case_snapshot(org_id),
+                    'federation_peer': federation_peer,
                 })
 
             elif path == '/api/cases/resolve':
@@ -2319,6 +2390,7 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                     'message': f"Case resolved: {case_id}",
                     'case': case_record,
                     'summary': _case_snapshot(org_id),
+                    'federation_peer': None,
                 })
 
             elif path == '/api/federation/send':

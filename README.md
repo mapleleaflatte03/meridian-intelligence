@@ -62,7 +62,9 @@ cross-institution execution proof.
 The owner workspace now also exposes a founding-only case surface via
 `/api/cases` and `POST /api/cases/open|stay|resolve`. Commitment breach can
 open a linked local case record, but live federation is still disabled, so
-this is not yet live cross-host dispute execution.
+this is not yet live cross-host dispute execution. The live case snapshot now
+surfaces blocking commitment IDs / peer host IDs, and any peer-suspension
+attempt remains explicitly fail-closed under the founding-only runtime lock.
 
 **Live service:** https://app.welliam.codes
 **Product demo:** https://app.welliam.codes/demo.html

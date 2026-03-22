@@ -224,7 +224,9 @@ Case {
 The live case surface is founding-only and capsule-backed. Commitment breach
 can auto-open a linked local case record, but live federation remains
 disabled, so these are local court-network records rather than live cross-host
-dispute execution proof.
+dispute execution proof. Blocking commitment IDs / peer host IDs are surfaced
+for runtime truth, while any peer-suspension path stays fail-closed until live
+federation is actually enabled.
 
 ## State File Locations
 

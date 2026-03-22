@@ -22,10 +22,21 @@ CASE_STATES = (
     'resolved',
 )
 
+BLOCKING_CASE_STATES = (
+    'open',
+    'stayed',
+)
+
 CLAIM_TYPES = (
     'non_delivery',
     'fraudulent_proof',
     'breach_of_commitment',
+    'invalid_settlement_notice',
+    'misrouted_execution',
+)
+
+PEER_SUSPENSION_CLAIM_TYPES = (
+    'fraudulent_proof',
     'invalid_settlement_notice',
     'misrouted_execution',
 )
@@ -167,6 +178,65 @@ def case_summary(org_id=None):
     return summary
 
 
+def blocking_cases(org_id=None):
+    return [
+        row for row in list_cases(org_id)
+        if row.get('status') in BLOCKING_CASE_STATES
+    ]
+
+
+def case_requires_peer_block(case_record):
+    case_record = dict(case_record or {})
+    return (
+        case_record.get('status') in BLOCKING_CASE_STATES
+        and case_record.get('claim_type') in PEER_SUSPENSION_CLAIM_TYPES
+        and bool((case_record.get('target_host_id') or '').strip())
+    )
+
+
+def blocking_commitment_case(commitment_id, org_id=None):
+    commitment_id = (commitment_id or '').strip()
+    if not commitment_id:
+        return None
+    for row in blocking_cases(org_id):
+        if row.get('linked_commitment_id') == commitment_id:
+            return row
+    return None
+
+
+def blocking_peer_case(peer_host_id, org_id=None, *, claim_types=None):
+    peer_host_id = (peer_host_id or '').strip()
+    if not peer_host_id:
+        return None
+    allowed_claim_types = set(claim_types or PEER_SUSPENSION_CLAIM_TYPES)
+    for row in blocking_cases(org_id):
+        if (
+            row.get('target_host_id') == peer_host_id
+            and row.get('claim_type') in allowed_claim_types
+            and case_requires_peer_block(row)
+        ):
+            return row
+    return None
+
+
+def blocking_commitment_ids(org_id=None):
+    seen = []
+    for row in blocking_cases(org_id):
+        commitment_id = (row.get('linked_commitment_id') or '').strip()
+        if commitment_id and commitment_id not in seen:
+            seen.append(commitment_id)
+    return sorted(seen)
+
+
+def blocked_peer_host_ids(org_id=None):
+    seen = []
+    for row in blocking_cases(org_id):
+        peer_host_id = (row.get('target_host_id') or '').strip()
+        if peer_host_id and case_requires_peer_block(row) and peer_host_id not in seen:
+            seen.append(peer_host_id)
+    return sorted(seen)
+
+
 def ensure_case_for_commitment_breach(commitment_record, actor_id, *, org_id=None, note=''):
     commitment_id = (commitment_record or {}).get('commitment_id', '')
     if not commitment_id:
@@ -177,7 +247,7 @@ def ensure_case_for_commitment_breach(commitment_record, actor_id, *, org_id=Non
         if (
             existing.get('claim_type') == 'breach_of_commitment'
             and existing.get('linked_commitment_id') == commitment_id
-            and existing.get('status') in ('open', 'stayed')
+            and existing.get('status') in BLOCKING_CASE_STATES
         ):
             return existing, False
     return open_case(
