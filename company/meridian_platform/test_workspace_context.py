@@ -261,6 +261,24 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.assertEqual(snap['management_mode'], 'founding_locked')
         self.assertFalse(snap['mutation_enabled'])
 
+    def test_federation_receipt_is_bound_to_receiver_host_and_org(self):
+        from federation import FederationEnvelopeClaims
+
+        receipt = self.workspace._federation_receipt(
+            'org_founding',
+            'host_live',
+            FederationEnvelopeClaims(
+                envelope_id='fed_demo',
+                message_type='execution_request',
+                boundary_name='federation_gateway',
+            ),
+        )
+        self.assertEqual(receipt['envelope_id'], 'fed_demo')
+        self.assertEqual(receipt['receiver_host_id'], 'host_live')
+        self.assertEqual(receipt['receiver_institution_id'], 'org_founding')
+        self.assertEqual(receipt['identity_model'], 'signed_host_service')
+        self.assertTrue(receipt['receipt_id'].startswith('fedrcpt_'))
+
     def test_mutate_federation_peer_is_rejected_on_live(self):
         with self.assertRaises(PermissionError):
             self.workspace._mutate_federation_peer('org_founding', 'upsert', {

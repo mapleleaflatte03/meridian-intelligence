@@ -52,6 +52,7 @@ owner-authenticated with HTTP Basic auth.
 import argparse
 import base64
 import datetime
+import hashlib
 import hmac
 import json
 import os
@@ -416,6 +417,27 @@ def _federation_audit_details(claims, **extra):
     return details
 
 
+def _federation_receipt(bound_org_id, receiver_host_id, claims):
+    claim_data = _federation_claims_dict(claims)
+    envelope_id = claim_data.get('envelope_id', '')
+    receipt_material = ':'.join((
+        (receiver_host_id or '').strip(),
+        (bound_org_id or '').strip(),
+        envelope_id,
+    ))
+    receipt_id = 'fedrcpt_' + hashlib.sha256(receipt_material.encode('utf-8')).hexdigest()[:12]
+    return {
+        'receipt_id': receipt_id,
+        'envelope_id': envelope_id,
+        'accepted_at': _now(),
+        'receiver_host_id': (receiver_host_id or '').strip(),
+        'receiver_institution_id': (bound_org_id or '').strip(),
+        'message_type': claim_data.get('message_type', ''),
+        'boundary_name': claim_data.get('boundary_name', ''),
+        'identity_model': 'signed_host_service',
+    }
+
+
 def _deliver_federation_envelope(bound_org_id, target_host_id, target_org_id,
                                  message_type, payload=None, *,
                                  actor_type='host_service', actor_id='',
@@ -456,6 +478,9 @@ def _deliver_federation_envelope(bound_org_id, target_host_id, target_org_id,
         raise
 
     claims = delivery.get('claims')
+    receipt = {}
+    if isinstance(delivery.get('response'), dict):
+        receipt = dict(delivery['response'].get('receipt') or {})
     log_event(
         bound_org_id,
         actor_id or f'host:{host_identity.host_id}',
@@ -466,6 +491,9 @@ def _deliver_federation_envelope(bound_org_id, target_host_id, target_org_id,
         details=_federation_audit_details(
             claims,
             peer_transport=(delivery.get('peer') or {}).get('transport', ''),
+            receipt_id=receipt.get('receipt_id', ''),
+            receiver_host_id=receipt.get('receiver_host_id', ''),
+            receiver_institution_id=receipt.get('receiver_institution_id', ''),
         ),
         session_id=session_id or None,
     )
@@ -1584,6 +1612,11 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                     envelope,
                     payload=body.get('payload'),
                 )
+                receipt = _federation_receipt(
+                    inst_ctx.org_id,
+                    federation_state.get('host_id', ''),
+                    claims,
+                )
                 log_event(
                     inst_ctx.org_id,
                     claims.actor_id or f'peer:{claims.source_host_id}',
@@ -1599,12 +1632,14 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                         'target_institution_id': claims.target_institution_id,
                         'nonce': claims.nonce,
                         'boundary_name': claims.boundary_name,
+                        'receipt_id': receipt['receipt_id'],
                     },
                     session_id=claims.session_id or None,
                 )
                 return self._json({
                     'message': 'Federation envelope accepted',
                     'claims': claims.to_dict(),
+                    'receipt': receipt,
                     'runtime_core': {
                         'federation': federation_state,
                     },
