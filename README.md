@@ -56,6 +56,10 @@ founding institution capsule instead of existing only as audit lines.
 incoming `execution_request` envelopes as local review objects with pending
 local warrants. This is a live codepath mirror, not evidence that live
 federation is broadly enabled.
+When an operator reviews one of those local warrants, the mirrored execution
+job now moves to `ready`, `blocked`, or `rejected` in lockstep with the court
+review decision, while the federation gateway itself remains disabled on the
+host.
 The live boundary registry also declares warrant requirements for
 `federation_gateway`, so this disabled host can still say honestly which
 message types would require court-first execution review if federation were

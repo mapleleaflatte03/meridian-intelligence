@@ -161,6 +161,10 @@ The federation boundary now also exposes `GET /api/federation/execution-jobs`
 as a receiver-side local-review surface for incoming `execution_request`
 envelopes. Those jobs are capsule-backed and local to the bound institution;
 they do not imply that live federation itself is enabled.
+Local warrant review now also drives that queue honestly: approving the
+receiver-side warrant moves the job to `ready`, while staying or revoking it
+changes the job to `blocked` or `rejected` without pretending live
+cross-host execution is active.
 `POST /api/treasury/settlement-adapters/preflight` now exposes the same
 contract as a non-executing validation surface, so live can say honestly
 whether an adapter is merely registered, whether this host supports it, and

@@ -289,6 +289,20 @@ def get_execution_job_by_envelope(envelope_id, org_id):
     return None
 
 
+def get_execution_job_by_local_warrant(local_warrant_id, org_id):
+    local_warrant_id = (local_warrant_id or '').strip()
+    if not local_warrant_id:
+        return None
+    try:
+        store = _load_store(org_id)
+    except (SystemExit, ValueError):
+        return None
+    for record in store.get('jobs', {}).values():
+        if (record.get('local_warrant_id') or '').strip() == local_warrant_id:
+            return record
+    return None
+
+
 def list_execution_jobs(org_id, *, state=None):
     try:
         parent = os.path.dirname(_store_path(org_id))
@@ -318,6 +332,21 @@ def upsert_execution_job(org_id, job=None, **job_fields):
         store.setdefault('jobs', {})[record['job_id']] = record
         _save_store(store, org_id)
         return record
+
+
+def sync_execution_job_for_local_warrant(org_id, local_warrant_id, *, state, note='', metadata=None):
+    existing = get_execution_job_by_local_warrant(local_warrant_id, org_id)
+    if not existing:
+        return None
+    merged_metadata = dict(existing.get('metadata') or {})
+    merged_metadata.update(metadata or {})
+    return upsert_execution_job(
+        org_id,
+        job_id=existing.get('job_id', ''),
+        state=state,
+        note=note or existing.get('note', ''),
+        metadata=merged_metadata,
+    )
 
 
 def execution_job_summary(org_id):
