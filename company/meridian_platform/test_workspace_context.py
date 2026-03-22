@@ -414,7 +414,11 @@ class LiveWorkspaceContextTests(unittest.TestCase):
             status['runtime_core']['service_registry']['federation_gateway']['required_warrant_actions'],
         )
         self.assertFalse(status['runtime_core']['service_registry']['mcp_service']['supports_institution_routing'])
+        self.assertTrue(status['runtime_core']['service_registry']['subscriptions']['supports_institution_routing'])
+        self.assertEqual(status['runtime_core']['service_registry']['subscriptions']['scope'], 'institution_bound')
         self.assertEqual(status['runtime_core']['service_registry']['subscriptions']['identity_model'], 'session')
+        self.assertTrue(status['runtime_core']['service_registry']['accounting']['supports_institution_routing'])
+        self.assertEqual(status['runtime_core']['service_registry']['accounting']['scope'], 'institution_bound')
         self.assertEqual(status['runtime_core']['service_registry']['accounting']['identity_model'], 'session')
         self.assertEqual(status['runtime_core']['host_identity']['host_id'], 'host_live')
         self.assertEqual(status['runtime_core']['admission']['admitted_org_ids'], ['org_founding'])
@@ -1360,6 +1364,68 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.assertEqual(result['data']['case']['case_id'], 'case_live_demo')
         self.assertEqual(result['data']['federation_peer']['reason'], 'single_institution_deployment')
         self.assertIn('disabled', result['data']['error'])
+
+    def test_federation_send_commitment_breach_notice_fails_closed_when_live_federation_disabled(self):
+        calls = []
+
+        class FakeHandler:
+            def __init__(self):
+                self.path = '/api/federation/send'
+                self.headers = _Headers()
+                self.response = None
+
+            def _require_auth(self, path):
+                calls.append(('require_auth', path))
+                return True
+
+            def _session_claims_from_request(self, expected_org_id=None):
+                calls.append(('session_claims', expected_org_id))
+                return None
+
+            def _read_body(self):
+                return {
+                    'target_host_id': 'host_peer',
+                    'target_org_id': 'org_peer',
+                    'message_type': 'commitment_breach_notice',
+                    'commitment_id': 'cmt_live_demo',
+                    'payload': {'summary': 'mirror breach notice'},
+                }
+
+            def _json(self, data, status=200):
+                self.response = {'data': data, 'status': status}
+                return self.response
+
+        handler = FakeHandler()
+        with mock.patch.object(
+            self.workspace,
+            '_resolve_workspace_context',
+            return_value=types.SimpleNamespace(org_id='org_founding'),
+        ), mock.patch.object(
+            self.workspace,
+            '_enforce_request_context',
+            return_value={'requested_org_id': '', 'bound_org_id': 'org_founding'},
+        ), mock.patch.object(
+            self.workspace,
+            '_resolve_auth_context',
+            return_value={'actor_id': 'user_owner', 'session_id': 'ses_demo'},
+        ), mock.patch.object(
+            self.workspace,
+            '_enforce_mutation_authorization',
+            return_value='owner',
+        ), mock.patch.object(
+            self.workspace,
+            '_deliver_federation_envelope',
+            side_effect=self.workspace.FederationUnavailable('Federation gateway is disabled on host_live'),
+        ), mock.patch.object(
+            self.workspace,
+            'log_event',
+        ):
+            result = self.workspace.WorkspaceHandler.do_POST(handler)
+
+        self.assertEqual(calls[0], ('require_auth', '/api/federation/send'))
+        self.assertEqual(result['status'], 503)
+        self.assertIn('disabled', result['data']['error'])
+        self.assertEqual(result, handler.response)
 
     def test_accounting_expense_route_passes_bound_org_to_writer(self):
         calls = []
