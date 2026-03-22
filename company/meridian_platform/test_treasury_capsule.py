@@ -283,8 +283,12 @@ class TreasuryCapsuleTests(unittest.TestCase):
             sub_aliases['subscriptions_lock'],
         )
         accounting_aliases = capsule.ensure_accounting_aliases(self.org_id)
-        self.assertTrue(os.path.islink(accounting_aliases['owner_ledger']))
-        self.assertEqual(os.path.realpath(accounting_aliases['owner_ledger']), self._legacy_owner_ledger)
+        self.assertFalse(os.path.islink(accounting_aliases['owner_ledger']))
+        self.assertTrue(os.path.islink(self._legacy_owner_ledger))
+        self.assertEqual(
+            os.path.realpath(self._legacy_owner_ledger),
+            accounting_aliases['owner_ledger'],
+        )
         monitor_aliases = capsule.ensure_payment_monitor_aliases(self.org_id)
         self.assertTrue(os.path.islink(monitor_aliases['payment_monitor_state']))
         self.assertTrue(os.path.islink(monitor_aliases['payment_events_log']))
@@ -349,11 +353,14 @@ class TreasuryCapsuleTests(unittest.TestCase):
         result = accounting.contribute_capital(1.0, 'test deposit', actor='owner')
         self.assertEqual(result['cash_after_usd'], 8.5)
         owner_alias = capsule.owner_ledger_path(self.org_id)
-        self.assertTrue(os.path.islink(owner_alias))
-        self.assertEqual(os.path.realpath(owner_alias), self._legacy_owner_ledger)
-        with open(self._legacy_owner_ledger) as f:
+        self.assertFalse(os.path.islink(owner_alias))
+        self.assertTrue(os.path.islink(self._legacy_owner_ledger))
+        self.assertEqual(os.path.realpath(self._legacy_owner_ledger), owner_alias)
+        with open(owner_alias) as f:
             owner = json.load(f)
         self.assertEqual(owner['capital_contributed_usd'], 1.0)
+        self.assertEqual(owner['_meta']['service_scope'], 'founding_meridian_service')
+        self.assertEqual(owner['_meta']['bound_org_id'], self.org_id)
         with open(self._legacy_ledger) as f:
             ledger = json.load(f)
         self.assertEqual(ledger['treasury']['cash_usd'], 8.5)

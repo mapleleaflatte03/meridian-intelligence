@@ -292,10 +292,10 @@ to justify settlement.
 | `economy/capsules/<org_id>/ledger.json` | Treasury pointer | Live treasury alias to current ledger state |
 | `economy/capsules/<org_id>/revenue.json` | Treasury pointer | Live treasury alias to current revenue state |
 | `economy/capsules/<org_id>/transactions.jsonl` | Treasury pointer | Live transaction journal alias |
-| `economy/capsules/<org_id>/subscriptions.json` | Service state | Founding subscription registry alias |
-| `economy/capsules/<org_id>/subscriptions.json.bak` | Service state | Founding subscription backup alias |
-| `economy/capsules/<org_id>/.subscriptions.lock` | Service state | Founding subscription lock alias |
-| `economy/capsules/<org_id>/owner_ledger.json` | Service state | Founding owner-ledger alias |
+| `economy/capsules/<org_id>/subscriptions.json` | Service state | Founding subscription registry canonical state |
+| `economy/capsules/<org_id>/subscriptions.json.bak` | Service state | Founding subscription backup canonical state |
+| `economy/capsules/<org_id>/.subscriptions.lock` | Service state | Founding subscription lock canonical state |
+| `economy/capsules/<org_id>/owner_ledger.json` | Service state | Founding owner-ledger canonical state |
 | `economy/capsules/<org_id>/payment_monitor_state.json` | Daemon state | Founding payment monitor state alias |
 | `economy/capsules/<org_id>/payment_events.log` | Daemon state | Founding payment monitor event-log alias |
 | `meridian_platform/audit_log.jsonl` | Audit | Event stream (append-only) |

@@ -8,9 +8,11 @@ Institution scope:
   aliases (ensure_treasury_aliases, capsule_ledger_path) which resolve to
   economy/ledger.json for the founding institution.  Transaction appends
   also resolve through the founding institution's capsule alias, which
-  points at the canonical economy/transactions.jsonl file.  This module
-  does not support multi-institution operation and is not part of the
-  OSS kernel.
+  points at the canonical economy/transactions.jsonl file.  Owner-ledger
+  state is now canonical in the founding institution capsule, while the
+  legacy `company/owner_ledger.json` path is retained only as a compatibility
+  symlink.  This module does not support multi-institution operation and is
+  not part of the OSS kernel.
 
 Usage:
   python3 accounting.py contribute --amount <USD> --note "..."
@@ -29,6 +31,7 @@ DEFAULT_OWNER_LEDGER = OWNER_LEDGER
 if MERIDIAN_PLATFORM_DIR not in sys.path:
     sys.path.insert(0, MERIDIAN_PLATFORM_DIR)
 
+import capsule
 from capsule import ensure_treasury_aliases, ledger_path as capsule_ledger_path
 from capsule import transactions_path as capsule_transactions_path
 from capsule import ensure_accounting_aliases, owner_ledger_path as capsule_owner_ledger_path
@@ -45,6 +48,40 @@ def load_json(path, default=None):
 def save_json(path, data):
     with open(path, 'w') as f:
         json.dump(data, f, indent=2)
+
+
+def _default_owner():
+    return {
+        'version': 1,
+        'owner': 'Son Nguyen The',
+        'created_at': now_ts(),
+        'capital_contributed_usd': 0.0,
+        'expenses_paid_usd': 0.0,
+        'reimbursements_received_usd': 0.0,
+        'draws_taken_usd': 0.0,
+        'entries': [],
+        '_meta': {
+            'service_scope': 'founding_meridian_service',
+            'bound_org_id': capsule.default_org_id() or '',
+        },
+    }
+
+
+def _normalize_owner(data):
+    if not isinstance(data, dict):
+        return _default_owner()
+
+    payload = dict(data)
+    defaults = _default_owner()
+    for key, value in defaults.items():
+        if key == '_meta':
+            continue
+        payload.setdefault(key, value)
+
+    payload.setdefault('_meta', {})
+    payload['_meta']['service_scope'] = 'founding_meridian_service'
+    payload['_meta']['bound_org_id'] = capsule.default_org_id() or ''
+    return payload
 
 
 def owner_ledger_path():
@@ -71,19 +108,7 @@ def append_tx(entry):
         f.write(json.dumps(entry) + '\n')
 
 def load_owner():
-    data = load_json(owner_ledger_path())
-    if not data:
-        data = {
-            'version': 1,
-            'owner':   'Son Nguyen The',
-            'created_at': now_ts(),
-            'capital_contributed_usd':     0.0,
-            'expenses_paid_usd':           0.0,
-            'reimbursements_received_usd': 0.0,
-            'draws_taken_usd':             0.0,
-            'entries': [],
-        }
-    return data
+    return _normalize_owner(load_json(owner_ledger_path()))
 
 # ── reusable helpers ─────────────────────────────────────────────────────────
 

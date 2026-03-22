@@ -286,9 +286,22 @@ def ensure_subscription_aliases(org_id=None):
 
 def ensure_accounting_aliases(org_id=None):
     resolved_org_id = resolve_org_id(org_id)
-    _ensure_default_json(LEGACY_OWNER_LEDGER_FILE, {})
     owner_ledger_alias = capsule_path(resolved_org_id, 'owner_ledger.json')
-    _ensure_alias(owner_ledger_alias, LEGACY_OWNER_LEDGER_FILE)
+    default_payload = {
+        'version': 1,
+        'owner': 'Son Nguyen The',
+        'created_at': '',
+        'capital_contributed_usd': 0.0,
+        'expenses_paid_usd': 0.0,
+        'reimbursements_received_usd': 0.0,
+        'draws_taken_usd': 0.0,
+        'entries': [],
+        '_meta': {
+            'service_scope': 'founding_meridian_service',
+            'bound_org_id': resolved_org_id,
+        },
+    }
+    _ensure_legacy_json_link(LEGACY_OWNER_LEDGER_FILE, owner_ledger_alias, default_payload)
     return {
         'owner_ledger': owner_ledger_alias,
     }

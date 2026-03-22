@@ -23,6 +23,7 @@ tmp_*.md
 # ── Runtime state and logs (never push) ──
 company/subscriptions.json
 company/subscriptions.json.bak
+company/owner_ledger.json
 company/watchlists.json
 company/channel_deliver_state.json
 company/trial_reminder_state.json
