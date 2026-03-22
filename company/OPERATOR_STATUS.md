@@ -19,6 +19,7 @@ It is not promotional copy. Every claim is tagged verified, inferred, or unknown
 | Premium delivery (@eggsama_bot) | NOT RUNNING — no new briefs (treasury-blocked) | preflight output |
 | Workspace runtime-core surface | VERIFIED — `/api/context` and `/api/status` expose host identity, boundary registry, admission truth, and federation-gateway state for founding Meridian | authenticated probes to `http://127.0.0.1:18901/api/context`, `/api/status`, `/api/admission`, and `/api/federation` |
 | Admission mutation boundary | VERIFIED — live `POST /api/admission/admit` fails closed with `founding_locked` semantics | authenticated localhost POST to `http://127.0.0.1:18901/api/admission/admit` with a non-founding org |
+| Settlement verifier gate | VERIFIED — `/api/treasury/settlement-adapters` and `/api/treasury/settlement-adapters/preflight` expose verifier mode, readiness, accepted attestation types, and fail-closed blockers for non-ledger adapters | authenticated localhost GET/POST to the treasury adapter endpoints |
 | Trial reminders | Would run for 2 active IDs (owner test accounts) | subscriptions state via founding capsule alias |
 | Revenue dashboard | Last OK 2026-03-20 (manually triggered) | `scheduler_truth.py --job revenue-dashboard` |
 | External customers | ZERO — all subscription entries are owner test or synthetic residue | subscriptions state via founding capsule alias `_meta` |

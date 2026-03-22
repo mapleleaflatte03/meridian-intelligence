@@ -114,6 +114,10 @@ control-plane effect still fails closed until federation is explicitly
 enabled.
 That same local case state now blocks `POST /api/commitments/settle`, and a
 linked execution warrant can be stayed before settlement is retried.
+The proof split is now explicit: the OSS kernel repo carries the reproducible
+3-host and OpenClaw-compatible proof runners, while this live repo exposes the
+truthful single-host surfaces and operator checks that mirror those contracts
+without pretending federation is broadly enabled here.
 The live mirror also classifies contradictory delivery proofs into local case
 records if that path is ever exercised, and a linked execution warrant can be
 stayed locally for court-first review. Live federation itself is still disabled
