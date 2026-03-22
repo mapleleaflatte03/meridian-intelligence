@@ -15,6 +15,8 @@ Endpoints:
   GET  /api/treasury/accounts     → Treasury sub-accounts
   GET  /api/treasury/funding-sources → Funding source records
   GET  /api/treasury/settlement-adapters → Settlement adapter registry
+  GET  /api/subscriptions         → Founding subscription service state
+  GET  /api/accounting            → Founding accounting owner-ledger state
   GET  /api/payouts              → Payout proposals and summary
   GET  /api/court                 → Court records
   GET  /api/warrants              → Warrant records and summary
@@ -159,6 +161,7 @@ from warrants import (
 )
 import commitments
 import cases
+import service_state
 from federation import (
     FederationAuthority,
     ReplayStore,
@@ -1332,6 +1335,10 @@ def api_status(context_source='founding_default', institution_context=None):
         'warrants': _warrant_summary(org_id),
         'commitments': _commitment_snapshot(org_id),
         'cases': _case_snapshot(org_id),
+        'service_state': {
+            'subscriptions': service_state.subscription_snapshot(org_id),
+            'accounting': service_state.accounting_snapshot(org_id),
+        },
         'ci_vertical': _ci_vertical_status(reg, lead_id, org_id),
         'remediations': remediations,
         'timestamp': _now(),
@@ -2113,6 +2120,10 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                 ),
                 'adapters': list_settlement_adapters(org_id),
             })
+        elif path == '/api/subscriptions':
+            return self._json(service_state.subscription_snapshot(org_id))
+        elif path == '/api/accounting':
+            return self._json(service_state.accounting_snapshot(org_id))
         elif path == '/api/payouts':
             host_identity, _admission_registry = _runtime_host_state(org_id)
             return self._json(_payout_snapshot(

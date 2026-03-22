@@ -49,6 +49,8 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.orig_blocking_commitment_ids = self.workspace.cases.blocking_commitment_ids
         self.orig_blocked_peer_host_ids = self.workspace.cases.blocked_peer_host_ids
         self.orig_ensure_case_for_delivery_failure = self.workspace.cases.ensure_case_for_delivery_failure
+        self.orig_subscription_snapshot = self.workspace.service_state.subscription_snapshot
+        self.orig_accounting_snapshot = self.workspace.service_state.accounting_snapshot
 
     def tearDown(self):
         self.workspace.WORKSPACE_ORG_ID = self.orig_workspace_org_id
@@ -74,6 +76,8 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.workspace.cases.blocking_commitment_ids = self.orig_blocking_commitment_ids
         self.workspace.cases.blocked_peer_host_ids = self.orig_blocked_peer_host_ids
         self.workspace.cases.ensure_case_for_delivery_failure = self.orig_ensure_case_for_delivery_failure
+        self.workspace.service_state.subscription_snapshot = self.orig_subscription_snapshot
+        self.workspace.service_state.accounting_snapshot = self.orig_accounting_snapshot
 
     def test_live_workspace_rejects_non_founding_configured_org(self):
         self.workspace._load_workspace_credentials = lambda: (None, None, None, None)
@@ -266,6 +270,14 @@ class LiveWorkspaceContextTests(unittest.TestCase):
                 'claim_type': 'breach_of_commitment',
             }
         ]
+        self.workspace.service_state.subscription_snapshot = lambda org_id=None: {
+            'bound_org_id': org_id,
+            'summary': {'subscriber_count': 1, 'external_target_count': 0},
+        }
+        self.workspace.service_state.accounting_snapshot = lambda org_id=None: {
+            'bound_org_id': org_id,
+            'summary': {'capital_contributed_usd': 2.0, 'unreimbursed_expenses_usd': 0.0},
+        }
         self.workspace.get_sprint_lead = lambda org_id: ('', 0)
         self.workspace.get_pending_approvals = lambda org_id=None: []
         self.workspace._ci_vertical_status = lambda reg, lead_id, org_id: {}
@@ -353,6 +365,8 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.assertEqual(status['cases']['management_mode'], 'founding_workspace_local')
         self.assertEqual(status['cases']['blocking_commitment_ids'], ['com_live_demo'])
         self.assertEqual(status['cases']['blocked_peer_host_ids'], ['host_peer'])
+        self.assertEqual(status['service_state']['subscriptions']['summary']['subscriber_count'], 1)
+        self.assertEqual(status['service_state']['accounting']['summary']['capital_contributed_usd'], 2.0)
         self.assertIn('federation', status['runtime_core'])
         self.assertFalse(status['runtime_core']['federation']['enabled'])
 

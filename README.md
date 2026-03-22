@@ -96,7 +96,10 @@ capital and payout execution state. Founding subscription entitlement state
 has now moved one step further into the institution boundary: the canonical
 file lives inside the founding capsule, and the old
 `company/subscriptions*.json` paths remain only as compatibility symlinks back
-to that capsule-owned state.
+to that capsule-owned state. The owner workspace now also exposes
+`GET /api/subscriptions` and `GET /api/accounting`, which surface those
+founding-only service states directly from capsule-canonical storage while
+leaving mutation on the operator/CLI path.
 
 **Live service:** https://app.welliam.codes
 **Product demo:** https://app.welliam.codes/demo.html

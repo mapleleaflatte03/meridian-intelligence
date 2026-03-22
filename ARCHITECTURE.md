@@ -368,6 +368,13 @@ which exposes:
 - the live admission model
 - the live federation-gateway state
 
+The owner workspace also now exposes read-only founding-service snapshots for
+the two capsule-canonical service-state files that still remain founding-only:
+`GET /api/subscriptions` and `GET /api/accounting`. Those surfaces read
+directly from capsule-canonical state and report their storage model as
+`capsule_canonical_with_legacy_symlink`; they do not claim self-serve mutation
+or multi-institution routing.
+
 That admission model is explicitly `single_institution_deployment`. The live
 workspace is institution-bound, but this deployment does not admit additional
 institutions beyond the founding Meridian org. The live federation gateway is
