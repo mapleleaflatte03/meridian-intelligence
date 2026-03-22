@@ -16,9 +16,12 @@ PLATFORM_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, PLATFORM_DIR)
 
 from organizations import load_orgs, save_orgs, create_org, _now, DEFAULT_POLICY_DEFAULTS
-from agent_registry import (load_registry, save_registry, _now as _reg_now,
-                            INCIDENT_ELEVATED_THRESHOLD, INCIDENT_CRITICAL_THRESHOLD,
-                            runtime_binding_for_org)
+from agent_registry import (
+    load_registry,
+    save_registry,
+    _now as _reg_now,
+    runtime_binding_for_org,
+)
 from audit import log_event
 from capsule import (
     ensure_capsule,
