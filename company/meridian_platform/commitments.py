@@ -127,7 +127,9 @@ def _propose_commitment_record(org_id, target_host_id, target_org_id, commitment
         'breached_by': '',
         'settled_by': '',
         'delivery_refs': [],
+        'settlement_refs': [],
         'last_delivery_at': '',
+        'last_settlement_at': '',
         'breached_at': '',
         'settled_at': '',
         'note': note or '',
@@ -184,6 +186,13 @@ def list_commitments(org_id=None, *, state=None):
         commitments = [row for row in commitments if _canonical_state(row) == state]
     commitments.sort(key=lambda row: row.get('proposed_at', ''), reverse=True)
     return commitments
+
+
+def get_commitment(commitment_id, org_id=None):
+    if not commitment_id:
+        return None
+    store = _load_store(org_id)
+    return store.get('commitments', {}).get(commitment_id)
 
 
 def review_commitment(commitment_id, decision, by, *, org_id=None, note=''):
@@ -287,6 +296,23 @@ def validate_commitment_for_delivery(commitment_id, *, target_host_id='',
         raise ValueError(str(exc))
 
 
+def validate_commitment_for_settlement(commitment_id, *, org_id=None, warrant_id=''):
+    record = get_commitment(commitment_id, org_id=org_id)
+    if not record:
+        raise PermissionError(f"Commitment '{commitment_id}' does not exist")
+    if _canonical_state(record) not in ('accepted', 'settled'):
+        raise PermissionError(
+            f"Commitment '{commitment_id}' is not ready for settlement "
+            f"(state={_canonical_state(record)})"
+        )
+    if warrant_id and record.get('warrant_id') and record.get('warrant_id') != warrant_id:
+        raise PermissionError(
+            f"Commitment '{commitment_id}' warrant_id "
+            f"{record.get('warrant_id', '')!r} does not match {warrant_id!r}"
+        )
+    return record
+
+
 def mark_commitment_delivery(commitment_id, *, org_id=None, delivery_ref=None):
     store = _load_store(org_id)
     record = store.get('commitments', {}).get(commitment_id)
@@ -311,6 +337,44 @@ def record_delivery_ref(commitment_id, delivery_ref, *, org_id=None):
     )
 
 
+def mark_commitment_settlement(commitment_id, *, org_id=None, settlement_ref=None):
+    store = _load_store(org_id)
+    record = store.get('commitments', {}).get(commitment_id)
+    if not record:
+        raise ValueError(f'Commitment not found: {commitment_id}')
+    ref = dict(settlement_ref or {})
+    ref.setdefault('recorded_at', _now())
+    refs = list(record.get('settlement_refs', []))
+    key_proposal = (ref.get('proposal_id') or '').strip()
+    key_tx = (ref.get('tx_ref') or '').strip()
+    replaced = False
+    if key_proposal or key_tx:
+        for index, existing in enumerate(refs):
+            if key_proposal and (existing.get('proposal_id') or '').strip() == key_proposal:
+                refs[index] = ref
+                replaced = True
+                break
+            if key_tx and (existing.get('tx_ref') or '').strip() == key_tx:
+                refs[index] = ref
+                replaced = True
+                break
+    if not replaced:
+        refs.append(ref)
+    record['settlement_refs'] = refs
+    record['last_settlement_at'] = ref['recorded_at']
+    record['updated_at'] = ref['recorded_at']
+    _save_store(store, org_id)
+    return record
+
+
+def record_settlement_ref(commitment_id, settlement_ref, *, org_id=None):
+    return mark_commitment_settlement(
+        commitment_id,
+        org_id=org_id,
+        settlement_ref=settlement_ref,
+    )
+
+
 def commitment_summary(org_id=None):
     records = list_commitments(org_id)
     summary = {
@@ -321,10 +385,12 @@ def commitment_summary(org_id=None):
         'breached': 0,
         'settled': 0,
         'delivery_refs_total': 0,
+        'settlement_refs_total': 0,
     }
     for record in records:
         state = _canonical_state(record)
         if state in summary:
             summary[state] += 1
         summary['delivery_refs_total'] += len(record.get('delivery_refs', []))
+        summary['settlement_refs_total'] += len(record.get('settlement_refs', []))
     return summary

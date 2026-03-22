@@ -159,6 +159,7 @@ from treasury import (treasury_snapshot, get_balance, get_runway, check_budget,
                       list_payout_proposals, payout_proposal_summary,
                       list_settlement_adapters, settlement_adapter_summary,
                       preflight_settlement_adapter,
+                      get_payout_proposal,
                       create_payout_proposal, submit_payout_proposal,
                       review_payout_proposal, approve_payout_proposal,
                       open_payout_dispute_window, reject_payout_proposal,
@@ -2628,6 +2629,7 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                     settlement_adapter=(body.get('settlement_adapter') or 'internal_ledger').strip(),
                     note=body.get('note', ''),
                     metadata=body.get('metadata'),
+                    linked_commitment_id=(body.get('linked_commitment_id') or '').strip(),
                 )
                 log_event(
                     org_id,
@@ -2640,6 +2642,7 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                         'amount_usd': proposal['amount_usd'],
                         'recipient_wallet_id': proposal['recipient_wallet_id'],
                         'settlement_adapter': proposal['settlement_adapter'],
+                        'linked_commitment_id': proposal.get('linked_commitment_id', ''),
                     },
                     session_id=_sid,
                 )
@@ -2872,12 +2875,35 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                     return self._json({'error': 'proposal_id is required'}, 400)
                 if not warrant_id:
                     return self._json({'error': 'warrant_id is required'}, 400)
+                proposal_record = get_payout_proposal(proposal_id, org_id=org_id)
+                linked_commitment_id = (proposal_record or {}).get('linked_commitment_id', '').strip()
+                if linked_commitment_id:
+                    case_record, settlement_warrant = _maybe_block_commitment_settlement(
+                        linked_commitment_id,
+                        by,
+                        org_id=org_id,
+                        session_id=_sid,
+                        note=body.get('note', ''),
+                    )
+                    if case_record:
+                        return self._json({
+                            'error': (
+                                f"Linked commitment '{linked_commitment_id}' cannot settle while case "
+                                f"'{case_record.get('case_id', '')}' is {case_record.get('status', '')}"
+                            ),
+                            'case': case_record,
+                            'warrant': settlement_warrant,
+                            'linked_commitment_id': linked_commitment_id,
+                            'summary': payout_proposal_summary(org_id),
+                        }, 409)
                 host_identity, _admission_registry = _runtime_host_state(org_id)
                 request_payload = {
                     'proposal_id': proposal_id,
                     'settlement_adapter': (body.get('settlement_adapter') or 'internal_ledger').strip(),
                     'tx_hash': (body.get('tx_hash') or '').strip(),
                 }
+                if linked_commitment_id:
+                    request_payload['linked_commitment_id'] = linked_commitment_id
                 if 'settlement_proof' in body:
                     request_payload['settlement_proof'] = body.get('settlement_proof')
                 validate_warrant_for_execution(
@@ -2920,6 +2946,7 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                         'recipient_wallet_id': proposal['recipient_wallet_id'],
                         'warrant_id': warrant_id,
                         'tx_ref': (proposal.get('execution_refs') or {}).get('tx_ref', ''),
+                        'linked_commitment_id': linked_commitment_id,
                     },
                     session_id=_sid,
                 )
@@ -3152,6 +3179,41 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                 commitment_id = (body.get('commitment_id') or '').strip()
                 if not commitment_id:
                     return self._json({'error': 'commitment_id is required'}, 400)
+                proposal_id = (body.get('proposal_id') or '').strip()
+                settlement_proposal = None
+                settlement_ref = None
+                if proposal_id:
+                    settlement_proposal = get_payout_proposal(proposal_id, org_id=org_id)
+                    if not settlement_proposal:
+                        return self._json({'error': f'Payout proposal not found: {proposal_id}'}, 404)
+                    if settlement_proposal.get('status') != 'executed':
+                        return self._json({
+                            'error': (
+                                f"Payout proposal '{proposal_id}' must be executed before settling "
+                                f"commitment '{commitment_id}'"
+                            ),
+                            'proposal': settlement_proposal,
+                        }, 409)
+                    if (settlement_proposal.get('linked_commitment_id') or '').strip() != commitment_id:
+                        return self._json({
+                            'error': (
+                                f"Payout proposal '{proposal_id}' is linked to commitment "
+                                f"{settlement_proposal.get('linked_commitment_id', '')!r}, not {commitment_id!r}"
+                            ),
+                            'proposal': settlement_proposal,
+                        }, 409)
+                    settlement_ref = {
+                        'proposal_id': proposal_id,
+                        'tx_ref': (settlement_proposal.get('execution_refs') or {}).get('tx_ref', ''),
+                        'settlement_adapter': settlement_proposal.get('settlement_adapter', ''),
+                        'tx_hash': settlement_proposal.get('tx_hash', ''),
+                        'proof_type': (settlement_proposal.get('execution_refs') or {}).get('proof_type', ''),
+                        'verification_state': (settlement_proposal.get('execution_refs') or {}).get('verification_state', ''),
+                        'finality_state': (settlement_proposal.get('execution_refs') or {}).get('finality_state', ''),
+                        'warrant_id': settlement_proposal.get('warrant_id', ''),
+                        'recorded_by': by,
+                        'proof': (settlement_proposal.get('execution_refs') or {}).get('proof', {}),
+                    }
                 case_record, warrant = _maybe_block_commitment_settlement(
                     commitment_id,
                     by,
@@ -3167,8 +3229,14 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                         ),
                         'case': case_record,
                         'warrant': warrant,
-                        'summary': commitments.commitment_summary(org_id),
-                    }, 409)
+                            'summary': commitments.commitment_summary(org_id),
+                        }, 409)
+                if settlement_ref:
+                    commitments.record_settlement_ref(
+                        commitment_id,
+                        settlement_ref,
+                        org_id=org_id,
+                    )
                 commitment = commitments.settle_commitment(
                     commitment_id,
                     by,
@@ -3181,6 +3249,7 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                 return self._json({
                     'message': f"Commitment settled: {commitment_id}",
                     'commitment': commitment,
+                    'proposal': settlement_proposal,
                     'summary': commitments.commitment_summary(org_id),
                 })
 

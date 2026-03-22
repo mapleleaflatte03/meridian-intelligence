@@ -52,6 +52,7 @@ _update_reserve_floor = _accounting_mod.update_reserve_floor
 # Import platform metering
 sys.path.insert(0, PLATFORM_DIR)
 from metering import get_spend, summary as metering_summary
+import commitments
 from agent_registry import (
     check_budget as _agent_check_budget,
     get_agent,
@@ -993,7 +994,7 @@ def create_payout_proposal(contributor_id, amount_usd, contribution_type, *,
                            proposed_by, org_id=None, evidence=None,
                            recipient_wallet_id='', currency='USDC',
                            settlement_adapter='internal_ledger', note='',
-                           metadata=None):
+                           metadata=None, linked_commitment_id=''):
     org_id = _resolve_org_id(org_id)
     contributor_id = (contributor_id or '').strip()
     proposed_by = (proposed_by or '').strip()
@@ -1011,6 +1012,9 @@ def create_payout_proposal(contributor_id, amount_usd, contribution_type, *,
     if contribution_type not in allowed_types:
         raise ValueError(f'Unknown contribution_type {contribution_type!r}')
     _require_known_settlement_adapter(settlement_adapter, org_id=org_id)
+    linked_commitment_id = (linked_commitment_id or '').strip()
+    if linked_commitment_id and not commitments.get_commitment(linked_commitment_id, org_id=org_id):
+        raise LookupError(f'Commitment not found: {linked_commitment_id}')
     normalized_evidence = _normalize_payout_evidence(evidence)
     contributor, wallet_id = _resolve_recipient_wallet(
         contributor_id,
@@ -1046,6 +1050,7 @@ def create_payout_proposal(contributor_id, amount_usd, contribution_type, *,
         'tx_hash': '',
         'warrant_id': '',
         'settlement_adapter': settlement_adapter,
+        'linked_commitment_id': linked_commitment_id,
         'execution_refs': {},
         'note': note or '',
         'metadata': dict(metadata or {}),
@@ -1230,6 +1235,12 @@ def execute_payout_proposal(proposal_id, actor_id, *, org_id=None, warrant_id=''
         raise PermissionError(
             f"Payout proposal '{proposal_id}' would breach treasury reserve floor"
         )
+    linked_commitment_id = (record.get('linked_commitment_id') or '').strip()
+    if linked_commitment_id:
+        commitments.validate_commitment_for_settlement(
+            linked_commitment_id,
+            org_id=org_id,
+        )
 
     settlement_adapter = (settlement_adapter or record.get('settlement_adapter') or 'internal_ledger').strip()
     adapter, normalized_proof = _validate_payout_execution_adapter(
@@ -1292,11 +1303,32 @@ def execute_payout_proposal(proposal_id, actor_id, *, org_id=None, warrant_id=''
             '',
         ),
         'proof': normalized_proof.get('proof', {}),
+        'linked_commitment_id': linked_commitment_id,
     }
     if note:
         record['execution_note'] = note
+    linked_commitment = None
+    if linked_commitment_id:
+        linked_commitment = commitments.record_settlement_ref(
+            linked_commitment_id,
+            {
+                'proposal_id': proposal_id,
+                'tx_ref': tx_row['tx_ref'],
+                'settlement_adapter': settlement_adapter,
+                'tx_hash': normalized_proof.get('tx_hash', ''),
+                'proof_type': adapter.get('proof_type', ''),
+                'verification_state': normalized_proof.get('verification_state', ''),
+                'finality_state': normalized_proof.get('finality_state', ''),
+                'warrant_id': (warrant_id or '').strip(),
+                'recorded_by': actor_id,
+                'proof': normalized_proof.get('proof', {}),
+            },
+            org_id=org_id,
+        )
     _save_proposal_store(store, org_id)
     _sync_treasury_accounts(org_id)
+    if linked_commitment is not None:
+        record['linked_commitment'] = linked_commitment
     return record
 
 

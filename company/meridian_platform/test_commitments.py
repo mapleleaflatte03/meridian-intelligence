@@ -96,6 +96,55 @@ class CommitmentModuleTests(unittest.TestCase):
                 org_id=self.org_id,
             )
 
+    def test_settlement_refs_are_recorded_and_deduped(self):
+        self.commitments.propose_commitment(
+            'host_peer',
+            'org_peer',
+            'Settle the approved brief',
+            commitment_id='com_settle',
+            proposed_by='user_owner',
+            warrant_id='war_live_demo',
+            org_id=self.org_id,
+        )
+        self.commitments.accept_commitment('com_settle', 'user_owner', org_id=self.org_id)
+
+        validated = self.commitments.validate_commitment_for_settlement(
+            'com_settle',
+            org_id=self.org_id,
+            warrant_id='war_live_demo',
+        )
+        self.assertEqual(validated['commitment_id'], 'com_settle')
+
+        record = self.commitments.record_settlement_ref(
+            'com_settle',
+            {
+                'proposal_id': 'ppo_live_demo',
+                'tx_ref': 'ptx_live_demo',
+                'verification_state': 'host_ledger_final',
+            },
+            org_id=self.org_id,
+        )
+        self.assertEqual(len(record['settlement_refs']), 1)
+        self.assertEqual(record['settlement_refs'][0]['proposal_id'], 'ppo_live_demo')
+        self.assertIn('recorded_at', record['settlement_refs'][0])
+
+        record = self.commitments.record_settlement_ref(
+            'com_settle',
+            {
+                'proposal_id': 'ppo_live_demo',
+                'tx_ref': 'ptx_live_demo_v2',
+                'verification_state': 'chain_final',
+            },
+            org_id=self.org_id,
+        )
+        self.assertEqual(len(record['settlement_refs']), 1)
+        self.assertEqual(record['settlement_refs'][0]['tx_ref'], 'ptx_live_demo_v2')
+        self.assertEqual(record['settlement_refs'][0]['verification_state'], 'chain_final')
+
+        summary = self.commitments.commitment_summary(self.org_id)
+        self.assertEqual(summary['accepted'], 1)
+        self.assertEqual(summary['settlement_refs_total'], 1)
+
 
 class WorkspaceCommitmentTests(unittest.TestCase):
     def setUp(self):

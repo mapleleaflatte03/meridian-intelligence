@@ -542,6 +542,110 @@ class TreasuryCapsuleTests(unittest.TestCase):
         self.assertAlmostEqual(accounts['accounts']['executed_payouts']['balance_usd'], 1.5, places=2)
         self.assertAlmostEqual(accounts['accounts']['pending_payouts']['balance_usd'], 0.0, places=2)
 
+    def test_live_execute_payout_records_linked_commitment_settlement_ref(self):
+        capsule.ensure_treasury_aliases(self.org_id)
+        org_dir = os.path.join(self._capsules_dir, self.org_id)
+        os.makedirs(org_dir, exist_ok=True)
+
+        with open(os.path.join(org_dir, 'wallets.json'), 'w') as f:
+            json.dump({
+                'wallets': {
+                    'wallet_live': {
+                        'id': 'wallet_live',
+                        'verification_level': 3,
+                        'verification_label': 'self_custody_verified',
+                        'payout_eligible': True,
+                        'status': 'active',
+                    }
+                },
+                'verification_levels': {},
+            }, f, indent=2)
+        with open(os.path.join(org_dir, 'contributors.json'), 'w') as f:
+            json.dump({
+                'contributors': {
+                    'contrib_live': {
+                        'id': 'contrib_live',
+                        'name': 'Contributor Live',
+                        'payout_wallet_id': 'wallet_live',
+                    }
+                },
+                'contribution_types': ['code'],
+                'registration_requirements': {},
+            }, f, indent=2)
+
+        commitment = treasury.commitments.propose_commitment(
+            'host_peer',
+            'org_peer',
+            'Settle the approved brief',
+            commitment_id='com_live_settle',
+            proposed_by='user_owner',
+            warrant_id='war_live_exec',
+            org_id=self.org_id,
+        )
+        treasury.commitments.accept_commitment(
+            commitment['commitment_id'],
+            'user_owner',
+            org_id=self.org_id,
+        )
+
+        proposal = treasury.create_payout_proposal(
+            'contrib_live',
+            1.5,
+            'code',
+            proposed_by='user:proposer',
+            org_id=self.org_id,
+            evidence={'description': 'live capsule proof'},
+            linked_commitment_id=commitment['commitment_id'],
+        )
+        proposal = treasury.submit_payout_proposal(
+            proposal['proposal_id'],
+            'user:proposer',
+            org_id=self.org_id,
+        )
+        proposal = treasury.review_payout_proposal(
+            proposal['proposal_id'],
+            'user:reviewer',
+            org_id=self.org_id,
+        )
+        proposal = treasury.approve_payout_proposal(
+            proposal['proposal_id'],
+            'user:owner',
+            org_id=self.org_id,
+        )
+        proposal = treasury.open_payout_dispute_window(
+            proposal['proposal_id'],
+            'user:owner',
+            org_id=self.org_id,
+            dispute_window_hours=0,
+        )
+        with mock.patch.object(treasury, '_payout_phase_gate', return_value=(True, 'phase 5 test override')):
+            proposal = treasury.execute_payout_proposal(
+                proposal['proposal_id'],
+                'user:owner',
+                org_id=self.org_id,
+                warrant_id='war_live_exec',
+                tx_hash='tx_live_demo_commitment',
+            )
+
+        self.assertEqual(proposal['linked_commitment_id'], commitment['commitment_id'])
+        self.assertEqual(
+            proposal['execution_refs']['linked_commitment_id'],
+            commitment['commitment_id'],
+        )
+        self.assertEqual(proposal['linked_commitment']['commitment_id'], commitment['commitment_id'])
+        self.assertEqual(
+            proposal['linked_commitment']['settlement_refs'][0]['proposal_id'],
+            proposal['proposal_id'],
+        )
+        self.assertEqual(
+            proposal['linked_commitment']['settlement_refs'][0]['tx_ref'],
+            proposal['execution_refs']['tx_ref'],
+        )
+        self.assertEqual(
+            treasury.commitments.commitment_summary(self.org_id)['settlement_refs_total'],
+            1,
+        )
+
     def test_live_payout_creation_blocks_unverified_wallet(self):
         capsule.ensure_treasury_aliases(self.org_id)
         org_dir = os.path.join(self._capsules_dir, self.org_id)
