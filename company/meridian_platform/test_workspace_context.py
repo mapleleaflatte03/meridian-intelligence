@@ -155,6 +155,8 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.assertTrue(permissions['/api/institution/charter']['allowed'])
         self.assertFalse(permissions['/api/treasury/contribute']['allowed'])
         self.assertTrue(permissions['/api/federation/send']['allowed'])
+        self.assertFalse(permissions['/api/federation/peers/refresh']['allowed'])
+        self.assertEqual(permissions['/api/federation/peers/refresh']['required_role'], 'owner')
 
     def test_api_status_exposes_runtime_core(self):
         from runtime_host import default_host_identity
@@ -264,6 +266,12 @@ class LiveWorkspaceContextTests(unittest.TestCase):
             self.workspace._mutate_federation_peer('org_founding', 'upsert', {
                 'peer_host_id': 'host_beta',
                 'shared_secret': 'beta-secret',
+            })
+
+    def test_mutate_federation_peer_refresh_is_rejected_on_live(self):
+        with self.assertRaises(PermissionError):
+            self.workspace._mutate_federation_peer('org_founding', 'refresh', {
+                'peer_host_id': 'host_beta',
             })
 
     def test_federation_manifest_reports_founding_locked_runtime(self):

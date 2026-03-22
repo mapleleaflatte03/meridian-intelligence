@@ -96,10 +96,13 @@ class FederationPeer:
         'trust_state',
         'shared_secret',
         'admitted_org_ids',
+        'capability_snapshot',
+        'last_refreshed_at',
     )
 
     def __init__(self, host_id, label='', transport='https', endpoint_url='',
-                 trust_state='trusted', shared_secret='', admitted_org_ids=None):
+                 trust_state='trusted', shared_secret='', admitted_org_ids=None,
+                 capability_snapshot=None, last_refreshed_at=''):
         if trust_state not in TRUST_STATES:
             raise ValueError(
                 f'Unknown trust_state {trust_state!r}. Must be one of {TRUST_STATES}'
@@ -111,6 +114,8 @@ class FederationPeer:
         self.trust_state = trust_state
         self.shared_secret = shared_secret or ''
         self.admitted_org_ids = list(admitted_org_ids or [])
+        self.capability_snapshot = dict(capability_snapshot or {})
+        self.last_refreshed_at = (last_refreshed_at or '').strip()
 
     def to_dict(self, redact_secret=True):
         data = {
@@ -120,6 +125,8 @@ class FederationPeer:
             'endpoint_url': self.endpoint_url,
             'trust_state': self.trust_state,
             'admitted_org_ids': list(self.admitted_org_ids),
+            'capability_snapshot': dict(self.capability_snapshot),
+            'last_refreshed_at': self.last_refreshed_at,
         }
         if not redact_secret:
             data['shared_secret'] = self.shared_secret
@@ -280,6 +287,8 @@ def load_peer_registry(file_path, *, host_identity=None):
             trust_state=(data.get('trust_state') or 'trusted').strip(),
             shared_secret=(data.get('shared_secret') or '').strip(),
             admitted_org_ids=data.get('admitted_org_ids', []),
+            capability_snapshot=data.get('capability_snapshot', {}),
+            last_refreshed_at=data.get('last_refreshed_at', ''),
         )
         if entry.trust_state == 'trusted' and not entry.shared_secret:
             raise RuntimeError(
@@ -321,6 +330,8 @@ def save_peer_registry(file_path, registry, *, host_identity=None):
                 trust_state=(data.get('trust_state') or 'trusted').strip(),
                 shared_secret=(data.get('shared_secret') or '').strip(),
                 admitted_org_ids=_normalize_peer_org_ids(data.get('admitted_org_ids', [])),
+                capability_snapshot=data.get('capability_snapshot', {}),
+                last_refreshed_at=data.get('last_refreshed_at', ''),
             )
         if entry.host_id == host_id:
             raise RuntimeError('Peer registry cannot declare the current host as a trusted peer')
@@ -379,6 +390,12 @@ def upsert_peer_registry_entry(file_path, peer_host_id, *, host_identity=None,
             if admitted_org_ids is not None else
             _normalize_peer_org_ids(existing.admitted_org_ids if existing else [])
         ),
+        capability_snapshot=(
+            dict(existing.capability_snapshot) if existing else {}
+        ),
+        last_refreshed_at=(
+            existing.last_refreshed_at if existing else ''
+        ),
     )
     registry.setdefault('peers', {})[peer_host_id] = next_entry
     return save_peer_registry(file_path, registry, host_identity=host_identity)
@@ -403,6 +420,41 @@ def set_peer_trust_state(file_path, peer_host_id, trust_state, *, host_identity=
         trust_state=trust_state,
         shared_secret=existing.shared_secret,
         admitted_org_ids=existing.admitted_org_ids,
+        capability_snapshot=existing.capability_snapshot,
+        last_refreshed_at=existing.last_refreshed_at,
+    )
+    return save_peer_registry(file_path, registry, host_identity=host_identity)
+
+
+def refresh_peer_registry_entry(file_path, peer_host_id, *, host_identity=None,
+                                http_get=None, target_org_id=None):
+    peer_host_id = _normalize_host_id(peer_host_id, field_name='peer_host_id')
+    if host_identity is None:
+        raise RuntimeError('host_identity is required to refresh federation peer capabilities')
+    registry = load_peer_registry(file_path, host_identity=host_identity)
+    existing = registry.get('peers', {}).get(peer_host_id)
+    if not existing:
+        raise LookupError(f"Peer host '{peer_host_id}' is not in peer registry")
+    authority = FederationAuthority(
+        host_identity,
+        peer_registry=registry,
+    )
+    peer, manifest = authority.fetch_peer_manifest(peer_host_id, http_get=http_get)
+    manifest = authority._validate_peer_manifest(
+        peer,
+        manifest,
+        target_institution_id=(target_org_id or '').strip(),
+    )
+    registry.setdefault('peers', {})[peer_host_id] = FederationPeer(
+        host_id=existing.host_id,
+        label=existing.label,
+        transport=existing.transport,
+        endpoint_url=existing.endpoint_url,
+        trust_state=existing.trust_state,
+        shared_secret=existing.shared_secret,
+        admitted_org_ids=existing.admitted_org_ids,
+        capability_snapshot=dict(manifest),
+        last_refreshed_at=_now().strftime('%Y-%m-%dT%H:%M:%SZ'),
     )
     return save_peer_registry(file_path, registry, host_identity=host_identity)
 
@@ -706,8 +758,7 @@ class FederationAuthority:
             )
         return peer, manifest
 
-    def preflight_delivery(self, peer_host_id, target_institution_id, *, http_get=None):
-        peer, manifest = self.fetch_peer_manifest(peer_host_id, http_get=http_get)
+    def _validate_peer_manifest(self, peer, manifest, *, target_institution_id=''):
         host_identity = manifest.get('host_identity', {}) or {}
         if host_identity.get('host_id') != peer.host_id:
             raise FederationDeliveryError(
@@ -763,7 +814,7 @@ class FederationAuthority:
 
         admission = manifest.get('admission', {}) or {}
         admitted_org_ids = list(admission.get('admitted_org_ids', []) or [])
-        if admitted_org_ids and target_institution_id not in admitted_org_ids:
+        if target_institution_id and admitted_org_ids and target_institution_id not in admitted_org_ids:
             raise FederationDeliveryError(
                 f"Peer host '{peer.host_id}' manifest does not admit target institution "
                 f"'{target_institution_id}'",
@@ -771,6 +822,14 @@ class FederationAuthority:
                 response=manifest,
             )
         return manifest
+
+    def preflight_delivery(self, peer_host_id, target_institution_id, *, http_get=None):
+        peer, manifest = self.fetch_peer_manifest(peer_host_id, http_get=http_get)
+        return self._validate_peer_manifest(
+            peer,
+            manifest,
+            target_institution_id=target_institution_id,
+        )
 
     def snapshot(self, *, bound_org_id='', admission_registry=None):
         enabled, reason = self._enabled_state()

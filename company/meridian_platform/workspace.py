@@ -33,6 +33,7 @@ Endpoints:
   POST /api/admission/suspend     → Structurally reject admission suspension changes
   POST /api/admission/revoke      → Structurally reject admission revocation changes
   POST /api/federation/peers/upsert → Structurally reject peer registry mutation on live
+  POST /api/federation/peers/refresh → Structurally reject peer capability refresh on live
   POST /api/federation/peers/suspend → Structurally reject peer suspension changes on live
   POST /api/federation/peers/revoke → Structurally reject peer revocation changes on live
   POST /api/federation/send       → Attempt a federation delivery and fail closed when disabled
@@ -170,6 +171,7 @@ MUTATION_ROLE_REQUIREMENTS = {
     '/api/admission/revoke': 'owner',
     '/api/federation/send': 'admin',
     '/api/federation/peers/upsert': 'owner',
+    '/api/federation/peers/refresh': 'owner',
     '/api/federation/peers/suspend': 'owner',
     '/api/federation/peers/revoke': 'owner',
     '/api/institution/charter': 'admin',
@@ -1825,7 +1827,12 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                     },
                 })
 
-            elif path in ('/api/federation/peers/upsert', '/api/federation/peers/suspend', '/api/federation/peers/revoke'):
+            elif path in (
+                '/api/federation/peers/upsert',
+                '/api/federation/peers/refresh',
+                '/api/federation/peers/suspend',
+                '/api/federation/peers/revoke',
+            ):
                 action = path.rsplit('/', 1)[-1]
                 _mutate_federation_peer(org_id, action, body)
                 return self._json({'message': f'Federation peer {action} applied'})
