@@ -212,6 +212,11 @@ hidden singleton file paths.
 
 See `DELIVERY_ARCHITECTURE.md` in this directory for the full Telegram channel/bot/premium model.
 
+Subscription state is now capsule-canonical for the founding org. The legacy
+`company/subscriptions.json`, `subscriptions.json.bak`, and
+`.subscriptions.lock` paths are compatibility symlinks back to the founding
+capsule files rather than the other way around.
+
 ---
 
 ## STATUS DOC RULES — Anti-Regression Guardrail

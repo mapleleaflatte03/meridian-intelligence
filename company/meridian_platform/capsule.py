@@ -180,34 +180,103 @@ def _ensure_default_text(path, content=''):
         f.write(content)
 
 
+def _ensure_canonical_json(path, payload):
+    parent = os.path.dirname(path)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+    if os.path.islink(path):
+        source = os.path.realpath(path)
+        data = _load_alias_content(source)
+        os.unlink(path)
+        _write_json(path, data if isinstance(data, dict) else payload)
+        return
+    if not os.path.exists(path):
+        _write_json(path, payload)
+
+
+def _ensure_canonical_text(path, content=''):
+    parent = os.path.dirname(path)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+    if os.path.islink(path):
+        source = os.path.realpath(path)
+        existing = ''
+        if os.path.exists(source):
+            with open(source) as f:
+                existing = f.read()
+        os.unlink(path)
+        with open(path, 'w') as f:
+            f.write(existing or content)
+        return
+    if not os.path.exists(path):
+        with open(path, 'w') as f:
+            f.write(content)
+
+
+def _ensure_legacy_json_link(path, target, payload):
+    _ensure_canonical_json(target, payload)
+    if os.path.islink(path):
+        current = os.path.realpath(path)
+        if os.path.realpath(target) != current:
+            os.unlink(path)
+            os.symlink(target, path)
+        return path
+    if os.path.exists(path):
+        current = _load_alias_content(path)
+        target_data = _load_alias_content(target)
+        if current != target_data and isinstance(current, dict):
+            _write_json(target, current)
+        os.unlink(path)
+    os.symlink(target, path)
+    return path
+
+
+def _ensure_legacy_text_link(path, target, content=''):
+    _ensure_canonical_text(target, content)
+    if os.path.islink(path):
+        current = os.path.realpath(path)
+        if os.path.realpath(target) != current:
+            os.unlink(path)
+            os.symlink(target, path)
+        return path
+    if os.path.exists(path):
+        with open(path) as f:
+            current = f.read()
+        with open(target, 'r+') as f:
+            target_data = f.read()
+            if current and current != target_data:
+                f.seek(0)
+                f.write(current)
+                f.truncate()
+        os.unlink(path)
+    os.symlink(target, path)
+    return path
+
+
 def ensure_subscription_aliases(org_id=None):
     resolved_org_id = resolve_org_id(org_id)
-    _ensure_default_json(
-        LEGACY_SUBSCRIPTIONS_FILE,
-        {
-            'subscribers': {},
-            'delivery_log': [],
-            'updatedAt': '',
-            '_meta': {'service_scope': 'founding_meridian_service'},
+    default_payload = {
+        'subscribers': {},
+        'delivery_log': [],
+        'updatedAt': '',
+        '_meta': {
+            'service_scope': 'founding_meridian_service',
+            'bound_org_id': resolved_org_id,
         },
-    )
-    _ensure_default_json(
-        LEGACY_SUBSCRIPTIONS_BACKUP_FILE,
-        {
-            'subscribers': {},
-            'delivery_log': [],
-            'updatedAt': '',
-            '_meta': {'service_scope': 'founding_meridian_service'},
-        },
-    )
-    _ensure_default_text(LEGACY_SUBSCRIPTIONS_LOCK_FILE, '')
-
+    }
     subscriptions_alias = capsule_path(resolved_org_id, 'subscriptions.json')
     subscriptions_backup_alias = capsule_path(resolved_org_id, 'subscriptions.json.bak')
     subscriptions_lock_alias = capsule_path(resolved_org_id, '.subscriptions.lock')
-    _ensure_alias(subscriptions_alias, LEGACY_SUBSCRIPTIONS_FILE)
-    _ensure_alias(subscriptions_backup_alias, LEGACY_SUBSCRIPTIONS_BACKUP_FILE)
-    _ensure_alias(subscriptions_lock_alias, LEGACY_SUBSCRIPTIONS_LOCK_FILE)
+    _ensure_canonical_json(subscriptions_alias, default_payload)
+    _ensure_canonical_json(subscriptions_backup_alias, default_payload)
+    _ensure_canonical_text(subscriptions_lock_alias, '')
+    _ensure_legacy_json_link(LEGACY_SUBSCRIPTIONS_FILE, subscriptions_alias, default_payload)
+    _ensure_legacy_json_link(
+        LEGACY_SUBSCRIPTIONS_BACKUP_FILE,
+        subscriptions_backup_alias,
+        default_payload,
+    )
+    _ensure_legacy_text_link(LEGACY_SUBSCRIPTIONS_LOCK_FILE, subscriptions_lock_alias, '')
     return {
         'subscriptions': subscriptions_alias,
         'subscriptions_backup': subscriptions_backup_alias,

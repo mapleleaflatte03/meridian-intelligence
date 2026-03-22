@@ -90,7 +90,11 @@ purpose: `internal_ledger` is the only execution-enabled adapter, while
 `GET /api/treasury/accounts` and `GET /api/treasury/funding-sources` now
 surface the same founding-only treasury truth in protocol form: ledger-synced
 sub-accounts and recorded funding-source entries that stay aligned with owner
-capital and payout execution state.
+capital and payout execution state. Founding subscription entitlement state
+has now moved one step further into the institution boundary: the canonical
+file lives inside the founding capsule, and the old
+`company/subscriptions*.json` paths remain only as compatibility symlinks back
+to that capsule-owned state.
 
 **Live service:** https://app.welliam.codes
 **Product demo:** https://app.welliam.codes/demo.html

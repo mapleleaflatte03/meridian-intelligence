@@ -267,12 +267,21 @@ class TreasuryCapsuleTests(unittest.TestCase):
         self.assertEqual(os.path.realpath(aliases['revenue']), self._legacy_revenue)
         self.assertEqual(os.path.realpath(aliases['transactions']), self._legacy_transactions)
         sub_aliases = capsule.ensure_subscription_aliases(self.org_id)
-        self.assertTrue(os.path.islink(sub_aliases['subscriptions']))
-        self.assertTrue(os.path.islink(sub_aliases['subscriptions_backup']))
-        self.assertTrue(os.path.islink(sub_aliases['subscriptions_lock']))
-        self.assertEqual(os.path.realpath(sub_aliases['subscriptions']), self._legacy_subscriptions)
-        self.assertEqual(os.path.realpath(sub_aliases['subscriptions_backup']), self._legacy_subscriptions_backup)
-        self.assertEqual(os.path.realpath(sub_aliases['subscriptions_lock']), self._legacy_subscriptions_lock)
+        self.assertFalse(os.path.islink(sub_aliases['subscriptions']))
+        self.assertFalse(os.path.islink(sub_aliases['subscriptions_backup']))
+        self.assertFalse(os.path.islink(sub_aliases['subscriptions_lock']))
+        self.assertTrue(os.path.islink(self._legacy_subscriptions))
+        self.assertTrue(os.path.islink(self._legacy_subscriptions_backup))
+        self.assertTrue(os.path.islink(self._legacy_subscriptions_lock))
+        self.assertEqual(os.path.realpath(self._legacy_subscriptions), sub_aliases['subscriptions'])
+        self.assertEqual(
+            os.path.realpath(self._legacy_subscriptions_backup),
+            sub_aliases['subscriptions_backup'],
+        )
+        self.assertEqual(
+            os.path.realpath(self._legacy_subscriptions_lock),
+            sub_aliases['subscriptions_lock'],
+        )
         accounting_aliases = capsule.ensure_accounting_aliases(self.org_id)
         self.assertTrue(os.path.islink(accounting_aliases['owner_ledger']))
         self.assertEqual(os.path.realpath(accounting_aliases['owner_ledger']), self._legacy_owner_ledger)
