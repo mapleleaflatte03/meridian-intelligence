@@ -216,6 +216,11 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.assertEqual(status['runtime_core']['admission']['management_mode'], 'founding_locked')
         self.assertFalse(status['runtime_core']['admission']['mutation_enabled'])
         self.assertTrue(status['runtime_core']['service_registry']['federation_gateway']['supports_institution_routing'])
+        self.assertTrue(status['runtime_core']['service_registry']['federation_gateway']['requires_warrant'])
+        self.assertEqual(
+            status['runtime_core']['service_registry']['federation_gateway']['required_warrant_actions']['execution_request'],
+            'federated_execution',
+        )
         self.assertFalse(status['runtime_core']['service_registry']['mcp_service']['supports_institution_routing'])
         self.assertEqual(status['runtime_core']['host_identity']['host_id'], 'host_live')
         self.assertEqual(status['runtime_core']['admission']['admitted_org_ids'], ['org_founding'])
@@ -331,6 +336,7 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.assertEqual(manifest['host_identity']['host_id'], 'host_live')
         self.assertEqual(manifest['admission']['management_mode'], 'founding_locked')
         self.assertFalse(manifest['federation']['enabled'])
+        self.assertTrue(manifest['service_registry']['federation_gateway']['requires_warrant'])
 
     def test_admission_snapshot_reports_founding_lock(self):
         from runtime_host import default_host_identity

@@ -43,6 +43,10 @@ with a structural rejection instead of pretending live multi-institution
 admission exists. The same surface now also exposes `runtime_core.federation`: on live today that
 federation gateway stays explicitly disabled unless the host is configured with
 peer transport, a signing secret, and trusted peers.
+The live boundary registry also declares warrant requirements for
+`federation_gateway`, so this disabled host can still say honestly which
+message types would require court-first execution review if federation were
+enabled later.
 The owner workspace now also exposes `/api/warrants` plus
 `POST /api/warrants/issue|approve|stay|revoke` as founding-org-only court
 surfaces. Live federation remains disabled today, but the sender-side delivery

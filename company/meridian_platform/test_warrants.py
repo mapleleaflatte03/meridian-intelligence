@@ -96,6 +96,44 @@ class LiveWarrantTests(unittest.TestCase):
                 request_payload={'task': 'other'},
             )
 
+    def test_validate_rejects_stayed_or_expired_live_warrant(self):
+        record = self.warrants.issue_warrant(
+            'org_live',
+            'federated_execution',
+            'federation_gateway',
+            'user_owner',
+            request_payload={'task': 'demo'},
+        )
+        self.warrants.review_warrant(record['warrant_id'], 'stay', 'user_owner', org_id='org_live')
+        with self.assertRaises(PermissionError):
+            self.warrants.validate_warrant_for_execution(
+                record['warrant_id'],
+                org_id='org_live',
+                action_class='federated_execution',
+                boundary_name='federation_gateway',
+            )
+
+        record = self.warrants.issue_warrant(
+            'org_live',
+            'federated_execution',
+            'federation_gateway',
+            'user_owner',
+            request_payload={'task': 'demo'},
+        )
+        self.warrants.review_warrant(record['warrant_id'], 'approve', 'user_owner', org_id='org_live')
+        store = self.warrants._load_store('org_live')
+        store['warrants'][record['warrant_id']]['expires_at'] = '1970-01-01T00:00:00Z'
+        self.warrants._save_store(store, 'org_live')
+        with self.assertRaises(PermissionError):
+            self.warrants.validate_warrant_for_execution(
+                record['warrant_id'],
+                org_id='org_live',
+                action_class='federated_execution',
+                boundary_name='federation_gateway',
+                actor_id='user_owner',
+                request_payload={'task': 'demo'},
+            )
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -224,6 +224,7 @@ institution, not the live source of truth.
 - Support path separated from customer revenue in doctrine and public surfaces
 - Founding-org authority and court state moved behind capsule-backed paths
 - Founding-org warrant state exposed through `/api/warrants` and reflected in `/api/status`
+- Live boundary registry now surfaces warrant requirements for `federation_gateway`
 - Sender-side federated `execution_request` delivery path now requires an executable warrant in code, even though live federation remains disabled
 
 ### What is intentionally not claimed as live:
