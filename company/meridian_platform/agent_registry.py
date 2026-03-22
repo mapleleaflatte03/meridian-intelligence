@@ -157,18 +157,6 @@ def set_scopes(agent_id, scopes):
     save_registry(data)
 
 
-def check_budget(agent_id, cost_usd):
-    """Check if an agent can spend the given amount. Returns (allowed, reason)."""
-    agent = get_agent(agent_id)
-    if not agent:
-        return False, 'Agent not found'
-    if agent['rollout_state'] in ('quarantined', 'disabled'):
-        return False, f'Agent is {agent["rollout_state"]}'
-    if cost_usd > agent['budget']['max_per_run_usd']:
-        return False, f'Exceeds per-run budget (${agent["budget"]["max_per_run_usd"]})'
-    return True, 'ok'
-
-
 def check_scope(agent_id, required_scope):
     """Check if an agent has the required scope. Returns (allowed, reason)."""
     agent = get_agent(agent_id)
