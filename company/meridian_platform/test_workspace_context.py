@@ -601,6 +601,9 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.assertEqual(snap['management_mode'], 'witness_read_only')
         self.assertFalse(snap['mutation_enabled'])
         self.assertEqual(snap['mutation_disabled_reason'], 'witness_host_read_only')
+        self.assertIn('witness_archive', snap)
+        self.assertTrue(snap['witness_archive']['archive_enabled'])
+        self.assertEqual(snap['witness_archive']['management_mode'], 'witness_local_archive')
 
     def test_federation_snapshot_surfaces_inbox_summary(self):
         from runtime_host import default_host_identity
@@ -2404,20 +2407,34 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         }
         self.workspace.log_event = lambda *args, **kwargs: None
 
-        delivery, federation_state = self.workspace._deliver_federation_envelope(
-            'org_founding',
-            'host_peer',
-            'org_peer',
-            'case_notice',
-            payload={'case_decision': 'resolve', 'source_case_id': 'case_live_demo'},
-            actor_type='user',
-            actor_id='user_owner',
-            session_id='ses_demo',
-        )
+        with mock.patch.object(
+            self.workspace,
+            '_archive_delivery_with_witness_peers',
+            return_value={
+                'attempted': 1,
+                'created': 1,
+                'existing': 0,
+                'failed': 0,
+                'records': [{'peer_host_id': 'host_witness', 'created': True}],
+            },
+        ) as archive_mock:
+            delivery, federation_state = self.workspace._deliver_federation_envelope(
+                'org_founding',
+                'host_peer',
+                'org_peer',
+                'case_notice',
+                payload={'case_decision': 'resolve', 'source_case_id': 'case_live_demo'},
+                actor_type='user',
+                actor_id='user_owner',
+                session_id='ses_demo',
+            )
 
         self.assertEqual(delivery['claims']['envelope_id'], 'fed_case_send_1')
         self.assertEqual(calls[0]['message_type'], 'case_notice')
         self.assertEqual(federation_state['host_id'], 'host_live')
+        self.assertEqual(delivery['witness_archive']['attempted'], 1)
+        self.assertEqual(delivery['witness_archive']['created'], 1)
+        archive_mock.assert_called_once()
 
     def test_deliver_federation_envelope_keeps_sender_warrant_pending_for_commitment_linked_execution_request(self):
         from runtime_host import default_host_identity
@@ -2518,6 +2535,83 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.assertEqual(manifest['admission']['management_mode'], 'founding_locked')
         self.assertFalse(manifest['federation']['enabled'])
         self.assertTrue(manifest['service_registry']['federation_gateway']['requires_warrant'])
+        self.assertIn('witness_archive', manifest)
+        self.assertFalse(manifest['witness_archive']['archive_enabled'])
+        self.assertEqual(manifest['witness_archive']['archive_disabled_reason'], 'witness_host_only')
+
+    def test_federation_snapshot_surfaces_disabled_witness_archive_on_live_host(self):
+        from runtime_host import default_host_identity
+
+        snap = self.workspace._federation_snapshot(
+            'org_founding',
+            host_identity=default_host_identity(
+                host_id='host_live',
+                label='Meridian Live Host',
+                federation_enabled=False,
+                supported_boundaries=['workspace', 'cli', 'federation_gateway'],
+            ),
+            admission_registry={
+                'source': 'derived_bound_default',
+                'host_id': 'host_live',
+                'institutions': {'org_founding': {'status': 'admitted'}},
+                'admitted_org_ids': ['org_founding'],
+            },
+        )
+        self.assertIn('witness_archive', snap)
+        self.assertFalse(snap['witness_archive']['archive_enabled'])
+        self.assertEqual(snap['witness_archive']['management_mode'], 'host_role_unavailable')
+        self.assertEqual(snap['witness_archive']['archive_disabled_reason'], 'witness_host_only')
+
+    def test_federation_witness_archive_route_fails_closed_on_non_witness_host(self):
+        calls = []
+
+        class FakeHandler:
+            def __init__(self):
+                self.path = '/api/federation/witness/archive'
+                self.headers = _Headers({'Content-Length': '0'})
+                self.response = None
+                self.body_read = False
+
+            def _require_auth(self, path):
+                calls.append(('require_auth', path))
+                return True
+
+            def _read_body(self):
+                self.body_read = True
+                raise AssertionError('route should fail closed before body parsing')
+
+            def _json(self, data, status=200):
+                self.response = {'data': data, 'status': status}
+                return self.response
+
+            def _service_unavailable(self, *args, **kwargs):
+                raise AssertionError('route should fail closed with JSON response')
+
+        handler = FakeHandler()
+        with mock.patch.object(
+            self.workspace,
+            '_resolve_workspace_context',
+            return_value=types.SimpleNamespace(org_id='org_founding'),
+        ), mock.patch.object(
+            self.workspace,
+            '_runtime_host_state',
+            return_value=(
+                __import__('runtime_host').default_host_identity(
+                    host_id='host_live',
+                    federation_enabled=False,
+                    peer_transport='none',
+                    supported_boundaries=['workspace', 'cli', 'federation_gateway'],
+                ),
+                {'admitted_org_ids': ['org_founding']},
+            ),
+        ):
+            result = self.workspace.WorkspaceHandler.do_POST(handler)
+        self.assertEqual(calls, [('require_auth', '/api/federation/witness/archive')])
+        self.assertEqual(handler.response['status'], 503)
+        self.assertFalse(handler.body_read)
+        self.assertEqual(handler.response['data']['witness_archive']['archive_disabled_reason'], 'witness_host_only')
+        self.assertIn('Witness archive is disabled', handler.response['data']['error'])
+        self.assertEqual(result, handler.response)
 
     def test_admission_snapshot_reports_founding_lock(self):
         from runtime_host import default_host_identity

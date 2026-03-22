@@ -161,6 +161,11 @@ The federation boundary now also exposes `GET /api/federation/execution-jobs`
 as a receiver-side local-review surface for incoming `execution_request`
 envelopes. Those jobs are capsule-backed and local to the bound institution;
 they do not imply that live federation itself is enabled.
+The same mirror now also carries the witness archive shape:
+`GET /api/federation/witness/archive` and
+`POST /api/federation/witness/archive` exist so the runtime can describe the
+witness-host contract honestly, but on this host they remain disabled and
+fail-closed because the live deployment is not a witness host.
 The OSS parity route `POST /api/federation/execution-jobs/execute` exists in
 the live workspace, but it fails closed without changing state because those
 receiver-side jobs stay review-only while federation remains disabled on this

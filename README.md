@@ -79,6 +79,10 @@ The live boundary registry also declares warrant requirements for
 `federation_gateway`, so this disabled host can still say honestly which
 message types would require court-first execution review if federation were
 enabled later.
+The same federation mirror now also exposes the witness-archive contract via
+`GET /api/federation/witness/archive` and `POST /api/federation/witness/archive`,
+but on this host the archive stays disabled and fail-closed because the live
+deployment is not a witness host and federation itself remains off.
 The owner workspace now also exposes `/api/warrants` plus
 `POST /api/warrants/issue|approve|stay|revoke` as founding-org-only court
 surfaces. Live federation remains disabled today, but the sender-side delivery
