@@ -717,11 +717,18 @@ class FederationAuthority:
                 envelope=envelope,
                 claims=claims,
             ) from exc
+        receipt = self._validate_delivery_receipt(
+            response,
+            peer_host_id=peer.host_id,
+            target_institution_id=target_institution_id,
+            claims=claims,
+        )
         return {
             'peer': peer.to_dict(),
             'peer_manifest': manifest,
             'envelope': envelope,
             'claims': claims.to_dict(),
+            'receipt': receipt,
             'response': response,
         }
 
@@ -822,6 +829,86 @@ class FederationAuthority:
                 response=manifest,
             )
         return manifest
+
+    def _validate_delivery_receipt(self, response, *, peer_host_id='',
+                                   target_institution_id='', claims=None):
+        if not isinstance(response, dict):
+            return {}
+        receipt = response.get('receipt') or {}
+        if not receipt:
+            return {}
+        if not isinstance(receipt, dict):
+            raise FederationDeliveryError(
+                f"Peer host '{peer_host_id}' returned a non-object delivery receipt",
+                peer_host_id=peer_host_id,
+                claims=claims,
+                response=response,
+            )
+        required = (
+            'receipt_id',
+            'envelope_id',
+            'receiver_host_id',
+            'receiver_institution_id',
+        )
+        missing = [field for field in required if not receipt.get(field)]
+        if missing:
+            raise FederationDeliveryError(
+                f"Peer host '{peer_host_id}' returned an incomplete delivery receipt: "
+                f"{', '.join(missing)}",
+                peer_host_id=peer_host_id,
+                claims=claims,
+                response=response,
+            )
+        if claims and receipt.get('envelope_id') != claims.envelope_id:
+            raise FederationDeliveryError(
+                f"Peer host '{peer_host_id}' returned receipt for envelope "
+                f"'{receipt.get('envelope_id', '')}', not '{claims.envelope_id}'",
+                peer_host_id=peer_host_id,
+                claims=claims,
+                response=response,
+            )
+        if peer_host_id and receipt.get('receiver_host_id') != peer_host_id:
+            raise FederationDeliveryError(
+                f"Peer host '{peer_host_id}' returned receipt receiver_host_id "
+                f"{receipt.get('receiver_host_id', '')!r}",
+                peer_host_id=peer_host_id,
+                claims=claims,
+                response=response,
+            )
+        if target_institution_id and receipt.get('receiver_institution_id') != target_institution_id:
+            raise FederationDeliveryError(
+                f"Peer host '{peer_host_id}' returned receipt receiver_institution_id "
+                f"{receipt.get('receiver_institution_id', '')!r}, not "
+                f"'{target_institution_id}'",
+                peer_host_id=peer_host_id,
+                claims=claims,
+                response=response,
+            )
+        if receipt.get('identity_model') and receipt.get('identity_model') != 'signed_host_service':
+            raise FederationDeliveryError(
+                f"Peer host '{peer_host_id}' returned receipt identity_model "
+                f"{receipt.get('identity_model', '')!r}, not 'signed_host_service'",
+                peer_host_id=peer_host_id,
+                claims=claims,
+                response=response,
+            )
+        if claims and receipt.get('boundary_name') and receipt.get('boundary_name') != claims.boundary_name:
+            raise FederationDeliveryError(
+                f"Peer host '{peer_host_id}' returned receipt boundary "
+                f"{receipt.get('boundary_name', '')!r}, not '{claims.boundary_name}'",
+                peer_host_id=peer_host_id,
+                claims=claims,
+                response=response,
+            )
+        if claims and receipt.get('message_type') and receipt.get('message_type') != claims.message_type:
+            raise FederationDeliveryError(
+                f"Peer host '{peer_host_id}' returned receipt message_type "
+                f"{receipt.get('message_type', '')!r}, not '{claims.message_type}'",
+                peer_host_id=peer_host_id,
+                claims=claims,
+                response=response,
+            )
+        return dict(receipt)
 
     def preflight_delivery(self, peer_host_id, target_institution_id, *, http_get=None):
         peer, manifest = self.fetch_peer_manifest(peer_host_id, http_get=http_get)

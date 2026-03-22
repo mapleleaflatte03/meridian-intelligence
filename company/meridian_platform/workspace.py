@@ -478,8 +478,8 @@ def _deliver_federation_envelope(bound_org_id, target_host_id, target_org_id,
         raise
 
     claims = delivery.get('claims')
-    receipt = {}
-    if isinstance(delivery.get('response'), dict):
+    receipt = dict(delivery.get('receipt') or {})
+    if not receipt and isinstance(delivery.get('response'), dict):
         receipt = dict(delivery['response'].get('receipt') or {})
     log_event(
         bound_org_id,
