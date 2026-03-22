@@ -353,6 +353,35 @@ class TreasuryCapsuleTests(unittest.TestCase):
             entries = [json.loads(line) for line in f if line.strip()]
         self.assertTrue(any(entry.get('deposit_type') == 'owner_capital' for entry in entries))
 
+    def test_treasury_protocol_sync_tracks_owner_capital(self):
+        capsule.ensure_treasury_aliases(self.org_id)
+        result = treasury.contribute_owner_capital(
+            3.0,
+            note='owner sync test',
+            by='owner',
+            org_id=self.org_id,
+        )
+
+        self.assertTrue(result['funding_source_id'].startswith('src_'))
+
+        accounts = treasury.load_treasury_accounts(self.org_id)
+        self.assertAlmostEqual(accounts['accounts']['operating_cash']['balance_usd'], 10.5, places=2)
+        self.assertAlmostEqual(accounts['accounts']['owner_capital']['balance_usd'], 5.0, places=2)
+        self.assertAlmostEqual(accounts['accounts']['reserve_floor']['balance_usd'], 5.0, places=2)
+        self.assertEqual(accounts['accounts']['pending_payouts']['balance_usd'], 0.0)
+        self.assertEqual(accounts['accounts']['executed_payouts']['balance_usd'], 0.0)
+
+        funding = treasury.load_funding_sources(self.org_id)
+        self.assertEqual(len(funding['sources']), 2)
+        explicit = [item for item in funding['sources'].values() if item.get('source_id') == result['funding_source_id']][0]
+        derived = funding['sources']['src_derived_owner_capital']
+        self.assertEqual(explicit['type'], 'owner_capital')
+        self.assertEqual(explicit['currency'], 'USD')
+        self.assertEqual(explicit['actor_id'], 'owner')
+        self.assertAlmostEqual(explicit['amount_usd'], 3.0, places=2)
+        self.assertTrue(derived['metadata']['derived_from_ledger'])
+        self.assertAlmostEqual(derived['amount_usd'], 2.0, places=2)
+
     def test_payment_monitor_uses_capsule_aliases(self):
         capsule.ensure_treasury_aliases(self.org_id)
         state = payment_monitor.load_state()
@@ -489,6 +518,12 @@ class TreasuryCapsuleTests(unittest.TestCase):
         self.assertEqual(entries[-1]['proposal_id'], proposal['proposal_id'])
         self.assertEqual(entries[-1]['warrant_id'], 'war_live_exec')
         self.assertEqual(entries[-1]['verification_state'], 'host_ledger_final')
+
+        accounts = treasury.load_treasury_accounts(self.org_id)
+        self.assertAlmostEqual(accounts['accounts']['operating_cash']['balance_usd'], 6.0, places=2)
+        self.assertAlmostEqual(accounts['accounts']['expenses_recorded']['balance_usd'], 1.5, places=2)
+        self.assertAlmostEqual(accounts['accounts']['executed_payouts']['balance_usd'], 1.5, places=2)
+        self.assertAlmostEqual(accounts['accounts']['pending_payouts']['balance_usd'], 0.0, places=2)
 
     def test_live_payout_creation_blocks_unverified_wallet(self):
         capsule.ensure_treasury_aliases(self.org_id)

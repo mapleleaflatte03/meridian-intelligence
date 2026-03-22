@@ -150,6 +150,11 @@ execution-enabled today. Founding-only service state now follows the same
 canonical rule: subscriptions, the owner ledger, and payment-monitor daemon
 state all resolve through founding capsule aliases rather than standalone
 singleton files.
+The live workspace now also exposes `GET /api/treasury/accounts` and
+`GET /api/treasury/funding-sources`, both backed by founding capsule protocol
+files. `treasury_accounts.json` is synced from the founding ledger and payout
+state, while `funding_sources.json` records owner-capital and future funding
+events as explicit treasury inputs rather than implicit ledger deltas.
 
 ### Court (court.py)
 ```

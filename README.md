@@ -87,6 +87,10 @@ claim that live contributor payouts are already running.
 adapter registry on the live host. Today that registry is still narrow on
 purpose: `internal_ledger` is the only execution-enabled adapter, while
 `base_usdc_x402` and `manual_bank_wire` remain registered but disabled.
+`GET /api/treasury/accounts` and `GET /api/treasury/funding-sources` now
+surface the same founding-only treasury truth in protocol form: ledger-synced
+sub-accounts and recorded funding-source entries that stay aligned with owner
+capital and payout execution state.
 
 **Live service:** https://app.welliam.codes
 **Product demo:** https://app.welliam.codes/demo.html

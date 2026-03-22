@@ -14,6 +14,8 @@ Usage:
   python3 treasury.py runway
   python3 treasury.py spend [--org_id <org>] [--days 30]
   python3 treasury.py snapshot
+  python3 treasury.py accounts
+  python3 treasury.py funding-sources
   python3 treasury.py check-budget --agent_id <id> --cost 2.00
   python3 treasury.py contribute --amount 50.00 --note "owner top-up"
   python3 treasury.py set-reserve-floor --amount 20.00 --note "policy change"
@@ -88,6 +90,14 @@ _PROTOCOL_DEFAULTS = {
             '2': {'label': 'exchange_linked', 'description': 'Exchange deposit screen, NOT self-custody', 'payout_eligible': False},
             '3': {'label': 'self_custody_verified', 'description': 'SIWE signature or equivalent', 'payout_eligible': True},
             '4': {'label': 'multisig_controlled', 'description': 'Safe or similar multisig', 'payout_eligible': True},
+        },
+    },
+    'treasury_accounts.json': {
+        'accounts': {},
+        'transfer_policy': {
+            'requires_owner_approval': True,
+            'must_maintain_reserve': True,
+            'audit_required': True,
         },
     },
     'contributors.json': {
@@ -196,6 +206,17 @@ _PROTOCOL_DEFAULTS = {
                 'reversal_or_dispute_capability': 'manual_reversal_and_court_case',
                 'notes': 'Registered but intentionally not executable on the live founding path.',
             },
+        },
+    },
+    'funding_sources.json': {
+        'sources': {},
+        'source_types': {
+            'owner_capital': 'Direct capital contribution from project owner',
+            'github_sponsors': 'Recurring or one-time sponsorship via GitHub Sponsors',
+            'direct_crypto': 'Direct stablecoin transfer from identified sponsor',
+            'customer_payment': 'Payment for a product or service',
+            'grant': 'Grant from a foundation or organization',
+            'reimbursement': 'Reimbursement of expenses previously paid out-of-pocket',
         },
     },
 }
@@ -316,17 +337,28 @@ def get_spend_summary(org_id, period_days=30):
 
 def contribute_owner_capital(amount_usd, note='', by='owner', org_id=None):
     """Record owner capital contribution via the accounting layer."""
-    _resolve_org_id(org_id)
+    org_id = _resolve_org_id(org_id)
     result = _owner_contribute_capital(amount_usd, note, actor=by)
     ensure_treasury_aliases(org_id)
+    funding_source = _record_funding_source(
+        'owner_capital',
+        amount_usd,
+        org_id=org_id,
+        actor_id=by,
+        note=note,
+        source_ref=f'owner_capital:{result["cash_after_usd"]:.2f}:{_now()}',
+    )
+    _sync_treasury_accounts(org_id)
+    result['funding_source_id'] = funding_source['source_id']
     return result
 
 
 def set_reserve_floor_policy(amount_usd, note='', by='owner', org_id=None):
     """Update reserve floor policy via the accounting layer."""
-    _resolve_org_id(org_id)
+    org_id = _resolve_org_id(org_id)
     result = _update_reserve_floor(amount_usd, note, actor=by)
     ensure_treasury_aliases(org_id)
+    _sync_treasury_accounts(org_id)
     return result
 
 
@@ -379,6 +411,10 @@ def load_wallets(org_id=None):
     return _load_registry_file('wallets.json', org_id)
 
 
+def load_treasury_accounts(org_id=None):
+    return _sync_treasury_accounts(org_id)
+
+
 def load_contributors(org_id=None):
     return _load_registry_file('contributors.json', org_id)
 
@@ -389,6 +425,178 @@ def load_payout_proposals(org_id=None):
 
 def load_settlement_adapters(org_id=None):
     return _load_registry_file('settlement_adapters.json', org_id)
+
+
+def load_funding_sources(org_id=None):
+    return _sync_funding_sources(org_id)
+
+
+def _account_store(org_id=None):
+    store = dict(_load_registry_file('treasury_accounts.json', org_id))
+    store.setdefault('accounts', {})
+    store.setdefault('transfer_policy', _PROTOCOL_DEFAULTS['treasury_accounts.json']['transfer_policy'])
+    return store
+
+
+def _save_account_store(store, org_id=None):
+    payload = dict(store or {})
+    payload['updatedAt'] = _now()
+    payload.setdefault('accounts', {})
+    payload.setdefault('transfer_policy', _PROTOCOL_DEFAULTS['treasury_accounts.json']['transfer_policy'])
+    _save_registry_file('treasury_accounts.json', payload, org_id)
+
+
+def _save_funding_source_store(store, org_id=None):
+    payload = dict(store or {})
+    payload['updatedAt'] = _now()
+    payload.setdefault('sources', {})
+    payload.setdefault('source_types', _PROTOCOL_DEFAULTS['funding_sources.json']['source_types'])
+    _save_registry_file('funding_sources.json', payload, org_id)
+
+
+def _sync_funding_sources(org_id=None):
+    store = dict(_load_registry_file('funding_sources.json', org_id))
+    original_sources = dict(store.get('sources', {}))
+    sources = dict(original_sources)
+    source_types = dict(
+        store.get('source_types') or _PROTOCOL_DEFAULTS['funding_sources.json']['source_types']
+    )
+    store['source_types'] = source_types
+
+    treasury = _load_ledger(org_id).get('treasury', {})
+    owner_capital_total = round(
+        float(treasury.get('owner_capital_contributed_usd', 0.0) or 0.0),
+        4,
+    )
+    explicit_owner_capital = round(sum(
+        float(item.get('amount_usd') or 0.0)
+        for item in sources.values()
+        if item.get('type') == 'owner_capital'
+        and not dict(item.get('metadata') or {}).get('derived_from_ledger')
+    ), 4)
+    derived_owner_capital = round(max(0.0, owner_capital_total - explicit_owner_capital), 4)
+    derived_id = 'src_derived_owner_capital'
+    if derived_owner_capital > 0:
+        existing = dict(sources.get(derived_id, {}))
+        metadata = dict(existing.get('metadata') or {})
+        metadata.update({
+            'derived_from_ledger': True,
+            'source_metric': 'owner_capital_contributed_usd',
+        })
+        sources[derived_id] = {
+            'source_id': derived_id,
+            'type': 'owner_capital',
+            'amount_usd': derived_owner_capital,
+            'currency': 'USD',
+            'actor_id': 'system',
+            'note': 'Backfilled from canonical ledger owner capital total.',
+            'source_ref': 'ledger_total:owner_capital',
+            'metadata': metadata,
+            'recorded_at': existing.get('recorded_at') or _now(),
+        }
+    else:
+        sources.pop(derived_id, None)
+
+    store['sources'] = sources
+    if store.get('source_types') != source_types or original_sources != sources:
+        _save_funding_source_store(store, org_id)
+    return store
+
+
+def _sync_treasury_accounts(org_id=None):
+    store = _account_store(org_id)
+    accounts = dict(store.get('accounts', {}))
+    ledger = _load_ledger(org_id)
+    treasury = ledger.get('treasury', {})
+    proposals = load_payout_proposals(org_id).get('proposals', {})
+    pending_payouts = round(sum(
+        float(item.get('amount_usd') or 0.0)
+        for item in proposals.values()
+        if item.get('status') in ('submitted', 'under_review', 'approved', 'dispute_window')
+    ), 4)
+    executed_payouts = round(sum(
+        float(item.get('amount_usd') or 0.0)
+        for item in proposals.values()
+        if item.get('status') == 'executed'
+    ), 4)
+
+    accounts['operating_cash'] = {
+        'label': 'Operating Cash',
+        'type': 'cash',
+        'currency': 'USD',
+        'balance_usd': round(float(treasury.get('cash_usd', 0.0) or 0.0), 4),
+        'source_of_truth': 'ledger',
+    }
+    accounts['reserve_floor'] = {
+        'label': 'Reserve Floor',
+        'type': 'policy',
+        'currency': 'USD',
+        'balance_usd': round(float(treasury.get('reserve_floor_usd', 0.0) or 0.0), 4),
+        'source_of_truth': 'ledger',
+    }
+    accounts['owner_capital'] = {
+        'label': 'Owner Capital',
+        'type': 'funding',
+        'currency': 'USD',
+        'balance_usd': round(float(treasury.get('owner_capital_contributed_usd', 0.0) or 0.0), 4),
+        'source_of_truth': 'ledger',
+    }
+    accounts['support_received'] = {
+        'label': 'Support Received',
+        'type': 'funding',
+        'currency': 'USD',
+        'balance_usd': round(float(treasury.get('support_received_usd', 0.0) or 0.0), 4),
+        'source_of_truth': 'ledger',
+    }
+    accounts['expenses_recorded'] = {
+        'label': 'Expenses Recorded',
+        'type': 'expense',
+        'currency': 'USD',
+        'balance_usd': round(float(treasury.get('expenses_recorded_usd', 0.0) or 0.0), 4),
+        'source_of_truth': 'ledger',
+    }
+    accounts['pending_payouts'] = {
+        'label': 'Pending Payouts',
+        'type': 'liability',
+        'currency': 'USD',
+        'balance_usd': pending_payouts,
+        'source_of_truth': 'payout_proposals',
+    }
+    accounts['executed_payouts'] = {
+        'label': 'Executed Payouts',
+        'type': 'expense',
+        'currency': 'USD',
+        'balance_usd': executed_payouts,
+        'source_of_truth': 'payout_proposals',
+    }
+    store['accounts'] = accounts
+    _save_account_store(store, org_id)
+    return store
+
+
+def _record_funding_source(source_type, amount_usd, *, org_id=None, actor_id='owner',
+                           note='', source_ref='', metadata=None):
+    store = dict(_load_registry_file('funding_sources.json', org_id))
+    store.setdefault('sources', {})
+    store.setdefault('source_types', _PROTOCOL_DEFAULTS['funding_sources.json']['source_types'])
+    source_type = (source_type or '').strip()
+    if source_type not in store.get('source_types', {}):
+        raise ValueError(f'Unknown funding source type: {source_type}')
+    source_id = f'src_{uuid.uuid4().hex[:12]}'
+    store['sources'][source_id] = {
+        'source_id': source_id,
+        'type': source_type,
+        'amount_usd': round(float(amount_usd or 0.0), 4),
+        'currency': 'USD',
+        'actor_id': (actor_id or '').strip() or 'owner',
+        'note': note or '',
+        'source_ref': (source_ref or '').strip(),
+        'metadata': dict(metadata or {}),
+        'recorded_at': _now(),
+    }
+    _save_funding_source_store(store, org_id)
+    synced = _sync_funding_sources(org_id)
+    return synced['sources'][source_id]
 
 
 def _proposal_store(org_id=None):
@@ -772,6 +980,7 @@ def create_payout_proposal(contributor_id, amount_usd, contribution_type, *,
     store = _proposal_store(org_id)
     store['proposals'][proposal_id] = record
     _save_proposal_store(store, org_id)
+    _sync_treasury_accounts(org_id)
     return record
 
 
@@ -792,6 +1001,7 @@ def submit_payout_proposal(proposal_id, actor_id, *, org_id=None, note='', owner
     if note:
         record['note'] = note
     _save_proposal_store(store, org_id)
+    _sync_treasury_accounts(org_id)
     return record
 
 
@@ -818,6 +1028,7 @@ def review_payout_proposal(proposal_id, reviewer_id, *, org_id=None, note=''):
     if note:
         record['review_note'] = note
     _save_proposal_store(store, org_id)
+    _sync_treasury_accounts(org_id)
     return record
 
 
@@ -839,6 +1050,7 @@ def approve_payout_proposal(proposal_id, approver_id, *, org_id=None, note=''):
     if note:
         record['approval_note'] = note
     _save_proposal_store(store, org_id)
+    _sync_treasury_accounts(org_id)
     return record
 
 
@@ -865,6 +1077,7 @@ def open_payout_dispute_window(proposal_id, actor_id, *, org_id=None, note='', d
     if note:
         record['approval_note'] = note
     _save_proposal_store(store, org_id)
+    _sync_treasury_accounts(org_id)
     return record
 
 
@@ -888,6 +1101,7 @@ def reject_payout_proposal(proposal_id, actor_id, *, org_id=None, note=''):
     if note:
         record['review_note'] = note
     _save_proposal_store(store, org_id)
+    _sync_treasury_accounts(org_id)
     return record
 
 
@@ -910,6 +1124,7 @@ def cancel_payout_proposal(proposal_id, actor_id, *, org_id=None, note='', owner
     if note:
         record['note'] = note
     _save_proposal_store(store, org_id)
+    _sync_treasury_accounts(org_id)
     return record
 
 
@@ -1008,6 +1223,7 @@ def execute_payout_proposal(proposal_id, actor_id, *, org_id=None, warrant_id=''
     if note:
         record['execution_note'] = note
     _save_proposal_store(store, org_id)
+    _sync_treasury_accounts(org_id)
     return record
 
 
@@ -1074,10 +1290,12 @@ def treasury_snapshot(org_id=None):
                 proposal for proposal in load_payout_proposals(org_id).get('proposals', {}).values()
                 if proposal.get('status') in ('submitted', 'under_review')
             ]),
+            'treasury_accounts': len(load_treasury_accounts(org_id).get('accounts', {})),
             'settlement_adapter_count': len(list_settlement_adapters(org_id)),
             'payout_enabled_settlement_adapters': len(
                 list_settlement_adapters(org_id, payout_enabled_only=True)
             ),
+            'funding_sources': len(load_funding_sources(org_id).get('sources', {})),
         },
         'settlement_adapter_summary': settlement_adapter_summary(org_id),
         'settlement_adapters': list_settlement_adapters(org_id),
@@ -1120,6 +1338,10 @@ def main():
     rf.add_argument('--note', default='reserve policy update')
     rf.add_argument('--by', default='owner')
     rf.add_argument('--org_id', default=None)
+
+    for name in ('accounts', 'funding-sources'):
+        parser = sub.add_parser(name)
+        parser.add_argument('--org_id', default=None)
 
     args = p.parse_args()
 
@@ -1171,6 +1393,32 @@ def main():
     elif args.command == 'set-reserve-floor':
         result = set_reserve_floor_policy(args.amount, args.note, args.by, org_id=args.org_id)
         print(f"Reserve floor updated: ${result['old_reserve_floor_usd']:.2f} -> ${result['new_reserve_floor_usd']:.2f}")
+    elif args.command == 'accounts':
+        data = load_treasury_accounts(args.org_id)
+        accounts = data.get('accounts', {})
+        if not accounts:
+            print('No treasury accounts defined.')
+        else:
+            print(f'\n=== Treasury Accounts ({len(accounts)}) ===')
+            for account_id, account in accounts.items():
+                print(
+                    f"  {account_id}: ${account.get('balance_usd', 0):.2f} "
+                    f"| type={account.get('type', '?')} "
+                    f"| source={account.get('source_of_truth', '?')}"
+                )
+    elif args.command == 'funding-sources':
+        data = load_funding_sources(args.org_id)
+        sources = data.get('sources', {})
+        if not sources:
+            print('No funding sources recorded.')
+        else:
+            print(f'\n=== Funding Sources ({len(sources)}) ===')
+            for source_id, source in sources.items():
+                print(
+                    f"  {source_id}: ${source.get('amount_usd', 0):.2f} "
+                    f"{source.get('currency', 'USD')} | {source.get('type')} "
+                    f"| {source.get('recorded_at')}"
+                )
     else:
         p.print_help()
 

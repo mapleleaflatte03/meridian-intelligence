@@ -29,6 +29,7 @@ from capsule import (
     ensure_revenue_integrity_aliases,
     ledger_path as capsule_ledger_path,
 )
+from treasury import load_treasury_accounts, load_funding_sources
 
 WORKSPACE = os.path.dirname(os.path.dirname(PLATFORM_DIR))
 LEGACY_LEDGER_FILE = os.path.join(WORKSPACE, 'economy', 'ledger.json')
@@ -330,6 +331,17 @@ def bootstrap():
                 'updatedAt': now,
             }, f, indent=2)
         print('  Initialized capsule court_records.json')
+
+    # ── 2e. Initialize treasury protocol registries ───────────────────────
+    protocol_loaders = [
+        ('treasury_accounts.json', load_treasury_accounts),
+        ('funding_sources.json', load_funding_sources),
+    ]
+    for filename, loader in protocol_loaders:
+        protocol_path = capsule_path(founding_org_id, filename)
+        if not os.path.exists(protocol_path):
+            loader(founding_org_id)
+            print(f'  Initialized capsule {filename}')
 
     # ── 3. Log bootstrap event ───────────────────────────────────────────
     log_event(

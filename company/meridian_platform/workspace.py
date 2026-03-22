@@ -12,6 +12,8 @@ Endpoints:
   GET  /api/agents                → Agent registry
   GET  /api/authority             → Authority state (kill switch, approvals, delegations)
   GET  /api/treasury              → Treasury snapshot
+  GET  /api/treasury/accounts     → Treasury sub-accounts
+  GET  /api/treasury/funding-sources → Funding source records
   GET  /api/treasury/settlement-adapters → Settlement adapter registry
   GET  /api/payouts              → Payout proposals and summary
   GET  /api/court                 → Court records
@@ -135,6 +137,7 @@ from authority import (check_authority, request_approval, decide_approval,
                        get_sprint_lead, is_kill_switch_engaged, _load_queue)
 from treasury import (treasury_snapshot, get_balance, get_runway, check_budget,
                       contribute_owner_capital, set_reserve_floor_policy,
+                      load_treasury_accounts, load_funding_sources,
                       list_payout_proposals, payout_proposal_summary,
                       list_settlement_adapters, settlement_adapter_summary,
                       create_payout_proposal, submit_payout_proposal,
@@ -2096,6 +2099,10 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
             })
         elif path == '/api/treasury':
             return self._json(treasury_snapshot(org_id))
+        elif path == '/api/treasury/accounts':
+            return self._json(load_treasury_accounts(org_id))
+        elif path == '/api/treasury/funding-sources':
+            return self._json(load_funding_sources(org_id))
         elif path == '/api/treasury/settlement-adapters':
             host_identity, _admission_registry = _runtime_host_state(org_id)
             return self._json({
