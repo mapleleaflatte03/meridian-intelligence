@@ -141,9 +141,38 @@ class CommitmentModuleTests(unittest.TestCase):
         self.assertEqual(record['settlement_refs'][0]['tx_ref'], 'ptx_live_demo_v2')
         self.assertEqual(record['settlement_refs'][0]['verification_state'], 'chain_final')
 
+        record = self.commitments.record_settlement_ref(
+            'com_settle',
+            {
+                'envelope_id': 'fed_notice_demo',
+                'receipt_id': 'fedrcpt_demo',
+                'proposal_id': 'ppo_other_demo',
+                'tx_ref': 'ptx_other_demo',
+                'verification_state': 'host_ledger_final',
+            },
+            org_id=self.org_id,
+        )
+        self.assertEqual(len(record['settlement_refs']), 2)
+        self.assertEqual(record['settlement_refs'][1]['envelope_id'], 'fed_notice_demo')
+        self.assertEqual(record['settlement_refs'][1]['receipt_id'], 'fedrcpt_demo')
+
+        record = self.commitments.record_settlement_ref(
+            'com_settle',
+            {
+                'envelope_id': 'fed_notice_demo',
+                'receipt_id': 'fedrcpt_demo',
+                'proposal_id': 'ppo_other_demo_2',
+                'tx_ref': 'ptx_other_demo_2',
+                'verification_state': 'host_ledger_final_v2',
+            },
+            org_id=self.org_id,
+        )
+        self.assertEqual(len(record['settlement_refs']), 2)
+        self.assertEqual(record['settlement_refs'][1]['verification_state'], 'host_ledger_final_v2')
+
         summary = self.commitments.commitment_summary(self.org_id)
         self.assertEqual(summary['accepted'], 1)
-        self.assertEqual(summary['settlement_refs_total'], 1)
+        self.assertEqual(summary['settlement_refs_total'], 2)
 
 
 class WorkspaceCommitmentTests(unittest.TestCase):

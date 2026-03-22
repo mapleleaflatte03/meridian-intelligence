@@ -345,16 +345,22 @@ def mark_commitment_settlement(commitment_id, *, org_id=None, settlement_ref=Non
     ref = dict(settlement_ref or {})
     ref.setdefault('recorded_at', _now())
     refs = list(record.get('settlement_refs', []))
-    key_proposal = (ref.get('proposal_id') or '').strip()
-    key_tx = (ref.get('tx_ref') or '').strip()
+    key_fields = ('envelope_id', 'receipt_id', 'proposal_id', 'tx_ref', 'tx_hash')
+    ref_keys = {
+        field: (ref.get(field) or '').strip()
+        for field in key_fields
+    }
     replaced = False
-    if key_proposal or key_tx:
+    if any(ref_keys.values()):
         for index, existing in enumerate(refs):
-            if key_proposal and (existing.get('proposal_id') or '').strip() == key_proposal:
-                refs[index] = ref
-                replaced = True
-                break
-            if key_tx and (existing.get('tx_ref') or '').strip() == key_tx:
+            existing_keys = {
+                field: (existing.get(field) or '').strip()
+                for field in key_fields
+            }
+            if any(
+                ref_keys[field] and existing_keys[field] == ref_keys[field]
+                for field in key_fields
+            ):
                 refs[index] = ref
                 replaced = True
                 break
