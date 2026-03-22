@@ -2,6 +2,8 @@
 import importlib.util
 import os
 import unittest
+from unittest import mock
+import types
 from urllib.parse import urlparse
 
 
@@ -39,6 +41,8 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.orig_federation_authority = self.workspace._federation_authority
         self.orig_log_event = self.workspace.log_event
         self.orig_list_warrants = self.workspace.list_warrants
+        self.orig_commitment_summary = self.workspace.commitments.commitment_summary
+        self.orig_list_commitments = self.workspace.commitments.list_commitments
 
     def tearDown(self):
         self.workspace.WORKSPACE_ORG_ID = self.orig_workspace_org_id
@@ -56,6 +60,8 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.workspace._federation_authority = self.orig_federation_authority
         self.workspace.log_event = self.orig_log_event
         self.workspace.list_warrants = self.orig_list_warrants
+        self.workspace.commitments.commitment_summary = self.orig_commitment_summary
+        self.workspace.commitments.list_commitments = self.orig_list_commitments
 
     def test_live_workspace_rejects_non_founding_configured_org(self):
         self.workspace._load_workspace_credentials = lambda: (None, None, None, None)
@@ -193,6 +199,21 @@ class LiveWorkspaceContextTests(unittest.TestCase):
                 'execution_state': 'ready',
             }
         ]
+        self.workspace.commitments.commitment_summary = lambda org_id=None: {
+            'total': 1,
+            'proposed': 0,
+            'accepted': 1,
+            'rejected': 0,
+            'breached': 0,
+            'settled': 0,
+            'delivery_refs_total': 0,
+        }
+        self.workspace.commitments.list_commitments = lambda org_id=None: [
+            {
+                'commitment_id': 'com_live_demo',
+                'status': 'accepted',
+            }
+        ]
         self.workspace.get_sprint_lead = lambda org_id: ('', 0)
         self.workspace.get_pending_approvals = lambda org_id=None: []
         self.workspace._ci_vertical_status = lambda reg, lead_id, org_id: {}
@@ -209,8 +230,29 @@ class LiveWorkspaceContextTests(unittest.TestCase):
             'institutions': {'org_founding': {'status': 'admitted'}},
             'admitted_org_ids': ['org_founding'],
         }
+        fake_commitments = types.SimpleNamespace(
+            commitment_summary=lambda org_id=None: {
+                'total': 1,
+                'open': 0,
+                'proposed': 0,
+                'accepted': 1,
+                'rejected': 0,
+                'breached': 0,
+                'settled': 0,
+                'delivery_refs_total': 0,
+            },
+            list_commitments=lambda org_id=None: [{
+                'commitment_id': 'com_live_demo',
+                'status': 'accepted',
+                'target_host_id': 'host_live',
+                'target_institution_id': 'org_founding',
+                'summary': 'Demo commitment',
+                'delivery_refs': [],
+            }],
+        )
         ctx = self.workspace._resolve_workspace_context()
-        status = self.workspace.api_status(institution_context=ctx)
+        with mock.patch.object(self.workspace, 'commitments', fake_commitments):
+            status = self.workspace.api_status(institution_context=ctx)
         self.assertEqual(status['runtime_core']['institution_context']['org_id'], 'org_founding')
         self.assertFalse(status['runtime_core']['admission']['additional_institutions_allowed'])
         self.assertEqual(status['runtime_core']['admission']['management_mode'], 'founding_locked')
@@ -232,6 +274,11 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         )
         self.assertEqual(status['warrants']['total'], 1)
         self.assertEqual(status['warrants']['executable'], 1)
+        self.assertIn('commitments', status)
+        self.assertEqual(status['commitments']['total'], 1)
+        self.assertEqual(status['commitments']['accepted'], 1)
+        self.assertEqual(status['commitments']['management_mode'], 'founding_locked')
+        self.assertFalse(status['commitments']['mutation_enabled'])
         self.assertIn('federation', status['runtime_core'])
         self.assertFalse(status['runtime_core']['federation']['enabled'])
 

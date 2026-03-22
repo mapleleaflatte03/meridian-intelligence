@@ -2,7 +2,7 @@
 
 ## What Meridian Is
 
-Meridian is a constitutional operating system for running AI agents as managed, governed digital labor. It is built on exactly five primitives: **Institution, Agent, Authority, Treasury, Court**.
+Meridian is a constitutional operating system for running AI agents as managed, governed digital labor. It is built on exactly six primitives: **Institution, Agent, Authority, Treasury, Court, Commitment**.
 
 Organizations use Meridian to:
 - Found charter-governed institutions with lifecycle management
@@ -20,7 +20,7 @@ Organizations use Meridian to:
 - Not an open marketplace (ecosystem comes after trust primitives exist)
 - Not an uncontrolled autonomy platform
 
-## Five Primitives
+## Six Primitives
 
 ```
 ┌─────────────────────────────────────────────────────┐
@@ -44,6 +44,10 @@ Organizations use Meridian to:
 │  Violations, sanctions, appeals, auto-review,        │
 │  severity-based enforcement (CLAUDE.md §9)           │
 ├─────────────────────────────────────────────────────┤
+│  Commitment                                          │
+│  Capsule-backed obligations, lifecycle transitions,  │
+│  and federation delivery references                 │
+├─────────────────────────────────────────────────────┤
 │  Runtime (OpenClaw)                                  │
 │  Agent execution, sessions, channels, tools,         │
 │  Docker sandbox, cron/scheduling                     │
@@ -52,7 +56,7 @@ Organizations use Meridian to:
 
 ## Composition Pattern
 
-The five primitives **compose over** the existing economy layer — they import and extend, never rewrite.
+The six primitives **compose over** the existing economy layer — they import and extend, never rewrite.
 
 | Economy Module | Platform Primitive | What's Composed |
 |---------------|-------------------|-----------------|
@@ -175,6 +179,30 @@ Today the live warrant surface is still founding-org-only, but it is already a
 first-class capsule-backed record instead of an ad hoc field on delivery
 payloads.
 
+### Commitments (commitments.py)
+```
+Commitment {
+  commitment_id: string
+  institution_id: string
+  target_host_id: string
+  target_institution_id: string
+  summary: string
+  note: string
+  status: proposed|accepted|rejected|breached|settled
+  proposed_by: string
+  accepted_by: string
+  rejected_by: string
+  breached_by: string
+  settled_by: string
+  delivery_refs: object[]
+}
+```
+
+The live commitment surface is founding-only and capsule-backed. When a
+`commitment_id` is supplied to federation send, it must resolve to the target
+host and institution before delivery, and successful sends append a delivery
+reference back to the commitment record.
+
 ## State File Locations
 
 | File | Owner | Purpose |
@@ -183,6 +211,7 @@ payloads.
 | `meridian_platform/agent_registry.json` | Agent | Agent registry |
 | `economy/capsules/<org_id>/authority_queue.json` | Authority | Approvals, delegations, kill switch |
 | `economy/capsules/<org_id>/court_records.json` | Court | Violations, appeals |
+| `economy/capsules/<org_id>/commitments.json` | Commitment | Proposed/accepted/breached/settled obligations |
 | `economy/capsules/<org_id>/ledger.json` | Treasury pointer | Live treasury alias to current ledger state |
 | `economy/capsules/<org_id>/revenue.json` | Treasury pointer | Live treasury alias to current revenue state |
 | `meridian_platform/audit_log.jsonl` | Audit | Event stream (append-only) |
@@ -211,7 +240,7 @@ institution, not the live source of truth.
 ## Current State (2026-03-21)
 
 ### What works:
-- Five constitutional primitives (Institution, Agent, Authority, Treasury, Court)
+- Six constitutional primitives (Institution, Agent, Authority, Treasury, Court, Commitment)
 - Healthy runtime on the live host
 - Governed CI workflow logic and reference pipeline
 - MCP server with 5 paid tools + x402 payment gating for the founding Meridian service
@@ -224,6 +253,7 @@ institution, not the live source of truth.
 - Support path separated from customer revenue in doctrine and public surfaces
 - Founding-org authority and court state moved behind capsule-backed paths
 - Founding-org warrant state exposed through `/api/warrants` and reflected in `/api/status`
+- Founding-org commitment state exposed through `/api/commitments` and reflected in `/api/status`
 - Live boundary registry now surfaces warrant requirements for `federation_gateway`
 - Sender-side federated `execution_request` delivery path now requires an executable warrant in code, even though live federation remains disabled
 

@@ -8,7 +8,7 @@
 
 ## What is Meridian?
 
-Meridian is a constitutional operating system for running AI agents as governed digital labor. It is built on five primitives that compose over a real economy layer and an honest treasury gate.
+Meridian is a constitutional operating system for running AI agents as governed digital labor. It is built on six primitives that compose over a real economy layer and an honest treasury gate.
 
 **Competitive intelligence is the first proving vertical** — a 7-agent governed workflow for cited intelligence output. The current customer path is a founder-led manual pilot; automated delivery remains treasury-gated by policy.
 
@@ -53,6 +53,10 @@ surfaces. Live federation remains disabled today, but the sender-side delivery
 path is already warrant-aware in code: if federated `execution_request`
 delivery is ever enabled on this host, it must carry an executable warrant and
 the resulting audit trail preserves `warrant_id` provenance.
+The owner workspace now also exposes a founding-only commitment surface via
+`/api/commitments` and `POST /api/commitments/propose|accept|reject|breach|settle`;
+those records are capsule-backed and can anchor federation sends through a
+validated `commitment_id`.
 
 **Live service:** https://app.welliam.codes
 **Product demo:** https://app.welliam.codes/demo.html
@@ -61,7 +65,7 @@ the resulting audit trail preserves `warrant_id` provenance.
 Need the plain-language model behind this?
 - [Meridian Doctrine](company/MERIDIAN_DOCTRINE.md)
 
-### Five Primitives
+### Six Primitives
 
 | Primitive | Status | What it does |
 |-----------|--------|-------------|
@@ -70,6 +74,7 @@ Need the plain-language model behind this?
 | **Authority** | Live | Approval queues, delegations, and kill switch — who can act and when |
 | **Treasury** | Live | Real-money accounting — balance, runway, reserve floor, spend tracking |
 | **Court** | Live | Violation records, sanctions, appeals — constitutional enforcement |
+| **Commitment** | Live | Capsule-backed obligations with propose/accept/reject/breach/settle lifecycle and delivery refs |
 
 ---
 

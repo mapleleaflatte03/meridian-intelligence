@@ -2,8 +2,8 @@
 """
 Governed Workspace — Owner-facing surface for the Constitutional OS.
 
-Serves an HTML dashboard + JSON API for all five primitives:
-  Institution, Agent, Authority, Treasury, Court.
+Serves an HTML dashboard + JSON API for all six primitives:
+  Institution, Agent, Authority, Treasury, Court, Commitment.
 
 Endpoints:
   GET  /                          → Dashboard HTML
@@ -14,6 +14,7 @@ Endpoints:
   GET  /api/treasury              → Treasury snapshot
   GET  /api/court                 → Court records
   GET  /api/warrants              → Warrant records and summary
+  GET  /api/commitments           → Commitment records and summary
   GET  /api/admission             → Host admission state
   GET  /api/federation            → Federation gateway state
   GET  /api/federation/peers      → Federation peer registry state
@@ -32,6 +33,11 @@ Endpoints:
   POST /api/warrants/approve      → Approve a warrant for execution
   POST /api/warrants/stay         → Stay a warrant before execution
   POST /api/warrants/revoke       → Revoke a warrant before execution
+  POST /api/commitments/propose   → Propose a founding-org commitment
+  POST /api/commitments/accept    → Accept a commitment
+  POST /api/commitments/reject    → Reject a commitment
+  POST /api/commitments/breach    → Mark a commitment breached
+  POST /api/commitments/settle    → Settle a commitment
   POST /api/treasury/contribute   → Record owner capital contribution
   POST /api/treasury/reserve-floor → Update reserve floor policy
   POST /api/admission/admit       → Structurally reject non-founding admission changes
@@ -127,6 +133,7 @@ from warrants import (
     mark_warrant_executed,
     warrant_action_for_message,
 )
+import commitments
 from federation import (
     FederationAuthority,
     ReplayStore,
@@ -182,6 +189,11 @@ MUTATION_ROLE_REQUIREMENTS = {
     '/api/warrants/approve': 'admin',
     '/api/warrants/stay': 'admin',
     '/api/warrants/revoke': 'admin',
+    '/api/commitments/propose': 'admin',
+    '/api/commitments/accept': 'admin',
+    '/api/commitments/reject': 'admin',
+    '/api/commitments/breach': 'admin',
+    '/api/commitments/settle': 'admin',
     '/api/treasury/contribute': 'owner',
     '/api/treasury/reserve-floor': 'owner',
     '/api/admission/admit': 'owner',
@@ -384,6 +396,24 @@ def _mutate_admission(bound_org_id, action, target_org_id):
     )
 
 
+def _commitment_management_state():
+    return {
+        'management_mode': 'founding_locked',
+        'mutation_enabled': False,
+        'mutation_disabled_reason': 'single_institution_deployment',
+    }
+
+
+def _commitment_snapshot(bound_org_id):
+    summary = commitments.commitment_summary(bound_org_id)
+    return {
+        'bound_org_id': bound_org_id,
+        **_commitment_management_state(),
+        **summary,
+        'commitments': commitments.list_commitments(bound_org_id),
+    }
+
+
 def _accept_federation_request(bound_org_id, envelope, payload=None):
     host_identity, admission_registry = _runtime_host_state(bound_org_id)
     authority = _federation_authority(host_identity)
@@ -517,6 +547,32 @@ def _deliver_federation_envelope(bound_org_id, target_host_id, target_org_id,
                 session_id=session_id or None,
             )
             raise
+    commitment_record = None
+    if commitment_id:
+        try:
+            commitment_record = commitments.validate_commitment_for_delivery(
+                commitment_id,
+                target_host_id=target_host_id,
+                target_institution_id=target_org_id,
+                org_id=bound_org_id,
+            )
+        except (PermissionError, ValueError) as exc:
+            log_event(
+                bound_org_id,
+                actor_id or f'host:{host_identity.host_id}',
+                'federation_commitment_blocked',
+                resource=message_type,
+                outcome='blocked',
+                actor_type=actor_type or 'service',
+                details={
+                    'target_host_id': target_host_id,
+                    'target_institution_id': target_org_id,
+                    'commitment_id': commitment_id,
+                    'error': str(exc),
+                },
+                session_id=session_id or None,
+            )
+            raise
     try:
         delivery = authority.deliver(
             target_host_id,
@@ -553,6 +609,41 @@ def _deliver_federation_envelope(bound_org_id, target_host_id, target_org_id,
     receipt = dict(delivery.get('receipt') or {})
     if not receipt and isinstance(delivery.get('response'), dict):
         receipt = dict(delivery['response'].get('receipt') or {})
+    commitment_delivery_ref = None
+    if commitment_record:
+        commitment_delivery_ref = commitments.record_delivery_ref(
+            commitment_record['commitment_id'],
+            {
+                'delivered_at': _now(),
+                'target_host_id': target_host_id,
+                'target_institution_id': target_org_id,
+                'message_type': message_type,
+                'peer_transport': (delivery.get('peer') or {}).get('transport', ''),
+                'envelope_id': (claims or {}).get('envelope_id', ''),
+                'receipt_id': receipt.get('receipt_id', ''),
+                'receiver_host_id': receipt.get('receiver_host_id', ''),
+                'receiver_institution_id': receipt.get('receiver_institution_id', ''),
+                'actor_id': actor_id or f'host:{host_identity.host_id}',
+                'session_id': session_id or '',
+                'warrant_id': warrant_id or '',
+            },
+            org_id=bound_org_id,
+        )
+        log_event(
+            bound_org_id,
+            actor_id or f'host:{host_identity.host_id}',
+            'commitment_delivery_recorded',
+            resource=commitment_record['commitment_id'],
+            outcome='success',
+            actor_type=actor_type or 'service',
+            details={
+                'target_host_id': target_host_id,
+                'target_institution_id': target_org_id,
+                'message_type': message_type,
+                'receipt_id': receipt.get('receipt_id', ''),
+            },
+            session_id=session_id or None,
+        )
     if execution_warrant:
         mark_warrant_executed(
             warrant_id,
@@ -580,6 +671,7 @@ def _deliver_federation_envelope(bound_org_id, target_host_id, target_org_id,
             receipt_id=receipt.get('receipt_id', ''),
             receiver_host_id=receipt.get('receiver_host_id', ''),
             receiver_institution_id=receipt.get('receiver_institution_id', ''),
+            commitment_delivery_recorded=bool(commitment_delivery_ref),
         ),
         session_id=session_id or None,
     )
@@ -875,6 +967,7 @@ def api_status(context_source='founding_default', institution_context=None):
             'total_appeals': len(records['appeals']),
         },
         'warrants': _warrant_summary(org_id),
+        'commitments': _commitment_snapshot(org_id),
         'ci_vertical': _ci_vertical_status(reg, lead_id, org_id),
         'remediations': remediations,
         'timestamp': _now(),
@@ -966,7 +1059,7 @@ a:hover { text-decoration: underline; }
 <body>
 
 <h1>Meridian Governed Workspace</h1>
-<p class="subtitle">Constitutional Operating System — Five Primitives</p>
+<p class="subtitle">Constitutional Operating System — Six Primitives</p>
 
 <div class="status-bar" id="status-bar">Loading...</div>
 
@@ -1697,6 +1790,8 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                 'warrants': list_warrants(org_id),
                 'summary': _warrant_summary(org_id),
             })
+        elif path == '/api/commitments':
+            return self._json(_commitment_snapshot(org_id))
         elif path == '/api/ci-vertical':
             reg = load_registry()
             lead_id, _ = get_sprint_lead(org_id)
@@ -1994,6 +2089,108 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                 return self._json({
                     'message': f"Warrant {decision_past[decision]}: {warrant_id}",
                     'warrant': warrant,
+                })
+
+            elif path == '/api/commitments/propose':
+                target_host_id = (body.get('target_host_id') or '').strip()
+                target_org_id = (body.get('target_org_id') or '').strip()
+                summary = (body.get('summary') or '').strip()
+                commitment = commitments.propose_commitment(
+                    target_host_id,
+                    target_org_id,
+                    summary,
+                    commitment_id=(body.get('commitment_id') or '').strip(),
+                    proposed_by=by,
+                    note=body.get('note', ''),
+                    org_id=org_id,
+                    metadata=body.get('metadata'),
+                )
+                log_event(org_id, by, 'commitment_proposed', resource=commitment['commitment_id'],
+                          outcome='success', details={
+                              'target_host_id': target_host_id,
+                              'target_institution_id': target_org_id,
+                              'summary': summary,
+                          }, session_id=_sid)
+                return self._json({
+                    'message': f"Commitment proposed: {commitment['commitment_id']}",
+                    'commitment': commitment,
+                    'summary': commitments.commitment_summary(org_id),
+                })
+
+            elif path == '/api/commitments/accept':
+                commitment_id = (body.get('commitment_id') or '').strip()
+                if not commitment_id:
+                    return self._json({'error': 'commitment_id is required'}, 400)
+                commitment = commitments.accept_commitment(
+                    commitment_id,
+                    by,
+                    org_id=org_id,
+                    note=body.get('note', ''),
+                )
+                log_event(org_id, by, 'commitment_accepted', resource=commitment_id,
+                          outcome='success', details={'status': commitment['status']},
+                          session_id=_sid)
+                return self._json({
+                    'message': f"Commitment accepted: {commitment_id}",
+                    'commitment': commitment,
+                    'summary': commitments.commitment_summary(org_id),
+                })
+
+            elif path == '/api/commitments/reject':
+                commitment_id = (body.get('commitment_id') or '').strip()
+                if not commitment_id:
+                    return self._json({'error': 'commitment_id is required'}, 400)
+                commitment = commitments.reject_commitment(
+                    commitment_id,
+                    by,
+                    org_id=org_id,
+                    note=body.get('note', ''),
+                )
+                log_event(org_id, by, 'commitment_rejected', resource=commitment_id,
+                          outcome='success', details={'status': commitment['status']},
+                          session_id=_sid)
+                return self._json({
+                    'message': f"Commitment rejected: {commitment_id}",
+                    'commitment': commitment,
+                    'summary': commitments.commitment_summary(org_id),
+                })
+
+            elif path == '/api/commitments/breach':
+                commitment_id = (body.get('commitment_id') or '').strip()
+                if not commitment_id:
+                    return self._json({'error': 'commitment_id is required'}, 400)
+                commitment = commitments.breach_commitment(
+                    commitment_id,
+                    by,
+                    org_id=org_id,
+                    note=body.get('note', ''),
+                )
+                log_event(org_id, by, 'commitment_breached', resource=commitment_id,
+                          outcome='success', details={'status': commitment['status']},
+                          session_id=_sid)
+                return self._json({
+                    'message': f"Commitment breached: {commitment_id}",
+                    'commitment': commitment,
+                    'summary': commitments.commitment_summary(org_id),
+                })
+
+            elif path == '/api/commitments/settle':
+                commitment_id = (body.get('commitment_id') or '').strip()
+                if not commitment_id:
+                    return self._json({'error': 'commitment_id is required'}, 400)
+                commitment = commitments.settle_commitment(
+                    commitment_id,
+                    by,
+                    org_id=org_id,
+                    note=body.get('note', ''),
+                )
+                log_event(org_id, by, 'commitment_settled', resource=commitment_id,
+                          outcome='success', details={'status': commitment['status']},
+                          session_id=_sid)
+                return self._json({
+                    'message': f"Commitment settled: {commitment_id}",
+                    'commitment': commitment,
+                    'summary': commitments.commitment_summary(org_id),
                 })
 
             elif path == '/api/federation/send':
