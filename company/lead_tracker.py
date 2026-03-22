@@ -18,7 +18,6 @@ import argparse
 import datetime as dt
 import json
 import os
-import sys
 import uuid
 
 
