@@ -1302,7 +1302,11 @@ def _process_received_federation_message(bound_org_id, claims, receipt, *, paylo
         'state': 'received',
         'reason': 'no_receiver_handler',
     }
-    if claims.message_type in ('commitment_proposal', 'commitment_acceptance') and claims.commitment_id:
+    if claims.message_type in (
+        'commitment_proposal',
+        'commitment_acceptance',
+        'commitment_breach_notice',
+    ) and claims.commitment_id:
         actor_id = claims.actor_id or f'peer:{claims.source_host_id}'
         commitment_ref = _commitment_federation_ref(claims, receipt, payload)
         try:
@@ -1353,11 +1357,43 @@ def _process_received_federation_message(bound_org_id, claims, receipt, *, paylo
             payload=payload,
             state='processed',
         )
-        event_name = (
-            'federation_commitment_proposal_applied'
-            if claims.message_type == 'commitment_proposal'
-            else 'federation_commitment_acceptance_applied'
-        )
+        if claims.message_type == 'commitment_breach_notice':
+            case_record, created = _maybe_open_case_for_commitment_breach(
+                commitment,
+                actor_id,
+                org_id=bound_org_id,
+                note='Mirrored from received federation envelope',
+            )
+            if created:
+                log_event(
+                    bound_org_id,
+                    actor_id,
+                    'case_opened',
+                    resource=case_record['case_id'],
+                    outcome='success',
+                    details={
+                        'claim_type': case_record.get('claim_type', ''),
+                        'linked_commitment_id': case_record.get('linked_commitment_id', ''),
+                        'linked_warrant_id': case_record.get('linked_warrant_id', ''),
+                    },
+                    session_id=claims.session_id or None,
+                )
+            warrant = _maybe_stay_warrant_for_case(
+                case_record,
+                actor_id,
+                org_id=bound_org_id,
+                session_id=claims.session_id or None,
+                note='Mirrored from received federation breach notice',
+            )
+            event_name = 'federation_commitment_breach_notice_applied'
+        else:
+            case_record = None
+            warrant = None
+            event_name = (
+                'federation_commitment_proposal_applied'
+                if claims.message_type == 'commitment_proposal'
+                else 'federation_commitment_acceptance_applied'
+            )
         log_event(
             bound_org_id,
             actor_id,
@@ -1378,12 +1414,19 @@ def _process_received_federation_message(bound_org_id, claims, receipt, *, paylo
             'reason': (
                 'commitment_proposal_mirrored'
                 if claims.message_type == 'commitment_proposal'
-                else 'commitment_acceptance_mirrored'
+                else (
+                    'commitment_acceptance_mirrored'
+                    if claims.message_type == 'commitment_acceptance'
+                    else 'commitment_breach_notice_mirrored'
+                )
             ),
             'commitment': commitment,
             'commitment_ref': commitment_ref,
             'inbox_entry': inbox_entry,
         })
+        if claims.message_type == 'commitment_breach_notice':
+            result['case'] = case_record
+            result['warrant'] = warrant
         return result
 
     if claims.message_type == 'execution_request':
@@ -1691,14 +1734,41 @@ def _deliver_federation_envelope(bound_org_id, target_host_id, target_org_id,
             )
             raise
     commitment_record = None
+    if message_type == 'commitment_breach_notice' and not commitment_id:
+        message = "Federation message_type 'commitment_breach_notice' requires commitment_id"
+        log_event(
+            bound_org_id,
+            actor_id or f'host:{host_identity.host_id}',
+            'federation_commitment_blocked',
+            resource=message_type,
+            outcome='blocked',
+            actor_type=actor_type or 'service',
+            details={
+                'target_host_id': target_host_id,
+                'target_institution_id': target_org_id,
+                'error': message,
+            },
+            session_id=session_id or None,
+        )
+        raise ValueError(message)
     if commitment_id:
         try:
-            commitment_record = commitments.validate_commitment_for_delivery(
-                commitment_id,
-                target_host_id=target_host_id,
-                target_institution_id=target_org_id,
-                org_id=bound_org_id,
-            )
+            if message_type == 'commitment_breach_notice':
+                commitment_record = commitments.validate_commitment_for_breach_notice(
+                    commitment_id,
+                    target_host_id=target_host_id,
+                    target_institution_id=target_org_id,
+                    org_id=bound_org_id,
+                    warrant_id=warrant_id,
+                )
+            else:
+                commitment_record = commitments.validate_commitment_for_delivery(
+                    commitment_id,
+                    target_host_id=target_host_id,
+                    target_institution_id=target_org_id,
+                    org_id=bound_org_id,
+                    warrant_id=warrant_id,
+                )
         except (PermissionError, ValueError) as exc:
             log_event(
                 bound_org_id,

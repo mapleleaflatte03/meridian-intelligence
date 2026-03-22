@@ -405,6 +405,10 @@ class LiveWorkspaceContextTests(unittest.TestCase):
             status['runtime_core']['service_registry']['federation_gateway']['required_warrant_actions']['commitment_acceptance'],
             'cross_institution_commitment',
         )
+        self.assertEqual(
+            status['runtime_core']['service_registry']['federation_gateway']['required_warrant_actions']['commitment_breach_notice'],
+            'cross_institution_commitment',
+        )
         self.assertFalse(status['runtime_core']['service_registry']['mcp_service']['supports_institution_routing'])
         self.assertEqual(status['runtime_core']['service_registry']['subscriptions']['identity_model'], 'session')
         self.assertEqual(status['runtime_core']['service_registry']['accounting']['identity_model'], 'session')
@@ -813,6 +817,73 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.assertEqual(commit_calls[1]['kwargs']['message_type'], 'commitment_acceptance')
         self.assertEqual(commit_calls[0]['kwargs']['warrant_id'], 'war_commit')
         self.assertEqual(commit_calls[1]['kwargs']['warrant_id'], 'war_commit')
+
+    def test_process_received_commitment_breach_notice_mirrors_breached_record_and_opens_case(self):
+        from federation import FederationEnvelopeClaims
+
+        mirrored_records = [{
+            'commitment_id': 'com_fed_demo',
+            'status': 'breached',
+            'breached_by': 'peer:host_peer',
+            'federation_refs': [{'envelope_id': 'fed_commit_env_3'}],
+            'warrant_id': 'war_commit',
+        }]
+        commit_calls = []
+        case_calls = []
+        self.workspace.commitments.mirror_federated_commitment = lambda *args, **kwargs: (
+            commit_calls.append({'args': args, 'kwargs': kwargs}) or mirrored_records[len(commit_calls) - 1]
+        )
+        self.workspace.cases.ensure_case_for_commitment_breach = lambda commitment_record, actor_id, **kwargs: (
+            case_calls.append({'commitment_record': commitment_record, 'actor_id': actor_id, 'kwargs': kwargs})
+            or ({
+                'case_id': 'case_breach_demo',
+                'claim_type': 'breach_of_commitment',
+                'status': 'open',
+                'linked_commitment_id': commitment_record['commitment_id'],
+                'linked_warrant_id': commitment_record.get('warrant_id', ''),
+            }, True)
+        )
+        self.workspace._maybe_stay_warrant_for_case = lambda *args, **kwargs: {
+            'applied': True,
+            'warrant_id': 'war_commit',
+            'court_review_state': 'stayed',
+        }
+        self.workspace._federation_inbox_entry = lambda *args, **kwargs: {
+            'envelope_id': kwargs.get('envelope_id', ''),
+            'state': kwargs.get('state', 'received'),
+        }
+        self.workspace.log_event = lambda *args, **kwargs: None
+
+        claims = FederationEnvelopeClaims(
+            envelope_id='fed_commit_env_3',
+            source_host_id='host_peer',
+            source_institution_id='org_peer',
+            target_host_id='host_live',
+            target_institution_id='org_founding',
+            actor_type='user',
+            actor_id='user_peer',
+            session_id='ses_peer',
+            boundary_name='federation_gateway',
+            identity_model='signed_host_service',
+            message_type='commitment_breach_notice',
+            payload_hash='hash_breach',
+            warrant_id='war_commit',
+            commitment_id='com_fed_demo',
+        )
+        processing = self.workspace._process_received_federation_message(
+            'org_founding',
+            claims,
+            {'receipt_id': 'fedrcpt_commit_env_3', 'accepted_at': '2026-03-22T00:02:00Z'},
+            payload={'commitment_type': 'deliver_brief', 'summary': 'Deliver the approved brief'},
+        )
+
+        self.assertTrue(processing['applied'])
+        self.assertEqual(processing['reason'], 'commitment_breach_notice_mirrored')
+        self.assertEqual(processing['commitment']['status'], 'breached')
+        self.assertEqual(processing['case']['case_id'], 'case_breach_demo')
+        self.assertEqual(processing['warrant']['court_review_state'], 'stayed')
+        self.assertEqual(commit_calls[0]['kwargs']['message_type'], 'commitment_breach_notice')
+        self.assertEqual(case_calls[0]['commitment_record']['status'], 'breached')
 
     def test_accounting_expense_route_passes_bound_org_to_writer(self):
         calls = []

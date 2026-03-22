@@ -29,6 +29,7 @@ COMMITMENT_STATES = (
 FEDERATED_COMMITMENT_MESSAGE_STATES = {
     'commitment_proposal': 'proposed',
     'commitment_acceptance': 'accepted',
+    'commitment_breach_notice': 'breached',
 }
 
 COMMITMENT_STATE_RANK = {
@@ -448,6 +449,11 @@ def mirror_federated_commitment(commitment_id, *, org_id=None, message_type='',
             record['reviewed_at'] = timestamp
             record['accepted_by'] = actor_id
             record['accepted_at'] = timestamp
+        elif state == 'breached':
+            record['reviewed_by'] = actor_id
+            record['reviewed_at'] = timestamp
+            record['breached_by'] = actor_id
+            record['breached_at'] = timestamp
 
     _save_store(store, org_id)
     return record
@@ -508,6 +514,36 @@ def validate_commitment_for_settlement(commitment_id, *, org_id=None, warrant_id
         raise PermissionError(
             f"Commitment '{commitment_id}' is not ready for settlement "
             f"(state={_canonical_state(record)})"
+        )
+    if warrant_id and record.get('warrant_id') and record.get('warrant_id') != warrant_id:
+        raise PermissionError(
+            f"Commitment '{commitment_id}' warrant_id "
+            f"{record.get('warrant_id', '')!r} does not match {warrant_id!r}"
+        )
+    return record
+
+
+def validate_commitment_for_breach_notice(commitment_id, *, org_id=None,
+                                          target_host_id='',
+                                          target_institution_id='',
+                                          warrant_id=''):
+    record = get_commitment(commitment_id, org_id=org_id)
+    if not record:
+        raise PermissionError(f"Commitment '{commitment_id}' does not exist")
+    if _canonical_state(record) != 'breached':
+        raise PermissionError(
+            f"Commitment '{commitment_id}' is not ready for breach notice "
+            f"(state={_canonical_state(record)})"
+        )
+    if target_host_id and record.get('target_host_id') != target_host_id:
+        raise PermissionError(
+            f"Commitment '{commitment_id}' target_host_id "
+            f"{record.get('target_host_id', '')!r} does not match {target_host_id!r}"
+        )
+    if target_institution_id and record.get('target_institution_id') != target_institution_id:
+        raise PermissionError(
+            f"Commitment '{commitment_id}' target_institution_id "
+            f"{record.get('target_institution_id', '')!r} does not match {target_institution_id!r}"
         )
     if warrant_id and record.get('warrant_id') and record.get('warrant_id') != warrant_id:
         raise PermissionError(

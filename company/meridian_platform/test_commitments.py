@@ -150,6 +150,34 @@ class CommitmentModuleTests(unittest.TestCase):
         summary = self.commitments.commitment_summary(self.org_id)
         self.assertEqual(summary['accepted'], 1)
 
+    def test_federated_commitment_breach_notice_marks_record_breached(self):
+        record = self.commitments.mirror_federated_commitment(
+            'com_fed_breach',
+            org_id=self.org_id,
+            message_type='commitment_breach_notice',
+            source_host_id='host_sender',
+            source_institution_id='org_sender',
+            target_host_id='host_live',
+            target_institution_id='org_peer',
+            actor_id='user_sender',
+            warrant_id='war_commit',
+            envelope_id='fed_env_breach',
+            receipt_id='fed_rcpt_breach',
+            payload={
+                'commitment_type': 'deliver_brief',
+                'summary': 'Deliver the approved brief',
+                'terms_payload': {'scope': 'brief'},
+            },
+        )
+        self.assertEqual(record['status'], 'breached')
+        self.assertEqual(record['state'], 'breached')
+        self.assertEqual(record['mirror_origin'], 'federation')
+        self.assertEqual(record['federation_message_type'], 'commitment_breach_notice')
+        self.assertEqual(record['breached_by'], 'user_sender')
+        self.assertEqual(record['breached_at'], record['reviewed_at'])
+        self.assertEqual(record['mirrored_from_envelope_id'], 'fed_env_breach')
+        self.assertEqual(len(record['federation_refs']), 1)
+
     def test_settlement_refs_are_recorded_and_deduped(self):
         self.commitments.propose_commitment(
             'host_peer',
@@ -290,6 +318,7 @@ class WorkspaceCommitmentTests(unittest.TestCase):
             target_host_id='host_peer',
             target_institution_id='org_peer',
             org_id='org_founding',
+            warrant_id='',
         )
         commitment_record.assert_called_once()
         recorded_ref = commitment_record.call_args.args[1]
@@ -329,13 +358,19 @@ class WorkspaceCommitmentTests(unittest.TestCase):
                  'target_host_id': 'host_peer',
                  'target_institution_id': 'org_peer',
              }), \
+             mock.patch.object(self.workspace.commitments, 'validate_commitment_for_breach_notice', return_value={
+                 'commitment_id': 'com_demo',
+                 'status': 'breached',
+                 'target_host_id': 'host_peer',
+                 'target_institution_id': 'org_peer',
+             }), \
              mock.patch.object(self.workspace.commitments, 'record_delivery_ref', return_value={
                  'commitment_id': 'com_demo',
                  'status': 'accepted',
                  'delivery_refs': [],
              }), \
              mock.patch.object(self.workspace, 'validate_warrant_for_execution', side_effect=fake_validate_warrant_for_execution):
-            for message_type in ('commitment_proposal', 'commitment_acceptance'):
+            for message_type in ('commitment_proposal', 'commitment_acceptance', 'commitment_breach_notice'):
                 self.workspace._deliver_federation_envelope(
                     'org_founding',
                     'host_peer',
@@ -355,8 +390,72 @@ class WorkspaceCommitmentTests(unittest.TestCase):
 
         self.assertEqual(
             [call['action_class'] for call in validate_calls],
-            ['cross_institution_commitment', 'cross_institution_commitment'],
+            [
+                'cross_institution_commitment',
+                'cross_institution_commitment',
+                'cross_institution_commitment',
+            ],
         )
+
+    def test_federation_breach_notice_requires_breached_commitment_validation(self):
+        host_identity = types.SimpleNamespace(host_id='host_live')
+        delivery = {
+            'peer': {'transport': 'https'},
+            'claims': {'envelope_id': 'fed_breach_demo'},
+            'receipt': {
+                'receipt_id': 'fedrcpt_breach_demo',
+                'receiver_host_id': 'host_peer',
+                'receiver_institution_id': 'org_peer',
+            },
+            'response': {},
+        }
+        fake_authority = types.SimpleNamespace(
+            ensure_enabled=lambda: None,
+            deliver=mock.Mock(return_value=delivery),
+            snapshot=mock.Mock(return_value={'enabled': True}),
+        )
+        commitment_validate = mock.Mock(return_value={
+            'commitment_id': 'com_breach',
+            'status': 'breached',
+            'target_host_id': 'host_peer',
+            'target_institution_id': 'org_peer',
+        })
+        commitment_record = mock.Mock(return_value={
+            'commitment_id': 'com_breach',
+            'status': 'breached',
+            'delivery_refs': [],
+        })
+        fake_commitments = types.SimpleNamespace(
+            validate_commitment_for_breach_notice=commitment_validate,
+            record_delivery_ref=commitment_record,
+        )
+
+        with mock.patch.object(self.workspace, '_runtime_host_state', return_value=(host_identity, {'admitted_org_ids': ['org_founding']})), \
+             mock.patch.object(self.workspace, '_federation_authority', return_value=fake_authority), \
+             mock.patch.object(self.workspace, 'log_event'), \
+             mock.patch.object(self.workspace, 'validate_warrant_for_execution', return_value={'warrant_id': 'war_commit'}), \
+             mock.patch.object(self.workspace, 'commitments', fake_commitments):
+            self.workspace._deliver_federation_envelope(
+                'org_founding',
+                'host_peer',
+                'org_peer',
+                'commitment_breach_notice',
+                payload={'commitment_type': 'deliver_brief', 'summary': 'Deliver the approved brief'},
+                actor_type='user',
+                actor_id='user_owner',
+                session_id='ses_demo',
+                warrant_id='war_commit',
+                commitment_id='com_breach',
+            )
+
+        commitment_validate.assert_called_once_with(
+            'com_breach',
+            target_host_id='host_peer',
+            target_institution_id='org_peer',
+            org_id='org_founding',
+            warrant_id='war_commit',
+        )
+        commitment_record.assert_called_once()
 
 
 if __name__ == '__main__':
