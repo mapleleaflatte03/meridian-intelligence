@@ -34,6 +34,11 @@ VALID_ROLLOUT_STATES = ('active', 'staged', 'quarantined', 'disabled')
 VALID_ROLES = ('manager', 'analyst', 'verifier', 'executor', 'writer', 'qa_gate', 'compressor')
 VALID_RISK_STATES = ('nominal', 'elevated', 'critical', 'suspended')
 VALID_LIFECYCLE_STATES = ('provisioned', 'active', 'quarantined', 'decommissioned')
+DEFAULT_RUNTIME_ID = 'openclaw_compatible'
+DEFAULT_RUNTIME_LABEL = 'OpenClaw-Compatible Runtime'
+RUNTIME_BINDING_BOUNDARY_NAME = 'workspace'
+RUNTIME_BINDING_IDENTITY_MODEL = 'session'
+RUNTIME_BINDING_BOUNDARY_SCOPE = 'institution_bound'
 
 # Risk auto-escalation thresholds
 INCIDENT_ELEVATED_THRESHOLD = 3
@@ -44,10 +49,52 @@ def _now():
     return datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
 
 
+def runtime_binding_for_org(org_id, context_source='agent_registry', runtime_binding=None):
+    binding = dict(runtime_binding or {})
+    runtime_id = (binding.get('runtime_id') or '').strip() or DEFAULT_RUNTIME_ID
+    runtime_registered = runtime_id == DEFAULT_RUNTIME_ID
+    return {
+        'runtime_id': runtime_id,
+        'runtime_label': binding.get('runtime_label') or DEFAULT_RUNTIME_LABEL,
+        'runtime_registered': runtime_registered,
+        'registration_status': 'registered' if runtime_registered else 'missing_runtime',
+        'bound_org_id': org_id,
+        'context_source': context_source,
+        'boundary_name': RUNTIME_BINDING_BOUNDARY_NAME,
+        'identity_model': RUNTIME_BINDING_IDENTITY_MODEL,
+        'boundary_scope': RUNTIME_BINDING_BOUNDARY_SCOPE,
+    }
+
+
+def normalize_agent_record(agent, context_source='agent_registry'):
+    record = dict(agent or {})
+    record['runtime_binding'] = runtime_binding_for_org(
+        record.get('org_id'),
+        context_source=context_source,
+        runtime_binding=record.get('runtime_binding'),
+    )
+    return record
+
+
+def _backfill_runtime_bindings(data, context_source='agent_registry'):
+    changed = False
+    agents = data.get('agents') or {}
+    for agent_id, agent in list(agents.items()):
+        normalized = normalize_agent_record(agent, context_source=context_source)
+        if normalized != agent:
+            agents[agent_id] = normalized
+            changed = True
+    if changed:
+        data['agents'] = agents
+    return changed
+
+
 def load_registry():
     if os.path.exists(REGISTRY_FILE):
         with open(REGISTRY_FILE) as f:
-            return json.load(f)
+            data = json.load(f)
+        _backfill_runtime_bindings(data)
+        return data
     return {'agents': {}, 'updatedAt': _now()}
 
 
@@ -96,6 +143,7 @@ def register_agent(org_id, name, role, purpose, scopes=None, model_policy=None,
         'status': 'active',
         'created_at': _now(),
         'last_active_at': _now(),
+        'runtime_binding': runtime_binding_for_org(org_id),
     }
     save_registry(data)
     return agent_id
@@ -103,7 +151,8 @@ def register_agent(org_id, name, role, purpose, scopes=None, model_policy=None,
 
 def get_agent(agent_id):
     data = load_registry()
-    return data['agents'].get(agent_id)
+    agent = data['agents'].get(agent_id)
+    return normalize_agent_record(agent) if agent else None
 
 
 def list_agents(org_id=None, include_disabled=False):
@@ -113,7 +162,7 @@ def list_agents(org_id=None, include_disabled=False):
         agents = [a for a in agents if a['org_id'] == org_id]
     if not include_disabled:
         agents = [a for a in agents if a['rollout_state'] != 'disabled']
-    return agents
+    return [normalize_agent_record(agent) for agent in agents]
 
 
 def update_agent(agent_id, **kwargs):
@@ -236,7 +285,7 @@ def get_agent_by_economy_key(economy_key):
     data = load_registry()
     for agent in data['agents'].values():
         if agent.get('economy_key') == economy_key:
-            return agent
+            return normalize_agent_record(agent)
     return None
 
 

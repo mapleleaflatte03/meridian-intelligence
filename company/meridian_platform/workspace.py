@@ -145,7 +145,7 @@ sys.path.insert(0, PLATFORM_DIR)
 
 from organizations import (load_orgs, set_charter, set_policy_defaults,
                            transition_lifecycle as org_transition_lifecycle)
-from agent_registry import load_registry, sync_from_economy
+from agent_registry import load_registry, normalize_agent_record, sync_from_economy
 from audit import log_event, query_events
 
 import importlib.util
@@ -3310,6 +3310,7 @@ def api_status(context_source='founding_default', institution_context=None):
     for a in reg['agents'].values():
         if a.get('org_id') not in (None, '', org_id):
             continue
+        a = normalize_agent_record(a)
         restrictions = get_restrictions(a.get('economy_key', a['name'].lower()), org_id=org_id)
         remediation = get_agent_remediation(a.get('economy_key', a['name'].lower()), reg, org_id=org_id)
         if remediation:
@@ -3325,6 +3326,7 @@ def api_status(context_source='founding_default', institution_context=None):
             'restrictions': restrictions,
             'is_sprint_lead': a.get('economy_key') == lead_id,
             'remediation': remediation,
+            'runtime_binding': a.get('runtime_binding', {}),
         })
 
     open_violations = [
@@ -4159,7 +4161,11 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
             return self._json(org or {})
         elif path == '/api/agents':
             reg = load_registry()
-            return self._json([a for a in reg['agents'].values() if a.get('org_id') in (None, '', org_id)])
+            return self._json([
+                normalize_agent_record(a)
+                for a in reg['agents'].values()
+                if a.get('org_id') in (None, '', org_id)
+            ])
         elif path == '/api/authority':
             queue = _load_queue(org_id)
             lead_id, lead_auth = get_sprint_lead(org_id)

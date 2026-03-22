@@ -452,6 +452,23 @@ class TreasuryCapsuleTests(unittest.TestCase):
         self.assertEqual(atlas['reputation_units'], 91)
         self.assertEqual(atlas['authority_units'], 42)
 
+    def test_agent_registry_lookup_surfaces_runtime_binding(self):
+        agent = agent_registry.get_agent('agent_atlas_123456')
+        self.assertIsNotNone(agent)
+        self.assertEqual(agent['runtime_binding']['runtime_id'], 'openclaw_compatible')
+        self.assertEqual(agent['runtime_binding']['runtime_label'], 'OpenClaw-Compatible Runtime')
+        self.assertEqual(agent['runtime_binding']['bound_org_id'], self.org_id)
+        self.assertEqual(agent['runtime_binding']['context_source'], 'agent_registry')
+        self.assertEqual(agent['runtime_binding']['boundary_name'], 'workspace')
+        self.assertEqual(agent['runtime_binding']['identity_model'], 'session')
+        self.assertTrue(agent['runtime_binding']['runtime_registered'])
+        self.assertEqual(agent['runtime_binding']['registration_status'], 'registered')
+
+        agents = agent_registry.list_agents(self.org_id)
+        self.assertEqual(len(agents), 1)
+        self.assertEqual(agents[0]['runtime_binding']['runtime_id'], 'openclaw_compatible')
+        self.assertEqual(agents[0]['runtime_binding']['bound_org_id'], self.org_id)
+
     def test_authority_and_court_use_capsule_ledger_alias(self):
         capsule.ensure_treasury_aliases(self.org_id)
         lead_id, lead_auth = authority.get_sprint_lead(self.org_id)

@@ -17,7 +17,8 @@ sys.path.insert(0, PLATFORM_DIR)
 
 from organizations import load_orgs, save_orgs, create_org, _now, DEFAULT_POLICY_DEFAULTS
 from agent_registry import (load_registry, save_registry, _now as _reg_now,
-                            INCIDENT_ELEVATED_THRESHOLD, INCIDENT_CRITICAL_THRESHOLD)
+                            INCIDENT_ELEVATED_THRESHOLD, INCIDENT_CRITICAL_THRESHOLD,
+                            runtime_binding_for_org)
 from audit import log_event
 from capsule import (
     ensure_capsule,
@@ -211,6 +212,7 @@ def bootstrap():
                 'status': ledger_agent.get('status', 'active'),
                 'created_at': _reg_now(),
                 'last_active_at': ledger_agent.get('last_scored_at', _reg_now()),
+                'runtime_binding': runtime_binding_for_org(founding_org_id),
             }
             registered += 1
             print(f'  Registered: {agent_id} ({agent_def["name"]})')
@@ -240,6 +242,9 @@ def bootstrap():
             changed = True
         if 'escalation_path' not in agent:
             agent['escalation_path'] = []
+            changed = True
+        if 'runtime_binding' not in agent:
+            agent['runtime_binding'] = runtime_binding_for_org(founding_org_id)
             changed = True
         if changed:
             backfilled_agents += 1

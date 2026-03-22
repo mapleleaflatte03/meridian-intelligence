@@ -167,6 +167,11 @@ Those snapshots now explicitly quarantine the compatibility shell too: they
 surface the canonical service module plus the legacy shim module/path, so the
 public API no longer implies `company/subscriptions.py` or `company/accounting.py`
 are the source of truth.
+Agent records now also carry a self-contained `runtime_binding` tranche in the
+registry. The live workspace exposes that binding through `GET /api/agents`
+and the `agents` array inside `/api/status`, so each governed agent record now
+reports its bound org, boundary name, identity model, and boundary scope
+directly in the public truth.
 This is still a founding-locked live deployment, not self-serve multi-
 institution delivery routing.
 
@@ -242,6 +247,10 @@ On the live host today, every MCP tool call is audited and metered for the
 founding Meridian institution only. The shared runtime-core taxonomy classifies
 that path as `mcp_service` with identity model `x402_payment` and scope
 `founding_service_only`. Multi-institution MCP routing is not live.
+The live agent registry also surfaces `runtime_binding` on each governed agent
+record, and that same field is visible through `GET /api/agents` and the
+`agents` array inside `/api/status`. That makes the agent-bound runtime truth
+public instead of implicit.
 
 ---
 

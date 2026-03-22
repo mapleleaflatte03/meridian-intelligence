@@ -114,6 +114,13 @@ Agent {
   economy_key: string                # Key in economy/ledger.json
   incident_count: int                # Running count of court incidents
   escalation_path: string[]          # Ordered escalation chain
+  runtime_binding: {
+    bound_org_id: string
+    context_source: string
+    boundary_name: string
+    identity_model: string
+    boundary_scope: string
+  }                                  # Self-contained runtime-binding tranche
 }
 ```
 
@@ -397,6 +404,7 @@ institution, not the live source of truth.
 - Founding-org authority and court state moved behind capsule-backed paths
 - Founding-org warrant state exposed through `/api/warrants` and reflected in `/api/status`
 - Founding-org commitment state exposed through `/api/commitments` and reflected in `/api/status`
+- Governed agent records expose `runtime_binding` through `/api/agents` and the `agents` array in `/api/status`
 - Live boundary registry now surfaces warrant requirements for `federation_gateway`
 - Sender-side federated `execution_request` delivery path now requires an executable warrant in code, even though live federation remains disabled
 
@@ -426,6 +434,7 @@ which exposes:
 - the live boundary registry (`workspace`, `federation_gateway`, `mcp_service`, `payment_monitor`, `subscriptions`, `accounting`, `cli`)
 - the live admission model
 - the live federation-gateway state
+- governed agent records with their public `runtime_binding` tranche via `/api/agents` and `/api/status`
 
 The owner workspace also now exposes read-only snapshots for two
 institution-owned service boundaries on the founding-locked host:

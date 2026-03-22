@@ -275,7 +275,25 @@ class LiveWorkspaceContextTests(unittest.TestCase):
                 'policy_defaults': {},
             },
         )
-        self.workspace.load_registry = lambda: {'agents': {}}
+        self.workspace.load_registry = lambda: {
+            'agents': {
+                'agent_demo': {
+                    'id': 'agent_demo',
+                    'org_id': 'org_founding',
+                    'name': 'Atlas',
+                    'role': 'analyst',
+                    'purpose': 'Research',
+                    'reputation_units': 91,
+                    'authority_units': 42,
+                    'risk_state': 'nominal',
+                    'lifecycle_state': 'active',
+                    'economy_key': 'atlas',
+                    'incident_count': 0,
+                    'created_at': '2026-03-22T00:00:00Z',
+                    'last_active_at': '2026-03-22T00:00:00Z',
+                },
+            },
+        }
         self.workspace._load_queue = lambda org_id: {
             'kill_switch': False,
             'pending_approvals': {},
@@ -319,6 +337,7 @@ class LiveWorkspaceContextTests(unittest.TestCase):
                 'claim_type': 'breach_of_commitment',
             }
         ]
+        self.workspace.get_restrictions = lambda agent_id, org_id=None: {'restrictions': []}
         self.workspace.service_state.subscription_snapshot = lambda org_id=None: {
             'bound_org_id': org_id,
             'mutation_enabled': True,
@@ -447,6 +466,14 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.assertTrue(status['service_state']['accounting']['mutation_enabled'])
         self.assertIn('federation', status['runtime_core'])
         self.assertFalse(status['runtime_core']['federation']['enabled'])
+        self.assertEqual(status['agents'][0]['runtime_binding']['runtime_id'], 'openclaw_compatible')
+        self.assertEqual(status['agents'][0]['runtime_binding']['runtime_label'], 'OpenClaw-Compatible Runtime')
+        self.assertEqual(status['agents'][0]['runtime_binding']['bound_org_id'], 'org_founding')
+        self.assertEqual(status['agents'][0]['runtime_binding']['context_source'], 'agent_registry')
+        self.assertEqual(status['agents'][0]['runtime_binding']['boundary_name'], 'workspace')
+        self.assertEqual(status['agents'][0]['runtime_binding']['identity_model'], 'session')
+        self.assertTrue(status['agents'][0]['runtime_binding']['runtime_registered'])
+        self.assertEqual(status['agents'][0]['runtime_binding']['registration_status'], 'registered')
 
     def test_api_status_reports_witness_read_only_host_management(self):
         from runtime_host import default_host_identity
