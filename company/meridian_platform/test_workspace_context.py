@@ -889,6 +889,156 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.assertEqual(commit_calls[0]['kwargs']['message_type'], 'commitment_breach_notice')
         self.assertEqual(case_calls[0]['commitment_record']['status'], 'breached')
 
+    def test_process_received_court_notice_reviews_sender_warrant_and_records_delivery_ref(self):
+        from federation import FederationEnvelopeClaims
+
+        delivery_refs = [{
+            'message_type': 'execution_request',
+            'envelope_id': 'fed_exec_demo',
+            'target_host_id': 'host_peer',
+            'target_institution_id': 'org_peer',
+            'warrant_id': 'war_sender',
+        }]
+        sender_warrant = {
+            'warrant_id': 'war_sender',
+            'action_class': 'federated_execution',
+            'boundary_name': 'federation_gateway',
+            'court_review_state': 'approved',
+            'execution_state': 'ready',
+            'reviewed_by': '',
+            'reviewed_at': '',
+            'review_note': '',
+        }
+        self.workspace._federation_inbox_entry = lambda *args, **kwargs: {
+            'envelope_id': kwargs.get('envelope_id', ''),
+            'state': kwargs.get('state', 'received'),
+        }
+        self.workspace.get_warrant = lambda warrant_id, org_id=None: (
+            dict(sender_warrant) if warrant_id == 'war_sender' else None
+        )
+        self.workspace.review_warrant = lambda warrant_id, decision, by, **kwargs: {
+            **dict(sender_warrant),
+            'warrant_id': warrant_id,
+            'court_review_state': {'approve': 'approved', 'stay': 'stayed', 'revoke': 'revoked'}[decision],
+            'reviewed_by': by,
+            'reviewed_at': '2026-03-22T00:00:00Z',
+            'review_note': kwargs.get('note', ''),
+        }
+        self.workspace.commitments.get_commitment = lambda commitment_id, org_id=None: {
+            'commitment_id': commitment_id,
+            'status': 'accepted',
+            'delivery_refs': list(delivery_refs),
+        }
+        self.workspace.commitments.record_delivery_ref = lambda commitment_id, delivery_ref, **kwargs: {
+            'commitment_id': commitment_id,
+            'status': 'accepted',
+            'delivery_refs': list(delivery_refs) + [dict(delivery_ref)],
+        }
+        self.workspace.log_event = lambda *args, **kwargs: None
+
+        claims = FederationEnvelopeClaims(
+            envelope_id='fed_court_demo',
+            source_host_id='host_peer',
+            source_institution_id='org_peer',
+            target_host_id='host_live',
+            target_institution_id='org_founding',
+            actor_type='user',
+            actor_id='user_peer',
+            session_id='ses_peer',
+            boundary_name='federation_gateway',
+            identity_model='signed_host_service',
+            message_type='court_notice',
+            payload_hash='hash_court_demo',
+            warrant_id='war_sender',
+            commitment_id='com_fed_demo',
+        )
+        processing = self.workspace._process_received_federation_message(
+            'org_founding',
+            claims,
+            {'receipt_id': 'fedrcpt_court_demo', 'accepted_at': '2026-03-22T00:00:00Z'},
+            payload={
+                'court_decision': 'stay',
+                'sender_warrant_id': 'war_sender',
+                'local_warrant_id': 'war_local_peer',
+                'source_execution_envelope_id': 'fed_exec_demo',
+                'source_execution_job_id': 'fej_demo',
+                'source_execution_receipt_id': 'fedrcpt_exec_demo',
+                'local_court_review_state': 'stayed',
+                'local_execution_state': 'ready',
+                'target_host_id': 'host_live',
+                'target_institution_id': 'org_founding',
+                'note': 'Receiver hold',
+                'metadata': {'trace': 'court_notice_demo'},
+            },
+        )
+
+        self.assertTrue(processing['applied'])
+        self.assertEqual(processing['reason'], 'court_notice_applied')
+        self.assertEqual(processing['warrant']['warrant_id'], 'war_sender')
+        self.assertEqual(processing['warrant']['court_review_state'], 'stayed')
+        self.assertEqual(processing['warrant']['reviewed_by'], 'user_peer')
+        self.assertEqual(processing['delivery_ref']['message_type'], 'court_notice')
+        self.assertEqual(processing['delivery_ref']['local_warrant_id'], 'war_local_peer')
+        self.assertEqual(processing['outbound_execution_ref']['envelope_id'], 'fed_exec_demo')
+        self.assertEqual(processing['inbox_entry']['state'], 'processed')
+
+    def test_process_received_court_notice_blocks_missing_sender_reference(self):
+        from federation import FederationEnvelopeClaims
+
+        self.workspace._federation_inbox_entry = lambda *args, **kwargs: {
+            'envelope_id': kwargs.get('envelope_id', ''),
+            'state': kwargs.get('state', 'received'),
+        }
+        self.workspace.get_warrant = lambda warrant_id, org_id=None: {
+            'warrant_id': 'war_sender',
+            'action_class': 'federated_execution',
+            'boundary_name': 'federation_gateway',
+            'court_review_state': 'approved',
+            'execution_state': 'ready',
+        }
+        self.workspace.commitments.get_commitment = lambda commitment_id, org_id=None: {
+            'commitment_id': commitment_id,
+            'status': 'accepted',
+            'delivery_refs': [],
+        }
+        self.workspace.log_event = lambda *args, **kwargs: None
+
+        claims = FederationEnvelopeClaims(
+            envelope_id='fed_court_bad',
+            source_host_id='host_peer',
+            source_institution_id='org_peer',
+            target_host_id='host_live',
+            target_institution_id='org_founding',
+            actor_type='user',
+            actor_id='user_peer',
+            session_id='ses_peer',
+            boundary_name='federation_gateway',
+            identity_model='signed_host_service',
+            message_type='court_notice',
+            payload_hash='hash_court_bad',
+            warrant_id='war_sender',
+            commitment_id='com_fed_demo',
+        )
+        processing = self.workspace._process_received_federation_message(
+            'org_founding',
+            claims,
+            {'receipt_id': 'fedrcpt_court_bad', 'accepted_at': '2026-03-22T00:00:00Z'},
+            payload={
+                'court_decision': 'stay',
+                'sender_warrant_id': 'war_sender',
+                'local_warrant_id': 'war_local_peer',
+                'source_execution_envelope_id': 'fed_exec_missing',
+                'target_host_id': 'host_live',
+                'target_institution_id': 'org_founding',
+                'note': 'Receiver hold',
+                'metadata': {},
+            },
+        )
+
+        self.assertFalse(processing['applied'])
+        self.assertEqual(processing['reason'], 'invalid_court_notice')
+        self.assertIn("No outbound execution_request proof matches", processing['error'])
+
     def test_process_received_case_notice_mirrors_open_and_resolve(self):
         from federation import FederationEnvelopeClaims
 

@@ -607,7 +607,7 @@ class FederationAuthority:
         if (
             source_peer
             and source_peer.trust_state == 'suspended'
-            and body.get('message_type') == 'case_notice'
+            and body.get('message_type') in ('case_notice', 'court_notice')
         ):
             if not source_peer.shared_secret:
                 raise FederationValidationError(

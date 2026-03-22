@@ -63,6 +63,11 @@ When an operator reviews one of those local warrants, the mirrored execution
 job now moves to `ready`, `blocked`, or `rejected` in lockstep with the court
 review decision, while the federation gateway itself remains disabled on the
 host.
+The same mirrored review loop now also carries the OSS `court_notice`
+contract: receiver-side warrant review can prepare a signed review notice back
+to the source host so sender-side warrant state and commitment provenance can
+reflect remote review before settlement. On this live host that path remains
+fail-closed because federation itself is still disabled/founding-only.
 The live workspace now also exposes `POST /api/federation/execution-jobs/execute`
 for parity with the OSS reference path, but that route is a structural
 rejection only: live receiver-side execution jobs remain review-only until

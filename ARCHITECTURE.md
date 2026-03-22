@@ -169,6 +169,11 @@ Local warrant review now also drives that queue honestly: approving the
 receiver-side warrant moves the job to `ready`, while staying or revoking it
 changes the job to `blocked` or `rejected` without pretending live
 cross-host execution is active.
+The same mirrored review loop now also carries the OSS `court_notice`
+contract: receiver-side warrant review can prepare a signed review notice back
+to the source host so sender-side warrant state and linked commitment
+provenance can reflect remote review before settlement. Because this live host
+still disables federation at runtime, that path remains fail-closed here.
 For parity, the live workspace also declares `POST /api/federation/execution-jobs/execute`,
 but that route fails closed with no state change. It exists so the public
 boundary stays explicit: live jobs are still review-only objects while
