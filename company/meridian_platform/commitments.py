@@ -47,6 +47,14 @@ def _payload_hash(payload):
     return hashlib.sha256(raw).hexdigest()
 
 
+def _normalize_target_institution_id(*, target_org_id='', target_institution_id=''):
+    return (target_institution_id or target_org_id or '').strip()
+
+
+def _canonical_state(record):
+    return (record.get('status') or record.get('state') or '').strip()
+
+
 def _store_path(org_id=None):
     return capsule_path(org_id or _default_org_id(), 'commitments.json')
 
@@ -79,7 +87,7 @@ def _propose_commitment_record(org_id, target_host_id, target_org_id, commitment
                                actor_id, *, commitment_id=None, terms_payload=None,
                                warrant_id='', note='', metadata=None):
     target_host_id = (target_host_id or '').strip()
-    target_org_id = (target_org_id or '').strip()
+    target_org_id = _normalize_target_institution_id(target_org_id=target_org_id)
     commitment_type = (commitment_type or '').strip()
     actor_id = (actor_id or '').strip()
     if not target_host_id:
@@ -91,9 +99,11 @@ def _propose_commitment_record(org_id, target_host_id, target_org_id, commitment
     if not actor_id:
         raise ValueError('actor_id is required')
 
+    timestamp = _now()
     commitment_id = (commitment_id or '').strip() or f'cmt_{uuid.uuid4().hex[:12]}'
     record = {
         'commitment_id': commitment_id,
+        'institution_id': org_id,
         'source_institution_id': org_id,
         'target_host_id': target_host_id,
         'target_institution_id': target_org_id,
@@ -105,7 +115,8 @@ def _propose_commitment_record(org_id, target_host_id, target_org_id, commitment
         'state': 'proposed',
         'status': 'proposed',
         'proposed_by': actor_id,
-        'proposed_at': _now(),
+        'proposed_at': timestamp,
+        'updated_at': timestamp,
         'reviewed_by': '',
         'reviewed_at': '',
         'review_note': '',
@@ -134,7 +145,10 @@ def propose_commitment(*args, **kwargs):
         return _propose_commitment_record(
             org_id or _default_org_id(),
             target_host_id,
-            target_org_id,
+            _normalize_target_institution_id(
+                target_org_id=target_org_id,
+                target_institution_id=kwargs.get('target_institution_id', ''),
+            ),
             commitment_type,
             actor_id,
             terms_payload=kwargs.get('terms_payload'),
@@ -148,7 +162,10 @@ def propose_commitment(*args, **kwargs):
         return _propose_commitment_record(
             kwargs.get('org_id') or _default_org_id(),
             target_host_id,
-            target_org_id,
+            _normalize_target_institution_id(
+                target_org_id=target_org_id,
+                target_institution_id=kwargs.get('target_institution_id', ''),
+            ),
             summary,
             kwargs.get('proposed_by') or kwargs.get('actor_id') or 'owner',
             terms_payload=kwargs.get('terms_payload'),
@@ -164,7 +181,7 @@ def list_commitments(org_id=None, *, state=None):
     store = _load_store(org_id)
     commitments = list(store.get('commitments', {}).values())
     if state:
-        commitments = [row for row in commitments if row.get('state') == state]
+        commitments = [row for row in commitments if _canonical_state(row) == state]
     commitments.sort(key=lambda row: row.get('proposed_at', ''), reverse=True)
     return commitments
 
@@ -186,21 +203,23 @@ def review_commitment(commitment_id, decision, by, *, org_id=None, note=''):
     state = state_map[decision]
     record['state'] = state
     record['status'] = state
+    timestamp = _now()
     record['reviewed_by'] = (by or '').strip()
-    record['reviewed_at'] = _now()
+    record['reviewed_at'] = timestamp
     record['review_note'] = note or ''
+    record['updated_at'] = timestamp
     if state == 'accepted':
         record['accepted_by'] = record['reviewed_by']
-        record['accepted_at'] = record['reviewed_at']
+        record['accepted_at'] = timestamp
     if state == 'rejected':
         record['rejected_by'] = record['reviewed_by']
-        record['rejected_at'] = record['reviewed_at']
+        record['rejected_at'] = timestamp
     if state == 'breached':
         record['breached_by'] = record['reviewed_by']
-        record['breached_at'] = record['reviewed_at']
+        record['breached_at'] = timestamp
     if state == 'settled':
         record['settled_by'] = record['reviewed_by']
-        record['settled_at'] = record['reviewed_at']
+        record['settled_at'] = timestamp
     _save_store(store, org_id)
     return record
 
@@ -230,10 +249,10 @@ def validate_commitment_for_federation(commitment_id, *, org_id=None,
     )
     if not record:
         raise PermissionError(f"Commitment '{commitment_id}' does not exist")
-    if record.get('state') != 'accepted':
+    if _canonical_state(record) != 'accepted':
         raise PermissionError(
             f"Commitment '{commitment_id}' is not active for federation "
-            f"(state={record.get('state', '')})"
+            f"(state={_canonical_state(record)})"
         )
     if target_host_id and record.get('target_host_id') != target_host_id:
         raise PermissionError(
@@ -273,10 +292,13 @@ def mark_commitment_delivery(commitment_id, *, org_id=None, delivery_ref=None):
     record = store.get('commitments', {}).get(commitment_id)
     if not record:
         raise ValueError(f'Commitment not found: {commitment_id}')
+    ref = dict(delivery_ref or {})
+    ref.setdefault('recorded_at', _now())
     refs = list(record.get('delivery_refs', []))
-    refs.append(dict(delivery_ref or {}))
+    refs.append(ref)
     record['delivery_refs'] = refs
-    record['last_delivery_at'] = _now()
+    record['last_delivery_at'] = ref['recorded_at']
+    record['updated_at'] = ref['recorded_at']
     _save_store(store, org_id)
     return record
 
@@ -301,7 +323,7 @@ def commitment_summary(org_id=None):
         'delivery_refs_total': 0,
     }
     for record in records:
-        state = record.get('state') or record.get('status') or ''
+        state = _canonical_state(record)
         if state in summary:
             summary[state] += 1
         summary['delivery_refs_total'] += len(record.get('delivery_refs', []))

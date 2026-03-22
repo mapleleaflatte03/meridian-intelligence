@@ -42,6 +42,8 @@ class CommitmentModuleTests(unittest.TestCase):
             org_id=self.org_id,
         )
         self.assertEqual(record['status'], 'proposed')
+        self.assertEqual(record['institution_id'], self.org_id)
+        self.assertEqual(record['target_institution_id'], 'org_peer')
 
         record = self.commitments.accept_commitment('com_demo', 'user_owner', org_id=self.org_id)
         self.assertEqual(record['status'], 'accepted')
@@ -66,6 +68,7 @@ class CommitmentModuleTests(unittest.TestCase):
         )
         self.assertEqual(len(record['delivery_refs']), 1)
         self.assertEqual(record['delivery_refs'][0]['receipt_id'], 'fedrcpt_123')
+        self.assertIn('recorded_at', record['delivery_refs'][0])
 
         record = self.commitments.settle_commitment('com_demo', 'user_owner', org_id=self.org_id)
         self.assertEqual(record['status'], 'settled')

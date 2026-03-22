@@ -398,9 +398,9 @@ def _mutate_admission(bound_org_id, action, target_org_id):
 
 def _commitment_management_state():
     return {
-        'management_mode': 'founding_locked',
-        'mutation_enabled': False,
-        'mutation_disabled_reason': 'single_institution_deployment',
+        'management_mode': 'founding_workspace_local',
+        'mutation_enabled': True,
+        'mutation_disabled_reason': '',
     }
 
 
@@ -2093,8 +2093,18 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
 
             elif path == '/api/commitments/propose':
                 target_host_id = (body.get('target_host_id') or '').strip()
-                target_org_id = (body.get('target_org_id') or '').strip()
+                target_org_id = (
+                    body.get('target_institution_id')
+                    or body.get('target_org_id')
+                    or ''
+                ).strip()
                 summary = (body.get('summary') or '').strip()
+                if not target_host_id:
+                    return self._json({'error': 'target_host_id is required'}, 400)
+                if not target_org_id:
+                    return self._json({'error': 'target_institution_id is required'}, 400)
+                if not summary:
+                    return self._json({'error': 'summary is required'}, 400)
                 commitment = commitments.propose_commitment(
                     target_host_id,
                     target_org_id,

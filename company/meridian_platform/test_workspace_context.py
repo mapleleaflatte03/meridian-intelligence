@@ -277,8 +277,8 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.assertIn('commitments', status)
         self.assertEqual(status['commitments']['total'], 1)
         self.assertEqual(status['commitments']['accepted'], 1)
-        self.assertEqual(status['commitments']['management_mode'], 'founding_locked')
-        self.assertFalse(status['commitments']['mutation_enabled'])
+        self.assertEqual(status['commitments']['management_mode'], 'founding_workspace_local')
+        self.assertTrue(status['commitments']['mutation_enabled'])
         self.assertIn('federation', status['runtime_core'])
         self.assertFalse(status['runtime_core']['federation']['enabled'])
 

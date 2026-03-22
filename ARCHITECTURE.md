@@ -200,8 +200,10 @@ Commitment {
 
 The live commitment surface is founding-only and capsule-backed. When a
 `commitment_id` is supplied to federation send, it must resolve to the target
-host and institution before delivery, and successful sends append a delivery
-reference back to the commitment record.
+host and institution before delivery, and successful sends append a local
+sender-side delivery reference back to the commitment record. Live federation
+is still disabled on the host today, so this is not yet cross-host execution
+proof.
 
 ## State File Locations
 

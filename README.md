@@ -56,7 +56,9 @@ the resulting audit trail preserves `warrant_id` provenance.
 The owner workspace now also exposes a founding-only commitment surface via
 `/api/commitments` and `POST /api/commitments/propose|accept|reject|breach|settle`;
 those records are capsule-backed and can anchor federation sends through a
-validated `commitment_id`.
+validated local sender-side `commitment_id`. Live federation remains disabled,
+so this is a founding-workspace commitment surface today, not live
+cross-institution execution proof.
 
 **Live service:** https://app.welliam.codes
 **Product demo:** https://app.welliam.codes/demo.html
