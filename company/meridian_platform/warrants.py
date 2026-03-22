@@ -175,6 +175,13 @@ def list_warrants(org_id=None, *, action_class=None, review_state=None, executio
     return warrants
 
 
+def get_warrant(warrant_id, org_id=None):
+    if not warrant_id:
+        return None
+    store = _load_store(org_id)
+    return store.get('warrants', {}).get(warrant_id)
+
+
 def review_warrant(warrant_id, decision, by, *, org_id=None, note=''):
     decision = (decision or '').strip()
     state_map = {
@@ -199,10 +206,7 @@ def review_warrant(warrant_id, decision, by, *, org_id=None, note=''):
 def validate_warrant_for_execution(warrant_id, *, org_id=None, action_class='',
                                    boundary_name='', actor_id='', session_id='',
                                    request_payload=None):
-    record = next(
-        (item for item in list_warrants(org_id) if item.get('warrant_id') == warrant_id),
-        None,
-    )
+    record = get_warrant(warrant_id, org_id=org_id)
     if not record:
         raise PermissionError(f"Warrant '{warrant_id}' does not exist")
     if action_class and record.get('action_class') != action_class:
