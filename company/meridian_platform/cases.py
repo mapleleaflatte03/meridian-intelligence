@@ -260,3 +260,36 @@ def ensure_case_for_commitment_breach(commitment_record, actor_id, *, org_id=Non
         note=note,
         metadata={'source': 'commitment_breach'},
     ), True
+
+
+def ensure_case_for_delivery_failure(claim_type, actor_id, *, org_id=None,
+                                     target_host_id='', target_institution_id='',
+                                     linked_commitment_id='', linked_warrant_id='',
+                                     note='', metadata=None):
+    claim_type = (claim_type or '').strip()
+    target_host_id = (target_host_id or '').strip()
+    target_institution_id = (target_institution_id or '').strip()
+    linked_commitment_id = (linked_commitment_id or '').strip()
+    linked_warrant_id = (linked_warrant_id or '').strip()
+    for existing in blocking_cases(org_id):
+        if (
+            existing.get('claim_type') == claim_type
+            and (existing.get('target_host_id') or '').strip() == target_host_id
+            and (existing.get('target_institution_id') or '').strip() == target_institution_id
+            and (existing.get('linked_commitment_id') or '').strip() == linked_commitment_id
+            and (existing.get('linked_warrant_id') or '').strip() == linked_warrant_id
+        ):
+            return existing, False
+    case_metadata = {'source': 'federation_delivery_failure'}
+    case_metadata.update(dict(metadata or {}))
+    return open_case(
+        org_id or _default_org_id(),
+        claim_type,
+        actor_id,
+        target_host_id=target_host_id,
+        target_institution_id=target_institution_id,
+        linked_commitment_id=linked_commitment_id,
+        linked_warrant_id=linked_warrant_id,
+        note=note,
+        metadata=case_metadata,
+    ), True

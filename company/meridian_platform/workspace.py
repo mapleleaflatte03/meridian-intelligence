@@ -475,6 +475,64 @@ def _maybe_suspend_peer_for_case(case_record, actor_id, *, org_id, session_id=No
     }
 
 
+def _delivery_failure_claim_type(error_message):
+    message = (error_message or '').lower()
+    if not message:
+        return ''
+    if 'signature verification failed' in message:
+        return 'fraudulent_proof'
+    if 'receiver_host_id' in message or 'receiver_institution_id' in message:
+        return 'misrouted_execution'
+    if 'receipt' in message:
+        return 'invalid_settlement_notice'
+    return ''
+
+
+def _maybe_open_case_for_delivery_failure(exc, actor_id, *, org_id, target_host_id,
+                                          target_institution_id, commitment_id='',
+                                          warrant_id='', session_id=None):
+    claim_type = _delivery_failure_claim_type(str(exc))
+    if not claim_type:
+        return None, None
+    try:
+        case_record, created = cases.ensure_case_for_delivery_failure(
+            claim_type,
+            actor_id,
+            org_id=org_id,
+            target_host_id=target_host_id,
+            target_institution_id=target_institution_id,
+            linked_commitment_id=commitment_id,
+            linked_warrant_id=warrant_id,
+            note=str(exc),
+            metadata={
+                'peer_host_id': exc.peer_host_id,
+                'error': str(exc),
+            },
+        )
+    except (SystemExit, ValueError):
+        return None, None
+    if created:
+        log_event(
+            org_id,
+            actor_id,
+            'case_opened',
+            resource=case_record['case_id'],
+            outcome='success',
+            details={
+                'claim_type': case_record.get('claim_type', ''),
+                'linked_commitment_id': case_record.get('linked_commitment_id', ''),
+                'source': 'federation_delivery_failure',
+            },
+            session_id=session_id,
+        )
+    return case_record, _maybe_suspend_peer_for_case(
+        case_record,
+        actor_id,
+        org_id=org_id,
+        session_id=session_id,
+    )
+
+
 def _accept_federation_request(bound_org_id, envelope, payload=None):
     host_identity, admission_registry = _runtime_host_state(bound_org_id)
     authority = _federation_authority(host_identity)
@@ -679,6 +737,16 @@ def _deliver_federation_envelope(bound_org_id, target_host_id, target_org_id,
             ttl_seconds=ttl_seconds,
         )
     except FederationDeliveryError as exc:
+        case_record, federation_peer = _maybe_open_case_for_delivery_failure(
+            exc,
+            actor_id or f'host:{host_identity.host_id}',
+            org_id=bound_org_id,
+            target_host_id=target_host_id,
+            target_institution_id=target_org_id,
+            commitment_id=commitment_id,
+            warrant_id=warrant_id,
+            session_id=session_id or None,
+        )
         log_event(
             bound_org_id,
             actor_id or f'host:{host_identity.host_id}',
@@ -694,6 +762,8 @@ def _deliver_federation_envelope(bound_org_id, target_host_id, target_org_id,
             ),
             session_id=session_id or None,
         )
+        exc.case_record = case_record
+        exc.federation_peer = federation_peer
         raise
 
     claims = delivery.get('claims')
@@ -2424,6 +2494,8 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                         'error': str(e),
                         'peer_host_id': e.peer_host_id,
                         'claims': _federation_claims_dict(e.claims),
+                        'case': getattr(e, 'case_record', None),
+                        'federation_peer': getattr(e, 'federation_peer', None),
                     }, 502)
                 return self._json({
                     'message': 'Federation envelope delivered',

@@ -47,6 +47,7 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.orig_list_cases = self.workspace.cases.list_cases
         self.orig_blocking_commitment_ids = self.workspace.cases.blocking_commitment_ids
         self.orig_blocked_peer_host_ids = self.workspace.cases.blocked_peer_host_ids
+        self.orig_ensure_case_for_delivery_failure = self.workspace.cases.ensure_case_for_delivery_failure
 
     def tearDown(self):
         self.workspace.WORKSPACE_ORG_ID = self.orig_workspace_org_id
@@ -70,6 +71,7 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.workspace.cases.list_cases = self.orig_list_cases
         self.workspace.cases.blocking_commitment_ids = self.orig_blocking_commitment_ids
         self.workspace.cases.blocked_peer_host_ids = self.orig_blocked_peer_host_ids
+        self.workspace.cases.ensure_case_for_delivery_failure = self.orig_ensure_case_for_delivery_failure
 
     def test_live_workspace_rejects_non_founding_configured_org(self):
         self.workspace._load_workspace_credentials = lambda: (None, None, None, None)
@@ -417,6 +419,43 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.assertFalse(result['applied'])
         self.assertEqual(result['peer_host_id'], 'host_peer')
         self.assertEqual(result['reason'], 'single_institution_deployment')
+
+    def test_maybe_open_case_for_delivery_failure_reports_fail_closed_peer_state(self):
+        from federation import FederationDeliveryError
+
+        audit_events = []
+        self.workspace.log_event = lambda *args, **kwargs: audit_events.append({
+            'args': args,
+            'kwargs': kwargs,
+        })
+        self.workspace.cases.ensure_case_for_delivery_failure = lambda claim_type, actor_id, **kwargs: ({
+            'case_id': 'case_live_demo',
+            'claim_type': claim_type,
+            'status': 'open',
+            'linked_commitment_id': kwargs.get('linked_commitment_id', ''),
+            'target_host_id': kwargs.get('target_host_id', ''),
+        }, True)
+        error = FederationDeliveryError(
+            "Peer host 'host_peer' returned receipt receiver_institution_id 'org_wrong', not 'org_peer'",
+            peer_host_id='host_peer',
+        )
+
+        case_record, federation_peer = self.workspace._maybe_open_case_for_delivery_failure(
+            error,
+            'user_owner',
+            org_id='org_founding',
+            target_host_id='host_peer',
+            target_institution_id='org_peer',
+            commitment_id='cmt_demo',
+            warrant_id='war_demo',
+            session_id='ses_demo',
+        )
+
+        self.assertEqual(case_record['claim_type'], 'misrouted_execution')
+        self.assertEqual(federation_peer['peer_host_id'], 'host_peer')
+        self.assertFalse(federation_peer['applied'])
+        self.assertEqual(federation_peer['reason'], 'single_institution_deployment')
+        self.assertEqual(audit_events[0]['args'][2], 'case_opened')
 
     def test_federation_manifest_reports_founding_locked_runtime(self):
         from runtime_host import default_host_identity
