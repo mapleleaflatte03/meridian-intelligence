@@ -603,7 +603,19 @@ class FederationAuthority:
         if body.get('algorithm') != 'hmac_sha256':
             raise FederationValidationError('Envelope algorithm must be hmac_sha256')
 
-        secret = self._verification_secret_for_source(body['source_host_id'])
+        source_peer = self.peer_registry.get('peers', {}).get(body['source_host_id'])
+        if (
+            source_peer
+            and source_peer.trust_state == 'suspended'
+            and body.get('message_type') == 'case_notice'
+        ):
+            if not source_peer.shared_secret:
+                raise FederationValidationError(
+                    f"Suspended peer '{body['source_host_id']}' does not declare a verification secret"
+                )
+            secret = source_peer.shared_secret.encode('utf-8')
+        else:
+            secret = self._verification_secret_for_source(body['source_host_id'])
         expected_sig = hmac.new(secret, payload_bytes, hashlib.sha256).digest()
         if not hmac.compare_digest(signature, expected_sig):
             raise FederationValidationError('Envelope signature verification failed')

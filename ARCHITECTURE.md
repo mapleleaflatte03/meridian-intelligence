@@ -291,8 +291,11 @@ for runtime truth, while any peer-suspension path stays fail-closed until live
 federation is actually enabled. Contradictory delivery proofs can still be
 classified into local case records, and a linked execution warrant can be
 stayed locally. The same active case state now blocks commitment settlement,
-but all of this remains a founding-workspace mirror until live federation is
-truly enabled.
+and the live workspace now mirrors the OSS `case_notice` send/receive contract
+for `/api/cases/open|stay|resolve`, while still failing closed whenever
+federation dispatch or peer control-plane sync is attempted on the
+founding-only host. All of this remains a founding-workspace mirror until live
+federation is truly enabled.
 
 ### Payout Proposals (treasury.py)
 ```

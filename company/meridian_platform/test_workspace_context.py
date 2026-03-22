@@ -409,6 +409,10 @@ class LiveWorkspaceContextTests(unittest.TestCase):
             status['runtime_core']['service_registry']['federation_gateway']['required_warrant_actions']['commitment_breach_notice'],
             'cross_institution_commitment',
         )
+        self.assertNotIn(
+            'case_notice',
+            status['runtime_core']['service_registry']['federation_gateway']['required_warrant_actions'],
+        )
         self.assertFalse(status['runtime_core']['service_registry']['mcp_service']['supports_institution_routing'])
         self.assertEqual(status['runtime_core']['service_registry']['subscriptions']['identity_model'], 'session')
         self.assertEqual(status['runtime_core']['service_registry']['accounting']['identity_model'], 'session')
@@ -884,6 +888,325 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.assertEqual(processing['warrant']['court_review_state'], 'stayed')
         self.assertEqual(commit_calls[0]['kwargs']['message_type'], 'commitment_breach_notice')
         self.assertEqual(case_calls[0]['commitment_record']['status'], 'breached')
+
+    def test_process_received_case_notice_mirrors_open_and_resolve(self):
+        from federation import FederationEnvelopeClaims
+
+        store = {'cases': {}}
+        original_load_store = self.workspace.cases._load_store
+        original_save_store = self.workspace.cases._save_store
+        original_list_cases = self.workspace.cases.list_cases
+        original_open_case = self.workspace.cases.open_case
+        suspend_calls = []
+        restore_calls = []
+        try:
+            self.workspace.cases._load_store = lambda org_id=None: {
+                'cases': {key: dict(value) for key, value in store['cases'].items()},
+            }
+            self.workspace.cases._save_store = lambda data, org_id=None: store.__setitem__(
+                'cases',
+                {key: dict(value) for key, value in (data.get('cases') or {}).items()},
+            )
+            self.workspace.cases.list_cases = lambda org_id=None: list(store['cases'].values())
+
+            def fake_open_case(org_id, claim_type, actor_id, **kwargs):
+                record = {
+                    'case_id': 'case_live_mirror',
+                    'institution_id': org_id,
+                    'source_institution_id': org_id,
+                    'claim_type': claim_type,
+                    'target_host_id': kwargs.get('target_host_id', ''),
+                    'target_institution_id': kwargs.get('target_institution_id', ''),
+                    'linked_commitment_id': kwargs.get('linked_commitment_id', ''),
+                    'linked_warrant_id': kwargs.get('linked_warrant_id', ''),
+                    'status': 'open',
+                    'opened_by': actor_id,
+                    'reviewed_by': '',
+                    'reviewed_at': '',
+                    'review_note': '',
+                    'resolution': '',
+                    'note': kwargs.get('note', ''),
+                    'metadata': dict(kwargs.get('metadata') or {}),
+                    'updated_at': '2026-03-22T00:00:00Z',
+                }
+                store['cases'][record['case_id']] = record
+                return dict(record)
+
+            self.workspace.cases.open_case = fake_open_case
+            self.workspace._maybe_suspend_peer_for_case = lambda case_record, actor_id, **kwargs: (
+                suspend_calls.append(case_record['case_id'])
+                or {
+                    'applied': False,
+                    'peer_host_id': case_record.get('target_host_id', ''),
+                    'reason': 'single_institution_deployment',
+                    'trust_state': '',
+                }
+            )
+            self.workspace._maybe_stay_warrant_for_case = lambda *args, **kwargs: {
+                'applied': True,
+                'court_review_state': 'stayed',
+            }
+            self.workspace._maybe_restore_peer_for_case = lambda case_record, actor_id, **kwargs: (
+                restore_calls.append(case_record['case_id'])
+                or {
+                    'applied': False,
+                    'peer_host_id': case_record.get('target_host_id', ''),
+                    'reason': 'single_institution_deployment',
+                    'trust_state': '',
+                }
+            )
+            self.workspace._federation_inbox_entry = lambda *args, **kwargs: {
+                'envelope_id': 'fed_case_live_open',
+                'state': kwargs.get('state', 'received'),
+            }
+            self.workspace.log_event = lambda *args, **kwargs: None
+
+            open_claims = FederationEnvelopeClaims(
+                envelope_id='fed_case_live_open',
+                source_host_id='host_alpha',
+                source_institution_id='org_alpha',
+                target_host_id='host_live',
+                target_institution_id='org_founding',
+                actor_type='user',
+                actor_id='user_alpha',
+                session_id='ses_alpha',
+                boundary_name='federation_gateway',
+                identity_model='signed_host_service',
+                message_type='case_notice',
+                payload_hash='hash_case_open',
+            )
+            open_payload = {
+                'case_decision': 'open',
+                'source_case_id': 'case_alpha_demo',
+                'claim_type': 'misrouted_execution',
+                'linked_commitment_id': 'cmt_demo',
+                'linked_warrant_id': 'war_demo',
+                'target_host_id': 'host_live',
+                'target_institution_id': 'org_founding',
+                'note': 'Open mirrored case',
+            }
+            first = self.workspace._process_received_federation_message(
+                'org_founding',
+                open_claims,
+                {'receipt_id': 'fedrcpt_case_open', 'accepted_at': '2026-03-22T00:00:00Z'},
+                payload=open_payload,
+            )
+            resolved = self.workspace._process_received_federation_message(
+                'org_founding',
+                FederationEnvelopeClaims(
+                    envelope_id='fed_case_live_resolve',
+                    source_host_id='host_alpha',
+                    source_institution_id='org_alpha',
+                    target_host_id='host_live',
+                    target_institution_id='org_founding',
+                    actor_type='user',
+                    actor_id='user_alpha',
+                    session_id='ses_alpha',
+                    boundary_name='federation_gateway',
+                    identity_model='signed_host_service',
+                    message_type='case_notice',
+                    payload_hash='hash_case_resolve',
+                ),
+                {'receipt_id': 'fedrcpt_case_resolve', 'accepted_at': '2026-03-22T00:01:00Z'},
+                payload=dict(open_payload, case_decision='resolve', note='Resolved on source'),
+            )
+        finally:
+            self.workspace.cases._load_store = original_load_store
+            self.workspace.cases._save_store = original_save_store
+            self.workspace.cases.list_cases = original_list_cases
+            self.workspace.cases.open_case = original_open_case
+
+        self.assertTrue(first['applied'])
+        self.assertEqual(first['reason'], 'case_notice_applied')
+        self.assertTrue(first['case_created'])
+        self.assertEqual(first['case']['target_host_id'], 'host_alpha')
+        self.assertEqual(first['case']['metadata']['federation_source_case_id'], 'case_alpha_demo')
+        self.assertFalse(first['federation_peer']['applied'])
+        self.assertEqual(first['federation_peer']['reason'], 'single_institution_deployment')
+
+        self.assertTrue(resolved['applied'])
+        self.assertEqual(resolved['case']['status'], 'resolved')
+        self.assertFalse(resolved['federation_peer']['applied'])
+        self.assertEqual(resolved['federation_peer']['reason'], 'single_institution_deployment')
+        self.assertEqual(suspend_calls, ['case_live_mirror'])
+        self.assertEqual(restore_calls, ['case_live_mirror'])
+
+    def test_case_open_federate_fails_closed_when_live_federation_disabled(self):
+        calls = []
+
+        class FakeHandler:
+            def __init__(self):
+                self.path = '/api/cases/open'
+                self.headers = _Headers()
+                self.response = None
+
+            def _require_auth(self, path):
+                calls.append(('require_auth', path))
+                return True
+
+            def _session_claims_from_request(self, expected_org_id=None):
+                calls.append(('session_claims', expected_org_id))
+                return None
+
+            def _read_body(self):
+                return {
+                    'claim_type': 'misrouted_execution',
+                    'target_host_id': 'host_peer',
+                    'target_institution_id': 'org_peer',
+                    'federate': True,
+                    'note': 'Mirror this case',
+                }
+
+            def _json(self, data, status=200):
+                self.response = {'data': data, 'status': status}
+                return self.response
+
+        handler = FakeHandler()
+        with mock.patch.object(
+            self.workspace,
+            '_resolve_workspace_context',
+            return_value=types.SimpleNamespace(org_id='org_founding'),
+        ), mock.patch.object(
+            self.workspace,
+            '_enforce_request_context',
+            return_value={'requested_org_id': '', 'bound_org_id': 'org_founding'},
+        ), mock.patch.object(
+            self.workspace,
+            '_resolve_auth_context',
+            return_value={'actor_id': 'user_owner', 'session_id': 'ses_demo'},
+        ), mock.patch.object(
+            self.workspace,
+            '_enforce_mutation_authorization',
+            return_value='owner',
+        ), mock.patch.object(
+            self.workspace.cases,
+            'open_case',
+            return_value={
+                'case_id': 'case_live_demo',
+                'claim_type': 'misrouted_execution',
+                'target_host_id': 'host_peer',
+                'target_institution_id': 'org_peer',
+                'linked_commitment_id': '',
+                'linked_warrant_id': '',
+                'status': 'open',
+            },
+        ), mock.patch.object(
+            self.workspace,
+            '_maybe_suspend_peer_for_case',
+            return_value={
+                'applied': False,
+                'peer_host_id': 'host_peer',
+                'reason': 'single_institution_deployment',
+                'trust_state': '',
+            },
+        ), mock.patch.object(
+            self.workspace,
+            '_maybe_stay_warrant_for_case',
+            return_value=None,
+        ), mock.patch.object(
+            self.workspace,
+            '_deliver_case_notice',
+            side_effect=self.workspace.FederationUnavailable('Federation gateway is disabled on host_live'),
+        ), mock.patch.object(
+            self.workspace,
+            'log_event',
+        ):
+            result = self.workspace.WorkspaceHandler.do_POST(handler)
+
+        self.assertEqual(calls[0], ('require_auth', '/api/cases/open'))
+        self.assertEqual(result['status'], 503)
+        self.assertEqual(result['data']['case']['case_id'], 'case_live_demo')
+        self.assertIn('disabled', result['data']['error'])
+
+    def test_case_resolve_federate_fails_closed_when_live_federation_disabled(self):
+        calls = []
+
+        class FakeHandler:
+            def __init__(self):
+                self.path = '/api/cases/resolve'
+                self.headers = _Headers()
+                self.response = None
+
+            def _require_auth(self, path):
+                calls.append(('require_auth', path))
+                return True
+
+            def _session_claims_from_request(self, expected_org_id=None):
+                calls.append(('session_claims', expected_org_id))
+                return None
+
+            def _read_body(self):
+                return {
+                    'case_id': 'case_live_demo',
+                    'federate': True,
+                    'note': 'Resolve peer sync',
+                }
+
+            def _json(self, data, status=200):
+                self.response = {'data': data, 'status': status}
+                return self.response
+
+        handler = FakeHandler()
+        with mock.patch.object(
+            self.workspace,
+            '_resolve_workspace_context',
+            return_value=types.SimpleNamespace(org_id='org_founding'),
+        ), mock.patch.object(
+            self.workspace,
+            '_enforce_request_context',
+            return_value={'requested_org_id': '', 'bound_org_id': 'org_founding'},
+        ), mock.patch.object(
+            self.workspace,
+            '_resolve_auth_context',
+            return_value={'actor_id': 'user_owner', 'session_id': 'ses_demo'},
+        ), mock.patch.object(
+            self.workspace,
+            '_enforce_mutation_authorization',
+            return_value='owner',
+        ), mock.patch.object(
+            self.workspace,
+            '_case_record_by_id',
+            return_value={
+                'case_id': 'case_live_demo',
+                'target_host_id': 'host_peer',
+                'target_institution_id': 'org_peer',
+            },
+        ), mock.patch.object(
+            self.workspace.cases,
+            'resolve_case',
+            return_value={
+                'case_id': 'case_live_demo',
+                'claim_type': 'misrouted_execution',
+                'target_host_id': 'host_peer',
+                'target_institution_id': 'org_peer',
+                'linked_commitment_id': '',
+                'linked_warrant_id': '',
+                'status': 'resolved',
+            },
+        ), mock.patch.object(
+            self.workspace,
+            '_maybe_restore_peer_for_case',
+            return_value={
+                'applied': False,
+                'peer_host_id': 'host_peer',
+                'reason': 'single_institution_deployment',
+                'trust_state': '',
+            },
+        ), mock.patch.object(
+            self.workspace,
+            '_deliver_case_notice',
+            side_effect=self.workspace.FederationUnavailable('Federation gateway is disabled on host_live'),
+        ), mock.patch.object(
+            self.workspace,
+            'log_event',
+        ):
+            result = self.workspace.WorkspaceHandler.do_POST(handler)
+
+        self.assertEqual(calls[0], ('require_auth', '/api/cases/resolve'))
+        self.assertEqual(result['status'], 503)
+        self.assertEqual(result['data']['case']['case_id'], 'case_live_demo')
+        self.assertEqual(result['data']['federation_peer']['reason'], 'single_institution_deployment')
+        self.assertIn('disabled', result['data']['error'])
 
     def test_accounting_expense_route_passes_bound_org_to_writer(self):
         calls = []
@@ -1883,6 +2206,68 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.assertEqual(exc_info.exception.federation_peer['peer_host_id'], 'host_peer')
         self.assertEqual(exc_info.exception.federation_peer['reason'], 'peer_not_registered')
         self.assertEqual(audit_events[0]['args'][2], 'federation_case_blocked')
+
+    def test_deliver_federation_envelope_skips_case_block_for_case_notice(self):
+        from runtime_host import default_host_identity
+
+        calls = []
+
+        class FakeAuthority:
+            def ensure_enabled(self):
+                return True
+
+            def snapshot(self, **kwargs):
+                return {'host_id': 'host_live', 'enabled': True}
+
+            def deliver(self, target_host_id, source_org_id, target_org_id, message_type, **kwargs):
+                calls.append({
+                    'target_host_id': target_host_id,
+                    'source_org_id': source_org_id,
+                    'target_org_id': target_org_id,
+                    'message_type': message_type,
+                    'kwargs': kwargs,
+                })
+                return {
+                    'claims': {
+                        'envelope_id': 'fed_case_send_1',
+                        'target_host_id': target_host_id,
+                        'target_institution_id': target_org_id,
+                    },
+                    'receipt': {
+                        'receipt_id': 'fedrcpt_case_send_1',
+                    },
+                    'peer': {
+                        'transport': 'https',
+                    },
+                }
+
+        self.workspace._runtime_host_state = lambda _org_id: (
+            default_host_identity(host_id='host_live', federation_enabled=True, peer_transport='https'),
+            {'admitted_org_ids': ['org_founding']},
+        )
+        self.workspace._federation_authority = lambda _host: FakeAuthority()
+        self.workspace.cases.blocking_peer_case = lambda target_host_id, **_kwargs: {
+            'case_id': 'case_live_demo',
+            'claim_type': 'misrouted_execution',
+            'status': 'open',
+            'target_host_id': target_host_id,
+        }
+        self.workspace.log_event = lambda *args, **kwargs: None
+
+        delivery, federation_state = self.workspace._deliver_federation_envelope(
+            'org_founding',
+            'host_peer',
+            'org_peer',
+            'case_notice',
+            payload={'case_decision': 'resolve', 'source_case_id': 'case_live_demo'},
+            actor_type='user',
+            actor_id='user_owner',
+            session_id='ses_demo',
+        )
+
+        self.assertEqual(delivery['claims']['envelope_id'], 'fed_case_send_1')
+        self.assertEqual(calls[0]['message_type'], 'case_notice')
+        self.assertEqual(federation_state['host_id'], 'host_live')
 
     def test_deliver_federation_envelope_keeps_sender_warrant_pending_for_commitment_linked_execution_request(self):
         from runtime_host import default_host_identity

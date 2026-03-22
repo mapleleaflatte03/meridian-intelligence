@@ -98,6 +98,10 @@ open a linked local case record, but live federation is still disabled, so
 this is not yet live cross-host dispute execution. The live case snapshot now
 surfaces blocking commitment IDs / peer host IDs, and any peer-suspension
 attempt remains explicitly fail-closed under the founding-only runtime lock.
+For OSS parity, those same case endpoints can now mirror the federated
+`case_notice` send/receive contract, but on this host any dispatch or peer
+control-plane effect still fails closed until federation is explicitly
+enabled.
 That same local case state now blocks `POST /api/commitments/settle`, and a
 linked execution warrant can be stayed before settlement is retried.
 The live mirror also classifies contradictory delivery proofs into local case
