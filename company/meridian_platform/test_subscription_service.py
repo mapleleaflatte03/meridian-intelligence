@@ -59,6 +59,27 @@ class SubscriptionServiceTests(unittest.TestCase):
         with open(self._tx, 'a') as f:
             f.write(json.dumps(entry) + '\n')
 
+    def test_default_and_normalized_meta_include_storage_and_identity(self):
+        default_payload = subscription_service._default_subscriptions(self.org_id)
+        self.assertEqual(default_payload['_meta']['service_scope'], 'institution_owned_subscription_service')
+        self.assertEqual(default_payload['_meta']['boundary_name'], 'subscriptions')
+        self.assertEqual(default_payload['_meta']['identity_model'], 'session')
+        self.assertEqual(default_payload['_meta']['storage_model'], 'capsule_canonical_with_legacy_symlink')
+        self.assertEqual(default_payload['_meta']['bound_org_id'], self.org_id)
+
+        normalized = subscription_service._normalize_subscriptions(
+            {
+                'subscribers': {},
+                '_meta': {'bound_org_id': 'org_existing'},
+            },
+            self.org_id,
+        )
+        self.assertEqual(normalized['_meta']['service_scope'], 'institution_owned_subscription_service')
+        self.assertEqual(normalized['_meta']['boundary_name'], 'subscriptions')
+        self.assertEqual(normalized['_meta']['identity_model'], 'session')
+        self.assertEqual(normalized['_meta']['storage_model'], 'capsule_canonical_with_legacy_symlink')
+        self.assertEqual(normalized['_meta']['bound_org_id'], self.org_id)
+
     def test_create_trial_subscription_returns_active_record(self):
         result = subscription_service.create_subscription(
             '100',
@@ -71,6 +92,10 @@ class SubscriptionServiceTests(unittest.TestCase):
         self.assertEqual(subscription['plan'], 'trial')
         self.assertTrue(subscription['payment_verified'])
         self.assertEqual(subscription['created_by'], 'user:owner')
+        self.assertEqual(
+            subscription_service.load_subscriptions(self.org_id)['_meta']['service_scope'],
+            'institution_owned_subscription_service',
+        )
 
     def test_convert_trial_subscription_binds_payment_evidence(self):
         subscription_service.create_subscription('200', plan='trial', org_id=self.org_id)
@@ -98,8 +123,60 @@ class SubscriptionServiceTests(unittest.TestCase):
         self.assertEqual(subscription['plan'], 'premium-brief-weekly')
         self.assertTrue(subscription['payment_verified'])
         self.assertEqual(subscription['payment_evidence']['order_id'], 'ord-convert')
+        self.assertTrue(subscription['converted_from_trial'])
         payload = subscription_service.load_subscriptions(self.org_id)
         self.assertEqual(payload['subscribers']['200'][0]['status'], 'converted')
+        self.assertEqual(payload['subscribers']['200'][1]['status'], 'active')
+        self.assertTrue(payload['subscribers']['200'][1]['converted_from_trial'])
+
+    def test_convert_trial_subscription_requires_active_trial(self):
+        subscription_service.create_subscription('205', plan='trial', org_id=self.org_id)
+        payload = subscription_service.load_subscriptions(self.org_id)
+        payload['subscribers']['205'][0]['status'] = 'cancelled'
+        subscription_service.save_subscriptions(payload, self.org_id)
+
+        with self.assertRaisesRegex(LookupError, 'No active trial found'):
+            subscription_service.convert_trial_subscription(
+                '205',
+                'premium-brief-weekly',
+                payment_ref='ref-missing',
+                confirm_payment=False,
+                org_id=self.org_id,
+                actor='user:admin',
+            )
+
+    def test_check_subscription_and_summary_report_counts(self):
+        subscription_service.create_subscription('300', plan='trial', org_id=self.org_id)
+        self._append_tx({
+            'type': 'customer_payment',
+            'order_id': 'ord-summary',
+            'amount': 2.99,
+            'client': 'cust-summary',
+            'product': 'pilot-weekly',
+            'payment_key': 'ref:ref-summary',
+            'payment_ref': 'ref-summary',
+            'tx_hash': '0xsummary',
+            'ts': subscription_service.now_ts(),
+        })
+        subscription_service.create_subscription(
+            '301',
+            plan='premium-brief-weekly',
+            payment_ref='ref-summary',
+            confirm_payment=True,
+            org_id=self.org_id,
+        )
+
+        status = subscription_service.check_subscription('300', org_id=self.org_id)
+        summary = subscription_service.subscription_summary(self.org_id)
+        self.assertTrue(status['found'])
+        self.assertTrue(status['active'])
+        self.assertTrue(status['eligible_for_delivery'])
+        self.assertEqual(status['subscription_count'], 1)
+        self.assertEqual(summary['subscriber_count'], 2)
+        self.assertEqual(summary['subscription_count'], 2)
+        self.assertEqual(summary['active_subscription_count'], 2)
+        self.assertEqual(summary['verified_paid_subscription_count'], 2)
+        self.assertEqual(summary['external_target_count'], 2)
 
     def test_verify_subscription_payment_binds_existing_paid_record(self):
         created = subscription_service.create_subscription(

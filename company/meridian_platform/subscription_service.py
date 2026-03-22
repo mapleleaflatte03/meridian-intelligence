@@ -49,7 +49,10 @@ def _default_subscriptions(org_id=None):
         'delivery_log': [],
         'updatedAt': now_ts(),
         '_meta': {
-            'service_scope': 'founding_meridian_service',
+            'service_scope': 'institution_owned_subscription_service',
+            'boundary_name': 'subscriptions',
+            'identity_model': 'session',
+            'storage_model': 'capsule_canonical_with_legacy_symlink',
             'bound_org_id': org_id or '',
             'internal_test_ids': [],
         },
@@ -64,7 +67,10 @@ def _normalize_subscriptions(data, org_id=None):
     payload.setdefault('delivery_log', [])
     payload.setdefault('updatedAt', now_ts())
     payload.setdefault('_meta', {})
-    payload['_meta']['service_scope'] = 'founding_meridian_service'
+    payload['_meta']['service_scope'] = 'institution_owned_subscription_service'
+    payload['_meta']['boundary_name'] = 'subscriptions'
+    payload['_meta']['identity_model'] = 'session'
+    payload['_meta']['storage_model'] = 'capsule_canonical_with_legacy_symlink'
     payload['_meta']['bound_org_id'] = org_id or payload['_meta'].get('bound_org_id', '')
     payload['_meta'].setdefault('internal_test_ids', [])
     return payload
@@ -122,7 +128,7 @@ def save_subscriptions(data, org_id=None):
         _write_json_atomic(backup_path, payload)
 
 
-def _subscription_delivery_eligible(sub, *, now=None):
+def _subscription_delivery_eligible(sub, *, org_id=None, now=None):
     now = now or now_dt()
     if sub.get('status') != 'active':
         return False
@@ -134,13 +140,13 @@ def _subscription_delivery_eligible(sub, *, now=None):
         if expires < now:
             return False
     if sub.get('plan') != 'trial' and (
-        not sub.get('payment_verified', False) or not _payment_evidence_ok(sub)
+        not sub.get('payment_verified', False) or not _payment_evidence_ok(sub, org_id=org_id)
     ):
         return False
     return True
 
 
-def _payment_evidence(sub):
+def _payment_evidence(sub, *, org_id=None):
     if sub.get('plan') == 'trial':
         return {'type': 'trial', 'payment_ref': ''}
     payment_ref = (sub.get('payment_ref') or '').strip()
@@ -152,10 +158,10 @@ def _payment_evidence(sub):
     )
 
 
-def _payment_evidence_ok(sub):
+def _payment_evidence_ok(sub, *, org_id=None):
     if sub.get('plan') == 'trial':
         return True
-    evidence = _payment_evidence(sub)
+    evidence = _payment_evidence(sub, org_id=org_id)
     if not evidence:
         return False
     bound = sub.get('payment_evidence', {})
@@ -169,7 +175,7 @@ def _payment_evidence_ok(sub):
     return True
 
 
-def _require_payment_evidence(payment_ref, amount_usd):
+def _require_payment_evidence(payment_ref, amount_usd, *, org_id=None):
     payment_ref = (payment_ref or '').strip()
     if not payment_ref:
         raise ValueError('payment_ref is required for paid subscription verification')
@@ -184,9 +190,9 @@ def _require_payment_evidence(payment_ref, amount_usd):
     return evidence
 
 
-def _bind_payment_evidence(subscription, payment_ref=None):
+def _bind_payment_evidence(subscription, payment_ref=None, *, org_id=None):
     ref = (payment_ref if payment_ref is not None else subscription.get('payment_ref', '')) or ''
-    evidence = _require_payment_evidence(ref, subscription.get('price_usd', 0.0))
+    evidence = _require_payment_evidence(ref, subscription.get('price_usd', 0.0), org_id=org_id)
     subscription['payment_ref'] = ref
     subscription['payment_verified'] = True
     subscription['payment_verified_at'] = now_ts()
@@ -211,7 +217,7 @@ def active_delivery_targets(org_id=None, *, external_only=False):
         if external_only and tid in internal_ids:
             continue
         for record in records:
-            if _subscription_delivery_eligible(record):
+            if _subscription_delivery_eligible(record, org_id=org_id):
                 targets.add(tid)
                 break
     return sorted(targets)
@@ -228,10 +234,10 @@ def start_trial(telegram_id, *, email='', org_id=None, actor=''):
     )['subscription']
 
 
-def create_subscription(telegram_id, plan='trial', *, duration_days=None,
-                        payment_method=None, payment_ref=None,
-                        confirm_payment=False, trial=False, email=None,
-                        org_id=None, actor=''):
+def add_subscription(telegram_id, plan='trial', *, duration_days=None,
+                     payment_method=None, payment_ref=None,
+                     confirm_payment=False, trial=False, email=None,
+                     org_id=None, actor=''):
     payload = load_subscriptions(org_id)
     tid = str(telegram_id or '').strip()
     if not tid:
@@ -259,7 +265,7 @@ def create_subscription(telegram_id, plan='trial', *, duration_days=None,
     payment_verified_at = now_ts() if plan_name == 'trial' else ''
     payment_evidence = {'type': 'trial'} if plan_name == 'trial' else {}
     if plan_name != 'trial' and bool(confirm_payment):
-        evidence = _require_payment_evidence(payment_ref, plan_info['price_usd'])
+        evidence = _require_payment_evidence(payment_ref, plan_info['price_usd'], org_id=org_id)
         payment_verified = True
         payment_verified_at = now_ts()
         payment_evidence = {
@@ -293,6 +299,24 @@ def create_subscription(telegram_id, plan='trial', *, duration_days=None,
     }
 
 
+def create_subscription(telegram_id, plan='trial', *, duration_days=None,
+                        payment_method=None, payment_ref=None,
+                        confirm_payment=False, trial=False, email=None,
+                        org_id=None, actor=''):
+    return add_subscription(
+        telegram_id,
+        plan=plan,
+        duration_days=duration_days,
+        payment_method=payment_method,
+        payment_ref=payment_ref,
+        confirm_payment=confirm_payment,
+        trial=trial,
+        email=email,
+        org_id=org_id,
+        actor=actor,
+    )
+
+
 def convert_trial_subscription(telegram_id, plan, *, payment_method=None,
                                payment_ref=None, confirm_payment=False,
                                email=None, org_id=None, actor=''):
@@ -308,58 +332,59 @@ def convert_trial_subscription(telegram_id, plan, *, payment_method=None,
 
     had_trial = False
     for sub in payload['subscribers'][tid]:
-        if sub.get('plan') == 'trial':
+        if sub.get('plan') == 'trial' and sub.get('status') == 'active':
             had_trial = True
             sub['status'] = 'converted'
             sub['converted_at'] = now_ts()
             sub['converted_by'] = actor or ''
             break
     if not had_trial:
-        raise LookupError(f'No trial found for telegram:{tid}')
+        raise LookupError(f'No active trial found for telegram:{tid}')
 
-    plan_info = PLANS[plan]
-    duration = plan_info['duration_days']
-    expires = None
-    if duration > 0:
-        expires = (now_dt() + datetime.timedelta(days=duration)).strftime('%Y-%m-%dT%H:%M:%SZ')
-
-    payment_ref = (payment_ref or '').strip()
-    payment_verified = False
-    payment_verified_at = ''
-    payment_evidence = {}
-    if bool(confirm_payment):
-        evidence = _require_payment_evidence(payment_ref, plan_info['price_usd'])
-        payment_verified = True
-        payment_verified_at = now_ts()
-        payment_evidence = {
-            'order_id': evidence.get('order_id', ''),
-            'payment_key': evidence.get('payment_key', ''),
-            'payment_ref': evidence.get('payment_ref', payment_ref),
-            'tx_hash': evidence.get('tx_hash', ''),
-            'amount_usd': float(evidence.get('amount', 0.0) or 0.0),
-        }
-
-    subscription = {
-        'id': str(uuid.uuid4())[:8],
-        'plan': plan,
-        'price_usd': plan_info['price_usd'],
-        'started_at': now_ts(),
-        'expires_at': expires,
-        'status': 'active',
-        'payment_method': payment_method or 'manual',
-        'payment_ref': payment_ref,
-        'payment_verified': payment_verified,
-        'payment_verified_at': payment_verified_at,
-        'payment_evidence': payment_evidence,
-        'email': email or '',
-        'converted_from_trial': True,
-        'created_by': actor or '',
-    }
-    payload['subscribers'][tid].append(subscription)
+    save_subscriptions(payload, org_id)
+    result = add_subscription(
+        tid,
+        plan=plan,
+        payment_method=payment_method,
+        payment_ref=payment_ref,
+        confirm_payment=confirm_payment,
+        email=email,
+        org_id=org_id,
+        actor=actor,
+    )
+    payload = load_subscriptions(org_id)
+    for idx, record in enumerate(payload.get('subscribers', {}).get(tid, [])):
+        if record.get('id') == result['subscription']['id']:
+            record['converted_from_trial'] = True
+            result['subscription'] = record
+            payload['subscribers'][tid][idx] = record
+            break
     save_subscriptions(payload, org_id)
     return {
         'telegram_id': tid,
-        'subscription': subscription,
+        'subscription': result['subscription'],
+    }
+
+
+def check_subscription(telegram_id, *, org_id=None):
+    tid = str(telegram_id or '').strip()
+    if not tid:
+        raise ValueError('telegram_id is required')
+    payload = load_subscriptions(org_id)
+    records = list(payload.get('subscribers', {}).get(tid, []))
+    active = [record for record in records if record.get('status') == 'active']
+    latest = records[-1] if records else None
+    return {
+        'telegram_id': tid,
+        'found': bool(records),
+        'active': bool(active),
+        'eligible_for_delivery': any(
+            _subscription_delivery_eligible(record, org_id=org_id)
+            for record in active
+        ),
+        'subscription_count': len(records),
+        'active_count': len(active),
+        'latest_subscription': latest,
     }
 
 
@@ -444,3 +469,20 @@ def record_delivery(telegram_id, product, *, brief_date='', org_id=None, actor='
         payload['delivery_log'] = payload['delivery_log'][-500:]
     save_subscriptions(payload, org_id)
     return entry
+
+
+def subscription_summary(org_id=None):
+    payload = load_subscriptions(org_id)
+    rows = list(payload.get('subscribers', {}).values())
+    all_subs = [sub for records in rows for sub in records]
+    active = [sub for sub in all_subs if sub.get('status') == 'active']
+    verified = [sub for sub in active if sub.get('payment_verified')]
+    return {
+        'subscriber_count': len(payload.get('subscribers', {})),
+        'subscription_count': len(all_subs),
+        'active_subscription_count': len(active),
+        'verified_paid_subscription_count': len(verified),
+        'delivery_log_count': len(payload.get('delivery_log', [])),
+        'internal_test_id_count': len(payload.get('_meta', {}).get('internal_test_ids', [])),
+        'external_target_count': len(active_delivery_targets(org_id, external_only=True)),
+    }
