@@ -17,6 +17,8 @@ class ServiceStateTests(unittest.TestCase):
         self._orig_subscriptions_path = service_state.subscriptions_path
         self._orig_owner_ledger_path = service_state.owner_ledger_path
         self._orig_ledger_path = service_state.ledger_path
+        self._orig_ensure_subscription_aliases = service_state.ensure_subscription_aliases
+        self._orig_ensure_accounting_aliases = service_state.ensure_accounting_aliases
         self._orig_legacy_subscriptions = service_state.LEGACY_SUBSCRIPTIONS_FILE
         self._orig_legacy_owner = service_state.LEGACY_OWNER_LEDGER_FILE
         self._orig_workspace = service_state.WORKSPACE
@@ -25,6 +27,38 @@ class ServiceStateTests(unittest.TestCase):
         service_state.subscriptions_path = lambda org_id=None: self._subs
         service_state.owner_ledger_path = lambda org_id=None: self._owner
         service_state.ledger_path = lambda org_id=None: self._ledger
+        service_state.ensure_subscription_aliases = lambda org_id=None: {
+            'subscriptions': self._subs,
+            'subscriptions_backup': self._subs + '.bak',
+            'subscriptions_lock': self._subs + '.lock',
+            'canonical_source': 'capsule_file',
+            'canonical_service_module': 'company.meridian_platform.subscription_service',
+            'compatibility_mode': 'legacy_symlink',
+            'compatibility_module': 'company.subscriptions',
+            'canonical_paths': {
+                'subscriptions': self._subs,
+                'subscriptions_backup': self._subs + '.bak',
+                'subscriptions_lock': self._subs + '.lock',
+            },
+            'legacy_paths': {
+                'subscriptions': os.path.join(self._tmp, 'company', 'subscriptions.json'),
+                'subscriptions_backup': os.path.join(self._tmp, 'company', 'subscriptions.json.bak'),
+                'subscriptions_lock': os.path.join(self._tmp, 'company', '.subscriptions.lock'),
+            },
+        }
+        service_state.ensure_accounting_aliases = lambda org_id=None: {
+            'owner_ledger': self._owner,
+            'canonical_source': 'capsule_file',
+            'canonical_service_module': 'company.meridian_platform.accounting_service',
+            'compatibility_mode': 'legacy_symlink',
+            'compatibility_module': 'company.accounting',
+            'canonical_paths': {
+                'owner_ledger': self._owner,
+            },
+            'legacy_paths': {
+                'owner_ledger': os.path.join(self._tmp, 'company', 'owner_ledger.json'),
+            },
+        }
         service_state.LEGACY_SUBSCRIPTIONS_FILE = os.path.join(self._tmp, 'company', 'subscriptions.json')
         service_state.LEGACY_OWNER_LEDGER_FILE = os.path.join(self._tmp, 'company', 'owner_ledger.json')
         service_state.WORKSPACE = self._tmp
@@ -33,6 +67,8 @@ class ServiceStateTests(unittest.TestCase):
         service_state.subscriptions_path = self._orig_subscriptions_path
         service_state.owner_ledger_path = self._orig_owner_ledger_path
         service_state.ledger_path = self._orig_ledger_path
+        service_state.ensure_subscription_aliases = self._orig_ensure_subscription_aliases
+        service_state.ensure_accounting_aliases = self._orig_ensure_accounting_aliases
         service_state.LEGACY_SUBSCRIPTIONS_FILE = self._orig_legacy_subscriptions
         service_state.LEGACY_OWNER_LEDGER_FILE = self._orig_legacy_owner
         service_state.WORKSPACE = self._orig_workspace
@@ -91,6 +127,16 @@ class ServiceStateTests(unittest.TestCase):
         self.assertEqual(snap['legacy_path'], 'company/subscriptions.json')
         self.assertEqual(snap['compatibility_module'], 'company.subscriptions')
         self.assertEqual(snap['compatibility_mode'], 'legacy_shim')
+        self.assertEqual(snap['alias_registry']['canonical_source'], 'capsule_file')
+        self.assertEqual(
+            snap['alias_registry']['canonical_paths']['subscriptions'],
+            'subscriptions.json',
+        )
+        self.assertEqual(
+            snap['alias_registry']['legacy_paths']['subscriptions'],
+            'company/subscriptions.json',
+        )
+        self.assertEqual(snap['alias_registry']['compatibility_mode'], 'legacy_symlink')
         self.assertIn('/api/subscriptions/add', snap['mutation_paths'])
         self.assertIn('/api/subscriptions/convert', snap['mutation_paths'])
         self.assertIn('/api/subscriptions/verify-payment', snap['mutation_paths'])
@@ -135,6 +181,16 @@ class ServiceStateTests(unittest.TestCase):
         self.assertEqual(snap['legacy_path'], 'company/owner_ledger.json')
         self.assertEqual(snap['compatibility_module'], 'company.accounting')
         self.assertEqual(snap['compatibility_mode'], 'legacy_shim')
+        self.assertEqual(snap['alias_registry']['canonical_source'], 'capsule_file')
+        self.assertEqual(
+            snap['alias_registry']['canonical_paths']['owner_ledger'],
+            'owner_ledger.json',
+        )
+        self.assertEqual(
+            snap['alias_registry']['legacy_paths']['owner_ledger'],
+            'company/owner_ledger.json',
+        )
+        self.assertEqual(snap['alias_registry']['compatibility_mode'], 'legacy_symlink')
         self.assertIn('/api/accounting/expense', snap['mutation_paths'])
         self.assertEqual(snap['summary']['capital_contributed_usd'], 2.0)
         self.assertEqual(snap['summary']['expenses_paid_usd'], 1.25)

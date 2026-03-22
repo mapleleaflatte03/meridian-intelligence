@@ -26,6 +26,10 @@ LEGACY_PAYMENT_EVENTS_LOG_FILE = os.path.join(WORKSPACE, 'company', 'payment_eve
 LEGACY_PAYMENT_INTEGRITY_LOCK_FILE = os.path.join(WORKSPACE, 'economy', '.payment_integrity.lock')
 LEGACY_FEDERATION_INBOX_FILE = os.path.join(WORKSPACE, 'economy', 'federation_inbox.json')
 LEGACY_FEDERATION_INBOX_LOCK_FILE = os.path.join(WORKSPACE, 'economy', '.federation_inbox.lock')
+SUBSCRIPTIONS_CANONICAL_SERVICE_MODULE = 'company.meridian_platform.subscription_service'
+SUBSCRIPTIONS_COMPATIBILITY_MODULE = 'company.subscriptions'
+ACCOUNTING_CANONICAL_SERVICE_MODULE = 'company.meridian_platform.accounting_service'
+ACCOUNTING_COMPATIBILITY_MODULE = 'company.accounting'
 
 
 def _load_orgs():
@@ -286,6 +290,20 @@ def ensure_subscription_aliases(org_id=None):
         'subscriptions': subscriptions_alias,
         'subscriptions_backup': subscriptions_backup_alias,
         'subscriptions_lock': subscriptions_lock_alias,
+        'canonical_source': 'capsule_file',
+        'canonical_service_module': SUBSCRIPTIONS_CANONICAL_SERVICE_MODULE,
+        'compatibility_mode': 'legacy_symlink',
+        'compatibility_module': SUBSCRIPTIONS_COMPATIBILITY_MODULE,
+        'canonical_paths': {
+            'subscriptions': subscriptions_alias,
+            'subscriptions_backup': subscriptions_backup_alias,
+            'subscriptions_lock': subscriptions_lock_alias,
+        },
+        'legacy_paths': {
+            'subscriptions': LEGACY_SUBSCRIPTIONS_FILE,
+            'subscriptions_backup': LEGACY_SUBSCRIPTIONS_BACKUP_FILE,
+            'subscriptions_lock': LEGACY_SUBSCRIPTIONS_LOCK_FILE,
+        },
     }
 
 
@@ -312,6 +330,16 @@ def ensure_accounting_aliases(org_id=None):
     _ensure_legacy_json_link(LEGACY_OWNER_LEDGER_FILE, owner_ledger_alias, default_payload)
     return {
         'owner_ledger': owner_ledger_alias,
+        'canonical_source': 'capsule_file',
+        'canonical_service_module': ACCOUNTING_CANONICAL_SERVICE_MODULE,
+        'compatibility_mode': 'legacy_symlink',
+        'compatibility_module': ACCOUNTING_COMPATIBILITY_MODULE,
+        'canonical_paths': {
+            'owner_ledger': owner_ledger_alias,
+        },
+        'legacy_paths': {
+            'owner_ledger': LEGACY_OWNER_LEDGER_FILE,
+        },
     }
 
 

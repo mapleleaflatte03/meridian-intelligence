@@ -4,7 +4,13 @@ import datetime
 import json
 import os
 
-from capsule import ledger_path, subscriptions_path, owner_ledger_path
+from capsule import (
+    ensure_accounting_aliases,
+    ensure_subscription_aliases,
+    ledger_path,
+    owner_ledger_path,
+    subscriptions_path,
+)
 import subscription_service
 
 
@@ -12,10 +18,6 @@ PLATFORM_DIR = os.path.dirname(os.path.abspath(__file__))
 WORKSPACE = os.path.dirname(os.path.dirname(PLATFORM_DIR))
 LEGACY_SUBSCRIPTIONS_FILE = os.path.join(WORKSPACE, 'company', 'subscriptions.json')
 LEGACY_OWNER_LEDGER_FILE = os.path.join(WORKSPACE, 'company', 'owner_ledger.json')
-SUBSCRIPTIONS_CANONICAL_SERVICE_MODULE = 'company.meridian_platform.subscription_service'
-SUBSCRIPTIONS_COMPATIBILITY_MODULE = 'company.subscriptions'
-ACCOUNTING_CANONICAL_SERVICE_MODULE = 'company.meridian_platform.accounting_service'
-ACCOUNTING_COMPATIBILITY_MODULE = 'company.accounting'
 SUBSCRIPTIONS_MUTATION_PATHS = [
     '/api/subscriptions/add',
     '/api/subscriptions/convert',
@@ -140,6 +142,15 @@ def subscription_snapshot(org_id=None):
     payload = load_subscription_state(org_id)
     meta = payload.get('_meta', {})
     summary = subscription_service.subscription_summary(org_id)
+    alias_registry = ensure_subscription_aliases(org_id)
+    canonical_path = os.path.relpath(
+        alias_registry['canonical_paths']['subscriptions'],
+        WORKSPACE,
+    )
+    legacy_path = os.path.relpath(
+        alias_registry['legacy_paths']['subscriptions'],
+        WORKSPACE,
+    )
 
     return {
         'bound_org_id': meta.get('bound_org_id', org_id or ''),
@@ -150,12 +161,38 @@ def subscription_snapshot(org_id=None):
         'boundary_name': meta.get('boundary_name', 'subscriptions'),
         'identity_model': meta.get('identity_model', 'session'),
         'canonical_source': 'service_module',
-        'canonical_service_module': SUBSCRIPTIONS_CANONICAL_SERVICE_MODULE,
-        'canonical_path': os.path.relpath(subscriptions_path(org_id), WORKSPACE),
+        'canonical_service_module': alias_registry['canonical_service_module'],
+        'canonical_path': canonical_path,
         'legacy_path_role': 'compatibility_symlink',
-        'legacy_path': os.path.relpath(LEGACY_SUBSCRIPTIONS_FILE, WORKSPACE),
-        'compatibility_module': SUBSCRIPTIONS_COMPATIBILITY_MODULE,
+        'legacy_path': legacy_path,
+        'compatibility_module': alias_registry['compatibility_module'],
         'compatibility_mode': 'legacy_shim',
+        'alias_registry': {
+            'canonical_source': alias_registry['canonical_source'],
+            'canonical_paths': {
+                'subscriptions': canonical_path,
+                'subscriptions_backup': os.path.relpath(
+                    alias_registry['canonical_paths']['subscriptions_backup'],
+                    WORKSPACE,
+                ),
+                'subscriptions_lock': os.path.relpath(
+                    alias_registry['canonical_paths']['subscriptions_lock'],
+                    WORKSPACE,
+                ),
+            },
+            'legacy_paths': {
+                'subscriptions': legacy_path,
+                'subscriptions_backup': os.path.relpath(
+                    alias_registry['legacy_paths']['subscriptions_backup'],
+                    WORKSPACE,
+                ),
+                'subscriptions_lock': os.path.relpath(
+                    alias_registry['legacy_paths']['subscriptions_lock'],
+                    WORKSPACE,
+                ),
+            },
+            'compatibility_mode': alias_registry['compatibility_mode'],
+        },
         'mutation_paths': list(SUBSCRIPTIONS_MUTATION_PATHS),
         'summary': summary,
         'meta': meta,
@@ -167,10 +204,19 @@ def subscription_snapshot(org_id=None):
 def accounting_snapshot(org_id=None):
     payload = load_owner_ledger_state(org_id)
     meta = payload.get('_meta', {})
+    alias_registry = ensure_accounting_aliases(org_id)
     expenses_paid = float(payload.get('expenses_paid_usd', 0.0) or 0.0)
     reimbursements = float(payload.get('reimbursements_received_usd', 0.0) or 0.0)
     draws_taken = float(payload.get('draws_taken_usd', 0.0) or 0.0)
     capital = float(payload.get('capital_contributed_usd', 0.0) or 0.0)
+    canonical_path = os.path.relpath(
+        alias_registry['canonical_paths']['owner_ledger'],
+        WORKSPACE,
+    )
+    legacy_path = os.path.relpath(
+        alias_registry['legacy_paths']['owner_ledger'],
+        WORKSPACE,
+    )
 
     return {
         'bound_org_id': meta.get('bound_org_id', org_id or ''),
@@ -181,12 +227,22 @@ def accounting_snapshot(org_id=None):
         'boundary_name': meta.get('boundary_name', 'accounting'),
         'identity_model': meta.get('identity_model', 'session'),
         'canonical_source': 'service_module',
-        'canonical_service_module': ACCOUNTING_CANONICAL_SERVICE_MODULE,
-        'canonical_path': os.path.relpath(owner_ledger_path(org_id), WORKSPACE),
+        'canonical_service_module': alias_registry['canonical_service_module'],
+        'canonical_path': canonical_path,
         'legacy_path_role': 'compatibility_symlink',
-        'legacy_path': os.path.relpath(LEGACY_OWNER_LEDGER_FILE, WORKSPACE),
-        'compatibility_module': ACCOUNTING_COMPATIBILITY_MODULE,
+        'legacy_path': legacy_path,
+        'compatibility_module': alias_registry['compatibility_module'],
         'compatibility_mode': 'legacy_shim',
+        'alias_registry': {
+            'canonical_source': alias_registry['canonical_source'],
+            'canonical_paths': {
+                'owner_ledger': canonical_path,
+            },
+            'legacy_paths': {
+                'owner_ledger': legacy_path,
+            },
+            'compatibility_mode': alias_registry['compatibility_mode'],
+        },
         'mutation_paths': list(ACCOUNTING_MUTATION_PATHS),
         'summary': {
             'capital_contributed_usd': capital,
