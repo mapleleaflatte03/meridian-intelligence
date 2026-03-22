@@ -217,18 +217,6 @@ def check_budget(agent_id, cost_usd):
     return True, 'ok'
 
 
-def check_scope(agent_id, required_scope):
-    """Check if an agent has the required scope. Returns (allowed, reason)."""
-    agent = get_agent(agent_id)
-    if not agent:
-        return False, 'Agent not found'
-    if not agent['scopes']:
-        return True, 'No scope restrictions (open)'
-    if required_scope in agent['scopes']:
-        return True, 'ok'
-    return False, f'Missing scope: {required_scope}'
-
-
 def set_risk_state(agent_id, state):
     """Update an agent's risk state with validation."""
     if state not in VALID_RISK_STATES:
