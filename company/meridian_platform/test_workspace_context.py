@@ -1535,6 +1535,17 @@ class LiveWorkspaceContextTests(unittest.TestCase):
                     'execution_enabled': True,
                     'error_type': '',
                     'error': '',
+                    'contract': {
+                        'adapter_id': 'internal_ledger',
+                        'execution_mode': 'host_ledger',
+                        'settlement_path': 'journal_append',
+                        'proof_type': 'ledger_transaction',
+                        'verification_state': 'host_ledger_final',
+                        'finality_state': 'host_local_final',
+                        'finality_model': 'host_local_final',
+                        'dispute_model': 'court_case',
+                        'reversal_or_dispute_capability': 'court_case',
+                    },
                 }
                 claims = FederationEnvelopeClaims(
                     envelope_id='fed_live_settle',
@@ -1581,6 +1592,16 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.assertEqual(processing['reason'], 'settlement_notice_applied')
         self.assertEqual(processing['commitment']['state'], 'settled')
         self.assertEqual(processing['settlement_ref']['tx_ref'], 'tx_live')
+        self.assertEqual(
+            processing['settlement_ref']['settlement_adapter_contract_snapshot']['adapter_id'],
+            'internal_ledger',
+        )
+        self.assertEqual(
+            processing['settlement_ref']['settlement_adapter_contract_digest'],
+            self.workspace.settlement_adapter_contract_digest(
+                processing['settlement_ref']['settlement_adapter_contract_snapshot']
+            ),
+        )
         self.assertEqual(processing['settlement_adapter_preflight']['preflight_ok'], True)
         self.assertEqual(processing['inbox_entry']['state'], 'processed')
         self.assertEqual(processing['warrant']['warrant_id'], 'war_sender')
@@ -1666,6 +1687,114 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.assertEqual(processing['error_type'], 'permission_error')
         self.assertIn('not enabled for payout execution', processing['error'])
         self.assertEqual(processing['settlement_adapter_preflight']['requested_adapter_id'], 'base_usdc_x402')
+        self.assertEqual(audit_events[-1]['args'][2], 'federation_settlement_notice_blocked')
+
+    def test_process_received_settlement_notice_blocks_contract_digest_mismatch(self):
+        from federation import FederationEnvelopeClaims
+
+        audit_events = []
+        self.workspace.commitments.validate_commitment_for_settlement = (
+            lambda commitment_id, **_kwargs: {'commitment_id': commitment_id, 'state': 'accepted'}
+        )
+        self.workspace._maybe_block_commitment_settlement = lambda *args, **kwargs: (None, None)
+        self.workspace.commitments.record_settlement_ref = lambda *args, **kwargs: self.fail(
+            'settlement ref should not be recorded'
+        )
+        self.workspace.commitments.settle_commitment = lambda *args, **kwargs: self.fail(
+            'commitment should not settle'
+        )
+        self.workspace.mark_warrant_executed = lambda *args, **kwargs: self.fail(
+            'sender warrant should not finalize when settlement contract drifts'
+        )
+        self.workspace.log_event = lambda *args, **kwargs: audit_events.append({
+            'args': args,
+            'kwargs': kwargs,
+        })
+
+        with mock.patch.object(
+            self.workspace,
+            '_runtime_host_state',
+            return_value=(
+                types.SimpleNamespace(settlement_adapters=['internal_ledger']),
+                {'admitted_org_ids': ['org_founding']},
+            ),
+        ), mock.patch.object(self.workspace, 'preflight_settlement_adapter') as preflight_mock:
+            preflight_mock.return_value = {
+                'default_payout_adapter': 'internal_ledger',
+                'requested_adapter_id': 'internal_ledger',
+                'currency': 'USDC',
+                'host_supported_adapters': ['internal_ledger'],
+                'known': True,
+                'preflight_ok': True,
+                'can_execute_now': True,
+                'execution_enabled': True,
+                'error_type': '',
+                'error': '',
+                'contract': {
+                    'adapter_id': 'internal_ledger',
+                    'execution_mode': 'host_ledger',
+                    'settlement_path': 'journal_append',
+                    'proof_type': 'ledger_transaction',
+                    'verification_state': 'host_ledger_final',
+                    'finality_state': 'host_local_final',
+                    'finality_model': 'host_local_final',
+                    'dispute_model': 'court_case',
+                    'reversal_or_dispute_capability': 'court_case',
+                },
+            }
+
+            claims = FederationEnvelopeClaims(
+                envelope_id='fed_live_digest_mismatch',
+                source_host_id='host_peer',
+                source_institution_id='org_peer',
+                target_host_id='host_live',
+                target_institution_id='org_founding',
+                actor_type='service',
+                actor_id='peer:host_peer',
+                session_id='ses_peer',
+                boundary_name='federation_gateway',
+                identity_model='signed_host_service',
+                message_type='settlement_notice',
+                payload_hash='hash_live',
+                warrant_id='war_live',
+                commitment_id='cmt_live',
+            )
+            processing = self.workspace._process_received_federation_message(
+                'org_founding',
+                claims,
+                {'receipt_id': 'fedrcpt_live', 'accepted_at': '2026-03-22T00:00:00Z'},
+                payload={
+                    'proposal_id': 'ppo_live',
+                    'tx_ref': 'tx_live',
+                    'settlement_adapter': 'internal_ledger',
+                    'currency': 'USDC',
+                    'proof': {'mode': 'institution_transactions_journal'},
+                    'settlement_adapter_contract_snapshot': {
+                        'contract_version': 1,
+                        'adapter_id': 'internal_ledger',
+                        'status': 'active',
+                        'payout_execution_enabled': True,
+                        'execution_mode': 'host_ledger',
+                        'settlement_path': 'tampered_path',
+                        'supported_currencies': ['USD', 'USDC'],
+                        'requires_tx_hash': False,
+                        'requires_settlement_proof': False,
+                        'proof_type': 'ledger_transaction',
+                        'verification_state': 'host_ledger_final',
+                        'finality_state': 'host_local_final',
+                        'finality_model': 'host_local_final',
+                        'reversal_or_dispute_capability': 'court_case',
+                        'dispute_model': 'court_case',
+                    },
+                    'settlement_adapter_contract_digest': 'bad-digest',
+                },
+            )
+
+        self.assertFalse(processing['applied'])
+        self.assertEqual(processing['state'], 'received')
+        self.assertEqual(processing['reason'], 'settlement_adapter_preflight_blocked')
+        self.assertEqual(processing['error_type'], 'validation_error')
+        self.assertIn('contract drifted', processing['error'])
         self.assertEqual(audit_events[-1]['args'][2], 'federation_settlement_notice_blocked')
 
     def test_process_received_settlement_notice_respects_case_block(self):

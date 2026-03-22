@@ -532,6 +532,16 @@ class TreasuryCapsuleTests(unittest.TestCase):
         self.assertEqual(proposal['execution_refs']['proof_type'], 'ledger_transaction')
         self.assertEqual(proposal['execution_refs']['verification_state'], 'host_ledger_final')
         self.assertEqual(proposal['execution_refs']['finality_state'], 'host_local_final')
+        self.assertEqual(
+            proposal['execution_refs']['settlement_adapter_contract_snapshot']['adapter_id'],
+            'internal_ledger',
+        )
+        self.assertEqual(
+            proposal['execution_refs']['settlement_adapter_contract_digest'],
+            treasury.settlement_adapter_contract_digest(
+                proposal['execution_refs']['settlement_adapter_contract_snapshot']
+            ),
+        )
         self.assertEqual(proposal['execution_refs']['proof']['mode'], 'institution_transactions_journal')
 
         with open(self._legacy_ledger) as f:
@@ -545,6 +555,14 @@ class TreasuryCapsuleTests(unittest.TestCase):
         self.assertEqual(entries[-1]['proposal_id'], proposal['proposal_id'])
         self.assertEqual(entries[-1]['warrant_id'], 'war_live_exec')
         self.assertEqual(entries[-1]['verification_state'], 'host_ledger_final')
+        self.assertEqual(
+            entries[-1]['settlement_adapter_contract_snapshot']['adapter_id'],
+            'internal_ledger',
+        )
+        self.assertEqual(
+            entries[-1]['settlement_adapter_contract_digest'],
+            proposal['execution_refs']['settlement_adapter_contract_digest'],
+        )
 
         accounts = treasury.load_treasury_accounts(self.org_id)
         self.assertAlmostEqual(accounts['accounts']['operating_cash']['balance_usd'], 6.0, places=2)
@@ -650,6 +668,14 @@ class TreasuryCapsuleTests(unittest.TestCase):
         self.assertEqual(
             proposal['linked_commitment']['settlement_refs'][0]['tx_ref'],
             proposal['execution_refs']['tx_ref'],
+        )
+        self.assertEqual(
+            proposal['linked_commitment']['settlement_refs'][0]['settlement_adapter_contract_snapshot']['adapter_id'],
+            'internal_ledger',
+        )
+        self.assertEqual(
+            proposal['linked_commitment']['settlement_refs'][0]['settlement_adapter_contract_digest'],
+            proposal['execution_refs']['settlement_adapter_contract_digest'],
         )
         self.assertEqual(
             treasury.commitments.commitment_summary(self.org_id)['settlement_refs_total'],
@@ -853,6 +879,12 @@ class TreasuryCapsuleTests(unittest.TestCase):
         self.assertTrue(result['can_execute_now'])
         self.assertTrue(result['execution_enabled'])
         self.assertTrue(result['host_supported'])
+        self.assertEqual(result['contract']['execution_mode'], 'host_ledger')
+        self.assertEqual(result['contract']['settlement_path'], 'journal_append')
+        self.assertEqual(
+            result['contract']['contract_digest'],
+            treasury.settlement_adapter_contract_digest(result['contract']['contract_snapshot']),
+        )
         self.assertEqual(result['normalized_proof']['proof']['mode'], 'institution_transactions_journal')
 
     def test_live_preflight_settlement_adapter_reports_disabled_adapter(self):
