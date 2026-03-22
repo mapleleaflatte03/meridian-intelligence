@@ -152,6 +152,10 @@ owner-ledger + treasury journal path, with explicit bound-org plumbing instead
 of a hidden founding-default writer. Subscriptions have now crossed the same boundary:
 `POST /api/subscriptions/add|convert|verify-payment|remove|set-email|record-delivery`
 is admin-gated and writes back through the founding capsule subscription store.
+Those snapshots now explicitly quarantine the compatibility shell too: they
+surface the canonical service module plus the legacy shim module/path, so the
+public API no longer implies `company/subscriptions.py` or `company/accounting.py`
+are the source of truth.
 This is still a founding-locked live deployment, not self-serve multi-
 institution delivery routing.
 

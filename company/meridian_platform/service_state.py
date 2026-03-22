@@ -12,6 +12,10 @@ PLATFORM_DIR = os.path.dirname(os.path.abspath(__file__))
 WORKSPACE = os.path.dirname(os.path.dirname(PLATFORM_DIR))
 LEGACY_SUBSCRIPTIONS_FILE = os.path.join(WORKSPACE, 'company', 'subscriptions.json')
 LEGACY_OWNER_LEDGER_FILE = os.path.join(WORKSPACE, 'company', 'owner_ledger.json')
+SUBSCRIPTIONS_CANONICAL_SERVICE_MODULE = 'company.meridian_platform.subscription_service'
+SUBSCRIPTIONS_COMPATIBILITY_MODULE = 'company.subscriptions'
+ACCOUNTING_CANONICAL_SERVICE_MODULE = 'company.meridian_platform.accounting_service'
+ACCOUNTING_COMPATIBILITY_MODULE = 'company.accounting'
 SUBSCRIPTIONS_MUTATION_PATHS = [
     '/api/subscriptions/add',
     '/api/subscriptions/convert',
@@ -145,8 +149,13 @@ def subscription_snapshot(org_id=None):
         'storage_model': meta.get('storage_model', 'capsule_canonical_with_legacy_symlink'),
         'boundary_name': meta.get('boundary_name', 'subscriptions'),
         'identity_model': meta.get('identity_model', 'session'),
+        'canonical_source': 'service_module',
+        'canonical_service_module': SUBSCRIPTIONS_CANONICAL_SERVICE_MODULE,
         'canonical_path': os.path.relpath(subscriptions_path(org_id), WORKSPACE),
+        'legacy_path_role': 'compatibility_symlink',
         'legacy_path': os.path.relpath(LEGACY_SUBSCRIPTIONS_FILE, WORKSPACE),
+        'compatibility_module': SUBSCRIPTIONS_COMPATIBILITY_MODULE,
+        'compatibility_mode': 'legacy_shim',
         'mutation_paths': list(SUBSCRIPTIONS_MUTATION_PATHS),
         'summary': summary,
         'meta': meta,
@@ -171,8 +180,13 @@ def accounting_snapshot(org_id=None):
         'storage_model': meta.get('storage_model', 'capsule_owned_owner_ledger'),
         'boundary_name': meta.get('boundary_name', 'accounting'),
         'identity_model': meta.get('identity_model', 'session'),
+        'canonical_source': 'service_module',
+        'canonical_service_module': ACCOUNTING_CANONICAL_SERVICE_MODULE,
         'canonical_path': os.path.relpath(owner_ledger_path(org_id), WORKSPACE),
+        'legacy_path_role': 'compatibility_symlink',
         'legacy_path': os.path.relpath(LEGACY_OWNER_LEDGER_FILE, WORKSPACE),
+        'compatibility_module': ACCOUNTING_COMPATIBILITY_MODULE,
+        'compatibility_mode': 'legacy_shim',
         'mutation_paths': list(ACCOUNTING_MUTATION_PATHS),
         'summary': {
             'capital_contributed_usd': capital,

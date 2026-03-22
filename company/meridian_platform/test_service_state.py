@@ -81,8 +81,16 @@ class ServiceStateTests(unittest.TestCase):
         self.assertEqual(snap['identity_model'], 'session')
         self.assertEqual(snap['meta']['service_scope'], 'institution_owned_subscription_service')
         self.assertEqual(snap['meta']['boundary_name'], 'subscriptions')
+        self.assertEqual(snap['canonical_source'], 'service_module')
+        self.assertEqual(
+            snap['canonical_service_module'],
+            'company.meridian_platform.subscription_service',
+        )
         self.assertEqual(snap['canonical_path'], 'subscriptions.json')
+        self.assertEqual(snap['legacy_path_role'], 'compatibility_symlink')
         self.assertEqual(snap['legacy_path'], 'company/subscriptions.json')
+        self.assertEqual(snap['compatibility_module'], 'company.subscriptions')
+        self.assertEqual(snap['compatibility_mode'], 'legacy_shim')
         self.assertIn('/api/subscriptions/add', snap['mutation_paths'])
         self.assertIn('/api/subscriptions/convert', snap['mutation_paths'])
         self.assertIn('/api/subscriptions/verify-payment', snap['mutation_paths'])
@@ -117,8 +125,16 @@ class ServiceStateTests(unittest.TestCase):
         self.assertTrue(snap['mutation_enabled'])
         self.assertEqual(snap['identity_model'], 'session')
         self.assertEqual(snap['meta']['service_scope'], 'institution_owned_service')
+        self.assertEqual(snap['canonical_source'], 'service_module')
+        self.assertEqual(
+            snap['canonical_service_module'],
+            'company.meridian_platform.accounting_service',
+        )
         self.assertEqual(snap['canonical_path'], 'owner_ledger.json')
+        self.assertEqual(snap['legacy_path_role'], 'compatibility_symlink')
         self.assertEqual(snap['legacy_path'], 'company/owner_ledger.json')
+        self.assertEqual(snap['compatibility_module'], 'company.accounting')
+        self.assertEqual(snap['compatibility_mode'], 'legacy_shim')
         self.assertIn('/api/accounting/expense', snap['mutation_paths'])
         self.assertEqual(snap['summary']['capital_contributed_usd'], 2.0)
         self.assertEqual(snap['summary']['expenses_paid_usd'], 1.25)

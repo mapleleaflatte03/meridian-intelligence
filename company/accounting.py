@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-Owner money flow accounting.
+Legacy compatibility shim for owner money-flow accounting.
 Separates owner capital from company treasury cash.
 
 Institution scope:
-  Founding-service-only module.  Ledger reads/writes go through capsule
+  Founding-service-only compatibility shim.  Ledger reads/writes go through capsule
   aliases (ensure_treasury_aliases, capsule_ledger_path) which resolve to
   economy/ledger.json for the founding institution.  Transaction appends
   also resolve through the founding institution's capsule alias, which

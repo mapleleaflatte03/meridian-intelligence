@@ -429,7 +429,9 @@ The owner workspace also now exposes read-only snapshots for two
 institution-owned service boundaries on the founding-locked host:
 `GET /api/subscriptions` and `GET /api/accounting`. Those surfaces read
 directly from capsule-canonical state and explicitly surface both canonical and
-legacy compatibility paths. Accounting now exposes owner-gated workspace
+legacy compatibility paths. They now also expose the canonical service module
+and compatibility shim module explicitly, so the live truth surface does not
+blur the service layer with the old founding-only wrapper shell. Accounting now exposes owner-gated workspace
 mutations, and subscriptions expose admin-gated workspace mutations. Both
 boundaries remain founding-locked and do not claim self-serve
 multi-institution routing.
