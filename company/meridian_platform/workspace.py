@@ -166,7 +166,7 @@ from treasury import (treasury_snapshot, get_balance, get_runway, check_budget,
                       cancel_payout_proposal, execute_payout_proposal,
                       load_payout_proposals)
 from court import (file_violation, get_violations, resolve_violation,
-                   file_appeal, decide_appeal, get_agent_record, auto_review,
+                   file_appeal, decide_appeal, auto_review,
                    get_restrictions, remediate, _load_records, VIOLATION_TYPES)
 from session import SessionAuthority
 from warrants import (
