@@ -20,15 +20,14 @@ import datetime
 import json
 import os
 import uuid
-import sys
 
 PLATFORM_DIR = os.path.dirname(os.path.abspath(__file__))
 REGISTRY_FILE = os.path.join(PLATFORM_DIR, 'agent_registry.json')
 
-if PLATFORM_DIR not in sys.path:
-    sys.path.insert(0, PLATFORM_DIR)
-
-from capsule import ensure_treasury_aliases, ledger_path as capsule_ledger_path
+try:
+    from capsule import ensure_treasury_aliases, ledger_path as capsule_ledger_path
+except ImportError:
+    from .capsule import ensure_treasury_aliases, ledger_path as capsule_ledger_path
 
 VALID_ROLLOUT_STATES = ('active', 'staged', 'quarantined', 'disabled')
 VALID_ROLES = ('manager', 'analyst', 'verifier', 'executor', 'writer', 'qa_gate', 'compressor')
