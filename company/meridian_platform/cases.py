@@ -257,6 +257,7 @@ def ensure_case_for_commitment_breach(commitment_record, actor_id, *, org_id=Non
         target_host_id=target_host_id,
         target_institution_id=target_institution_id,
         linked_commitment_id=commitment_id,
+        linked_warrant_id=(commitment_record or {}).get('warrant_id', ''),
         note=note,
         metadata={'source': 'commitment_breach'},
     ), True

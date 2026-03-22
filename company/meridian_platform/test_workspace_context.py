@@ -41,6 +41,7 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.orig_federation_authority = self.workspace._federation_authority
         self.orig_log_event = self.workspace.log_event
         self.orig_list_warrants = self.workspace.list_warrants
+        self.orig_review_warrant = self.workspace.review_warrant
         self.orig_commitment_summary = self.workspace.commitments.commitment_summary
         self.orig_list_commitments = self.workspace.commitments.list_commitments
         self.orig_case_summary = self.workspace.cases.case_summary
@@ -65,6 +66,7 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.workspace._federation_authority = self.orig_federation_authority
         self.workspace.log_event = self.orig_log_event
         self.workspace.list_warrants = self.orig_list_warrants
+        self.workspace.review_warrant = self.orig_review_warrant
         self.workspace.commitments.commitment_summary = self.orig_commitment_summary
         self.workspace.commitments.list_commitments = self.orig_list_commitments
         self.workspace.cases.case_summary = self.orig_case_summary
@@ -456,6 +458,44 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.assertFalse(federation_peer['applied'])
         self.assertEqual(federation_peer['reason'], 'single_institution_deployment')
         self.assertEqual(audit_events[0]['args'][2], 'case_opened')
+
+    def test_maybe_stay_warrant_for_case_stays_ready_warrant(self):
+        audit_events = []
+        self.workspace.list_warrants = lambda org_id=None, **_kwargs: [
+            {
+                'warrant_id': 'war_live_demo',
+                'court_review_state': 'approved',
+                'execution_state': 'ready',
+            }
+        ]
+        self.workspace.review_warrant = lambda warrant_id, decision, by, **_kwargs: {
+            'warrant_id': warrant_id,
+            'court_review_state': 'stayed',
+            'execution_state': 'ready',
+            'reviewed_by': by,
+        }
+        self.workspace.log_event = lambda *args, **kwargs: audit_events.append({
+            'args': args,
+            'kwargs': kwargs,
+        })
+
+        warrant = self.workspace._maybe_stay_warrant_for_case(
+            {
+                'case_id': 'case_live_demo',
+                'claim_type': 'misrouted_execution',
+                'linked_warrant_id': 'war_live_demo',
+            },
+            'user_owner',
+            org_id='org_founding',
+            session_id='ses_demo',
+            note='Receipt contradiction',
+        )
+
+        self.assertTrue(warrant['applied'])
+        self.assertEqual(warrant['warrant_id'], 'war_live_demo')
+        self.assertEqual(warrant['court_review_state'], 'stayed')
+        self.assertEqual(audit_events[0]['args'][2], 'warrant_stayed_for_case')
+        self.assertEqual(audit_events[0]['kwargs']['details']['case_id'], 'case_live_demo')
 
     def test_deliver_federation_envelope_attaches_case_payload_on_preflight_block(self):
         from runtime_host import default_host_identity

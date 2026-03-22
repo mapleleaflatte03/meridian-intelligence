@@ -450,6 +450,82 @@ def _maybe_open_case_for_commitment_breach(commitment_record, actor_id, *, org_i
     )
 
 
+def _maybe_stay_warrant_for_case(case_record, actor_id, *, org_id, session_id=None, note=''):
+    warrant_id = (case_record or {}).get('linked_warrant_id', '').strip()
+    if not warrant_id:
+        return None
+    record = next(
+        (item for item in list_warrants(org_id) if item.get('warrant_id') == warrant_id),
+        None,
+    )
+    if not record:
+        return {
+            'applied': False,
+            'warrant_id': warrant_id,
+            'reason': 'warrant_not_found',
+            'court_review_state': '',
+            'execution_state': '',
+        }
+    review_state = record.get('court_review_state', '')
+    execution_state = record.get('execution_state', '')
+    if execution_state != 'ready':
+        return {
+            'applied': False,
+            'warrant_id': warrant_id,
+            'reason': f'execution_state_{execution_state or "unknown"}',
+            'court_review_state': review_state,
+            'execution_state': execution_state,
+            'warrant': record,
+        }
+    if review_state == 'stayed':
+        return {
+            'applied': False,
+            'warrant_id': warrant_id,
+            'reason': 'already_stayed',
+            'court_review_state': review_state,
+            'execution_state': execution_state,
+            'warrant': record,
+        }
+    if review_state == 'revoked':
+        return {
+            'applied': False,
+            'warrant_id': warrant_id,
+            'reason': 'already_revoked',
+            'court_review_state': review_state,
+            'execution_state': execution_state,
+            'warrant': record,
+        }
+    stayed = review_warrant(
+        warrant_id,
+        'stay',
+        actor_id,
+        org_id=org_id,
+        note=note or f"Automatically stayed because case {case_record.get('case_id', '')} is active",
+    )
+    log_event(
+        org_id,
+        actor_id,
+        'warrant_stayed_for_case',
+        outcome='success',
+        resource=warrant_id,
+        details={
+            'case_id': case_record.get('case_id', ''),
+            'claim_type': case_record.get('claim_type', ''),
+            'previous_court_review_state': review_state,
+            'court_review_state': stayed.get('court_review_state', ''),
+        },
+        session_id=session_id,
+    )
+    return {
+        'applied': True,
+        'warrant_id': warrant_id,
+        'reason': 'case_hold_applied',
+        'court_review_state': stayed.get('court_review_state', ''),
+        'execution_state': stayed.get('execution_state', ''),
+        'warrant': stayed,
+    }
+
+
 def _blocking_case_for_delivery(*, org_id, commitment_id='', target_host_id=''):
     try:
         commitment_case = cases.blocking_commitment_case(commitment_id, org_id=org_id)
@@ -759,6 +835,13 @@ def _deliver_federation_envelope(bound_org_id, target_host_id, target_org_id,
             target_host_id,
             host_identity=host_identity,
         )
+        error.warrant = _maybe_stay_warrant_for_case(
+            blocking_case,
+            actor_id or f'host:{host_identity.host_id}',
+            org_id=bound_org_id,
+            session_id=session_id or None,
+            note=message,
+        )
         raise error
     try:
         delivery = authority.deliver(
@@ -785,6 +868,13 @@ def _deliver_federation_envelope(bound_org_id, target_host_id, target_org_id,
             warrant_id=warrant_id,
             session_id=session_id or None,
         )
+        warrant_hold = _maybe_stay_warrant_for_case(
+            case_record,
+            actor_id or f'host:{host_identity.host_id}',
+            org_id=bound_org_id,
+            session_id=session_id or None,
+            note=str(exc),
+        )
         log_event(
             bound_org_id,
             actor_id or f'host:{host_identity.host_id}',
@@ -802,6 +892,7 @@ def _deliver_federation_envelope(bound_org_id, target_host_id, target_org_id,
         )
         exc.case_record = case_record
         exc.federation_peer = federation_peer
+        exc.warrant = warrant_hold
         raise
 
     claims = delivery.get('claims')
@@ -2381,6 +2472,7 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                           outcome='success', details={'status': commitment['status']},
                           session_id=_sid)
                 case_record = None
+                warrant = None
                 if body.get('open_case', True):
                     case_record, created = _maybe_open_case_for_commitment_breach(
                         commitment,
@@ -2398,14 +2490,23 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                             details={
                                 'claim_type': case_record['claim_type'],
                                 'linked_commitment_id': commitment_id,
+                                'linked_warrant_id': case_record.get('linked_warrant_id', ''),
                             },
                             session_id=_sid,
                         )
+                    warrant = _maybe_stay_warrant_for_case(
+                        case_record,
+                        by,
+                        org_id=org_id,
+                        session_id=_sid,
+                        note=body.get('case_note') or body.get('note', ''),
+                    )
                 return self._json({
                     'message': f"Commitment breached: {commitment_id}",
                     'commitment': commitment,
                     'summary': commitments.commitment_summary(org_id),
                     'case': case_record,
+                    'warrant': warrant,
                 })
 
             elif path == '/api/commitments/settle':
@@ -2451,6 +2552,7 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                           outcome='success', details={
                               'claim_type': claim_type,
                               'linked_commitment_id': case_record.get('linked_commitment_id', ''),
+                              'linked_warrant_id': case_record.get('linked_warrant_id', ''),
                           }, session_id=_sid)
                 federation_peer = _maybe_suspend_peer_for_case(
                     case_record,
@@ -2458,11 +2560,19 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                     org_id=org_id,
                     session_id=_sid,
                 )
+                warrant = _maybe_stay_warrant_for_case(
+                    case_record,
+                    by,
+                    org_id=org_id,
+                    session_id=_sid,
+                    note=body.get('note', ''),
+                )
                 return self._json({
                     'message': f"Case opened: {case_record['case_id']}",
                     'case': case_record,
                     'summary': _case_snapshot(org_id),
                     'federation_peer': federation_peer,
+                    'warrant': warrant,
                 })
 
             elif path == '/api/cases/stay':
@@ -2479,11 +2589,19 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                     org_id=org_id,
                     session_id=_sid,
                 )
+                warrant = _maybe_stay_warrant_for_case(
+                    case_record,
+                    by,
+                    org_id=org_id,
+                    session_id=_sid,
+                    note=body.get('note', ''),
+                )
                 return self._json({
                     'message': f"Case stayed: {case_id}",
                     'case': case_record,
                     'summary': _case_snapshot(org_id),
                     'federation_peer': federation_peer,
+                    'warrant': warrant,
                 })
 
             elif path == '/api/cases/resolve':
@@ -2534,6 +2652,7 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                             'error': str(e),
                             'case': case_record,
                             'federation_peer': getattr(e, 'federation_peer', None),
+                            'warrant': getattr(e, 'warrant', None),
                         }, 409)
                     return self._json({'error': str(e)}, 403)
                 except FederationDeliveryError as e:
@@ -2543,6 +2662,7 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                         'claims': _federation_claims_dict(e.claims),
                         'case': getattr(e, 'case_record', None),
                         'federation_peer': getattr(e, 'federation_peer', None),
+                        'warrant': getattr(e, 'warrant', None),
                     }, 502)
                 return self._json({
                     'message': 'Federation envelope delivered',
