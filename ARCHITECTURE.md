@@ -205,6 +205,27 @@ sender-side delivery reference back to the commitment record. Live federation
 is still disabled on the host today, so this is not yet cross-host execution
 proof.
 
+### Cases (cases.py)
+```
+Case {
+  case_id: string
+  institution_id: string
+  target_host_id: string
+  target_institution_id: string
+  claim_type: non_delivery|fraudulent_proof|breach_of_commitment|invalid_settlement_notice|misrouted_execution
+  linked_commitment_id: string
+  linked_warrant_id: string
+  status: open|stayed|resolved
+  opened_by: string
+  reviewed_by: string
+}
+```
+
+The live case surface is founding-only and capsule-backed. Commitment breach
+can auto-open a linked local case record, but live federation remains
+disabled, so these are local court-network records rather than live cross-host
+dispute execution proof.
+
 ## State File Locations
 
 | File | Owner | Purpose |
@@ -214,6 +235,7 @@ proof.
 | `economy/capsules/<org_id>/authority_queue.json` | Authority | Approvals, delegations, kill switch |
 | `economy/capsules/<org_id>/court_records.json` | Court | Violations, appeals |
 | `economy/capsules/<org_id>/commitments.json` | Commitment | Proposed/accepted/breached/settled obligations |
+| `economy/capsules/<org_id>/cases.json` | Court-network | Local inter-institution case records |
 | `economy/capsules/<org_id>/ledger.json` | Treasury pointer | Live treasury alias to current ledger state |
 | `economy/capsules/<org_id>/revenue.json` | Treasury pointer | Live treasury alias to current revenue state |
 | `meridian_platform/audit_log.jsonl` | Audit | Event stream (append-only) |

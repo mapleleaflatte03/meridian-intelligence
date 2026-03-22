@@ -43,6 +43,8 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.orig_list_warrants = self.workspace.list_warrants
         self.orig_commitment_summary = self.workspace.commitments.commitment_summary
         self.orig_list_commitments = self.workspace.commitments.list_commitments
+        self.orig_case_summary = self.workspace.cases.case_summary
+        self.orig_list_cases = self.workspace.cases.list_cases
 
     def tearDown(self):
         self.workspace.WORKSPACE_ORG_ID = self.orig_workspace_org_id
@@ -62,6 +64,8 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.workspace.list_warrants = self.orig_list_warrants
         self.workspace.commitments.commitment_summary = self.orig_commitment_summary
         self.workspace.commitments.list_commitments = self.orig_list_commitments
+        self.workspace.cases.case_summary = self.orig_case_summary
+        self.workspace.cases.list_cases = self.orig_list_cases
 
     def test_live_workspace_rejects_non_founding_configured_org(self):
         self.workspace._load_workspace_credentials = lambda: (None, None, None, None)
@@ -164,6 +168,8 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.assertFalse(permissions['/api/treasury/contribute']['allowed'])
         self.assertTrue(permissions['/api/warrants/issue']['allowed'])
         self.assertTrue(permissions['/api/warrants/approve']['allowed'])
+        self.assertTrue(permissions['/api/cases/open']['allowed'])
+        self.assertTrue(permissions['/api/cases/resolve']['allowed'])
         self.assertTrue(permissions['/api/federation/send']['allowed'])
         self.assertFalse(permissions['/api/federation/peers/refresh']['allowed'])
         self.assertEqual(permissions['/api/federation/peers/refresh']['required_role'], 'owner')
@@ -214,6 +220,19 @@ class LiveWorkspaceContextTests(unittest.TestCase):
                 'status': 'accepted',
             }
         ]
+        self.workspace.cases.case_summary = lambda org_id=None: {
+            'total': 1,
+            'open': 1,
+            'stayed': 0,
+            'resolved': 0,
+        }
+        self.workspace.cases.list_cases = lambda org_id=None: [
+            {
+                'case_id': 'case_live_demo',
+                'status': 'open',
+                'claim_type': 'breach_of_commitment',
+            }
+        ]
         self.workspace.get_sprint_lead = lambda org_id: ('', 0)
         self.workspace.get_pending_approvals = lambda org_id=None: []
         self.workspace._ci_vertical_status = lambda reg, lead_id, org_id: {}
@@ -250,8 +269,23 @@ class LiveWorkspaceContextTests(unittest.TestCase):
                 'delivery_refs': [],
             }],
         )
+        fake_cases = types.SimpleNamespace(
+            case_summary=lambda org_id=None: {
+                'total': 1,
+                'open': 1,
+                'stayed': 0,
+                'resolved': 0,
+            },
+            list_cases=lambda org_id=None: [{
+                'case_id': 'case_live_demo',
+                'status': 'open',
+                'claim_type': 'breach_of_commitment',
+                'linked_commitment_id': 'com_live_demo',
+            }],
+        )
         ctx = self.workspace._resolve_workspace_context()
-        with mock.patch.object(self.workspace, 'commitments', fake_commitments):
+        with mock.patch.object(self.workspace, 'commitments', fake_commitments), \
+             mock.patch.object(self.workspace, 'cases', fake_cases):
             status = self.workspace.api_status(institution_context=ctx)
         self.assertEqual(status['runtime_core']['institution_context']['org_id'], 'org_founding')
         self.assertFalse(status['runtime_core']['admission']['additional_institutions_allowed'])
@@ -279,6 +313,9 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.assertEqual(status['commitments']['accepted'], 1)
         self.assertEqual(status['commitments']['management_mode'], 'founding_workspace_local')
         self.assertTrue(status['commitments']['mutation_enabled'])
+        self.assertEqual(status['cases']['total'], 1)
+        self.assertEqual(status['cases']['open'], 1)
+        self.assertEqual(status['cases']['management_mode'], 'founding_workspace_local')
         self.assertIn('federation', status['runtime_core'])
         self.assertFalse(status['runtime_core']['federation']['enabled'])
 

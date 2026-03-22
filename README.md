@@ -59,6 +59,10 @@ those records are capsule-backed and can anchor federation sends through a
 validated local sender-side `commitment_id`. Live federation remains disabled,
 so this is a founding-workspace commitment surface today, not live
 cross-institution execution proof.
+The owner workspace now also exposes a founding-only case surface via
+`/api/cases` and `POST /api/cases/open|stay|resolve`. Commitment breach can
+open a linked local case record, but live federation is still disabled, so
+this is not yet live cross-host dispute execution.
 
 **Live service:** https://app.welliam.codes
 **Product demo:** https://app.welliam.codes/demo.html
