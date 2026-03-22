@@ -262,7 +262,10 @@ def ensure_subscription_aliases(org_id=None):
         'delivery_log': [],
         'updatedAt': '',
         '_meta': {
-            'service_scope': 'founding_meridian_service',
+            'service_scope': 'institution_owned_subscription_service',
+            'boundary_name': 'subscriptions',
+            'identity_model': 'session',
+            'storage_model': 'capsule_canonical_with_legacy_symlink',
             'bound_org_id': resolved_org_id,
         },
     }
@@ -299,7 +302,10 @@ def ensure_accounting_aliases(org_id=None):
         'draws_taken_usd': 0.0,
         'entries': [],
         '_meta': {
-            'service_scope': 'founding_meridian_service',
+            'service_scope': 'institution_owned_service',
+            'boundary_name': 'accounting',
+            'identity_model': 'session',
+            'storage_model': 'capsule_owned_owner_ledger',
             'bound_org_id': resolved_org_id,
         },
     }

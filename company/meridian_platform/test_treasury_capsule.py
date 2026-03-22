@@ -97,7 +97,7 @@ class TreasuryCapsuleTests(unittest.TestCase):
             'subscribers': {},
             'delivery_log': [],
             'updatedAt': '2026-03-21T00:00:00Z',
-            '_meta': {'service_scope': 'founding_meridian_service'},
+            '_meta': {'service_scope': 'institution_owned_subscription_service'},
         }
         with open(self._legacy_subscriptions, 'w') as f:
             json.dump(subscriptions_payload, f, indent=2)
@@ -360,7 +360,7 @@ class TreasuryCapsuleTests(unittest.TestCase):
         with open(owner_alias) as f:
             owner = json.load(f)
         self.assertEqual(owner['capital_contributed_usd'], 1.0)
-        self.assertEqual(owner['_meta']['service_scope'], 'founding_meridian_service')
+        self.assertEqual(owner['_meta']['service_scope'], 'institution_owned_service')
         self.assertEqual(owner['_meta']['bound_org_id'], self.org_id)
         with open(self._legacy_ledger) as f:
             ledger = json.load(f)

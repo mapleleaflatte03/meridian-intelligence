@@ -94,8 +94,11 @@ def _default_owner(org_id=None):
         'draws_taken_usd': 0.0,
         'entries': [],
         '_meta': {
-            'service_scope': 'founding_meridian_service',
+            'service_scope': 'institution_owned_service',
             'bound_org_id': capsule.default_org_id() if org_id is None else org_id or '',
+            'boundary_name': 'accounting',
+            'identity_model': 'session',
+            'storage_model': 'capsule_owned_owner_ledger',
         },
     }
 
@@ -112,8 +115,11 @@ def _normalize_owner(data, org_id=None):
         payload.setdefault(key, value)
 
     payload.setdefault('_meta', {})
-    payload['_meta']['service_scope'] = 'founding_meridian_service'
+    payload['_meta']['service_scope'] = 'institution_owned_service'
     payload['_meta']['bound_org_id'] = capsule.default_org_id() if org_id is None else org_id or ''
+    payload['_meta']['boundary_name'] = 'accounting'
+    payload['_meta']['identity_model'] = 'session'
+    payload['_meta']['storage_model'] = 'capsule_owned_owner_ledger'
     return payload
 
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Workspace-facing service-state snapshots for founding-only live services."""
+"""Workspace-facing snapshots for institution-owned live services."""
 import datetime
 import json
 import os
@@ -49,8 +49,11 @@ def _default_subscriptions(org_id=None):
         'delivery_log': [],
         'updatedAt': '',
         '_meta': {
-            'service_scope': 'founding_meridian_service',
+            'service_scope': 'institution_owned_subscription_service',
             'bound_org_id': org_id or '',
+            'boundary_name': 'subscriptions',
+            'identity_model': 'session',
+            'storage_model': 'capsule_canonical_with_legacy_symlink',
             'internal_test_ids': [],
         },
     }
@@ -67,7 +70,7 @@ def _default_owner(org_id=None):
         'draws_taken_usd': 0.0,
         'entries': [],
         '_meta': {
-            'service_scope': 'founding_meridian_service',
+            'service_scope': 'institution_owned_service',
             'bound_org_id': org_id or '',
             'boundary_name': 'accounting',
             'identity_model': 'session',
@@ -82,8 +85,11 @@ def load_subscription_state(org_id=None):
     payload.setdefault('subscribers', {})
     payload.setdefault('delivery_log', [])
     payload.setdefault('_meta', {})
-    payload['_meta'].setdefault('service_scope', 'founding_meridian_service')
-    payload['_meta'].setdefault('bound_org_id', org_id or '')
+    payload['_meta']['service_scope'] = 'institution_owned_subscription_service'
+    payload['_meta']['bound_org_id'] = org_id or payload['_meta'].get('bound_org_id', '')
+    payload['_meta']['boundary_name'] = 'subscriptions'
+    payload['_meta']['identity_model'] = 'session'
+    payload['_meta']['storage_model'] = 'capsule_canonical_with_legacy_symlink'
     payload['_meta'].setdefault('internal_test_ids', [])
     return payload
 
@@ -93,11 +99,11 @@ def load_owner_ledger_state(org_id=None):
     payload.update(_load_json(owner_ledger_path(org_id), payload))
     payload.setdefault('entries', [])
     payload.setdefault('_meta', {})
-    payload['_meta'].setdefault('service_scope', 'founding_meridian_service')
-    payload['_meta'].setdefault('bound_org_id', org_id or '')
-    payload['_meta'].setdefault('boundary_name', 'accounting')
-    payload['_meta'].setdefault('identity_model', 'session')
-    payload['_meta'].setdefault('storage_model', 'capsule_owned_owner_ledger')
+    payload['_meta']['service_scope'] = 'institution_owned_service'
+    payload['_meta']['bound_org_id'] = org_id or payload['_meta'].get('bound_org_id', '')
+    payload['_meta']['boundary_name'] = 'accounting'
+    payload['_meta']['identity_model'] = 'session'
+    payload['_meta']['storage_model'] = 'capsule_owned_owner_ledger'
     treasury = _load_json(ledger_path(org_id), {'treasury': {}}).get('treasury', {})
     treasury_owner_capital = round(float(treasury.get('owner_capital_contributed_usd', 0.0) or 0.0), 4)
     owner_capital = round(float(payload.get('capital_contributed_usd', 0.0) or 0.0), 4)
@@ -133,7 +139,7 @@ def subscription_snapshot(org_id=None):
 
     return {
         'bound_org_id': meta.get('bound_org_id', org_id or ''),
-        'management_mode': 'workspace_api_file_backed',
+        'management_mode': 'institution_owned_service',
         'mutation_enabled': True,
         'mutation_disabled_reason': '',
         'storage_model': meta.get('storage_model', 'capsule_canonical_with_legacy_symlink'),
@@ -159,7 +165,7 @@ def accounting_snapshot(org_id=None):
 
     return {
         'bound_org_id': meta.get('bound_org_id', org_id or ''),
-        'management_mode': 'capsule_owned_service',
+        'management_mode': 'institution_owned_service',
         'mutation_enabled': True,
         'mutation_disabled_reason': '',
         'storage_model': meta.get('storage_model', 'capsule_owned_owner_ledger'),

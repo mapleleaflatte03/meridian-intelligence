@@ -117,21 +117,22 @@ disabled adapters already execute on live.
 `GET /api/treasury/accounts` and `GET /api/treasury/funding-sources` now
 surface the same founding-only treasury truth in protocol form: ledger-synced
 sub-accounts and recorded funding-source entries that stay aligned with owner
-capital and payout execution state. Founding subscription entitlement state
-has now moved one step further into the institution boundary: the canonical
-file lives inside the founding capsule, and the old
+capital and payout execution state. The founding deployment now runs
+institution-owned subscription and accounting services behind the same
+capsule boundary: the canonical files live inside the founding capsule, and the old
 `company/subscriptions*.json` paths remain only as compatibility symlinks back
-to that capsule-owned state. The owner workspace now also exposes
-`GET /api/subscriptions` and `GET /api/accounting`, which surface those
-founding-only service states directly from capsule-canonical storage.
-Accounting has now moved beyond read-only surfacing:
-`POST /api/accounting/expense|reimburse|draw` is owner-gated and writes back
-through the same founding capsule owner-ledger + treasury journal path, with
-explicit bound-org plumbing instead of a hidden founding-default writer.
-Subscriptions have now crossed the same boundary:
+to that capsule-owned state, while `company/owner_ledger.json` remains a
+compatibility symlink back to the institution-owned owner ledger. The owner
+workspace now also exposes `GET /api/subscriptions` and `GET /api/accounting`,
+which surface those institution-owned service states directly from capsule
+storage on the founding-locked host. Accounting has now moved beyond read-only
+surfacing: `POST /api/accounting/expense|reimburse|draw` is owner-gated and
+writes back through the tracked accounting service layer over the same capsule
+owner-ledger + treasury journal path, with explicit bound-org plumbing instead
+of a hidden founding-default writer. Subscriptions have now crossed the same boundary:
 `POST /api/subscriptions/add|convert|verify-payment|remove|set-email|record-delivery`
 is admin-gated and writes back through the founding capsule subscription store.
-This is still founding-only service management, not self-serve multi-
+This is still a founding-locked live deployment, not self-serve multi-
 institution delivery routing.
 
 **Live service:** https://app.welliam.codes

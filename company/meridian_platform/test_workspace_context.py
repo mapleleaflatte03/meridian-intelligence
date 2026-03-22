@@ -770,12 +770,12 @@ class LiveWorkspaceContextTests(unittest.TestCase):
             self.workspace,
             'log_event',
         ), mock.patch.object(
-            self.workspace._accounting_mod,
+            self.workspace.accounting_service,
             'record_owner_expense',
-            side_effect=lambda amount_usd, note='', actor='owner', org_id=None: recorded.update({
+            side_effect=lambda amount_usd, note='', by='owner', org_id=None: recorded.update({
                 'amount_usd': amount_usd,
                 'note': note,
-                'actor': actor,
+                'actor': by,
                 'org_id': org_id,
             }) or {'amount_usd': float(amount_usd), 'unreimbursed_expenses_usd': 1.25},
         ):

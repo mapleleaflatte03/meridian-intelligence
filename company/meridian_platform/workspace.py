@@ -15,9 +15,9 @@ Endpoints:
   GET  /api/treasury/accounts     → Treasury sub-accounts
   GET  /api/treasury/funding-sources → Funding source records
   GET  /api/treasury/settlement-adapters → Settlement adapter registry
-  GET  /api/subscriptions         → Founding subscription service state
-  GET  /api/subscriptions/delivery-targets → Founding delivery-target calculation
-  GET  /api/accounting            → Founding accounting owner-ledger state
+  GET  /api/subscriptions         → Institution-owned subscription service state on the founding-locked host
+  GET  /api/subscriptions/delivery-targets → Institution-owned delivery-target calculation on the founding-locked host
+  GET  /api/accounting            → Institution-owned accounting owner-ledger state on the founding-locked host
   GET  /api/payouts              → Payout proposals and summary
   GET  /api/court                 → Court records
   GET  /api/warrants              → Warrant records and summary
@@ -55,13 +55,13 @@ Endpoints:
   POST /api/treasury/contribute   → Record owner capital contribution
   POST /api/treasury/reserve-floor → Update reserve floor policy
   POST /api/treasury/settlement-adapters/preflight → Validate settlement-adapter execution requirements
-  POST /api/subscriptions/add     → Create a founding subscription record
+  POST /api/subscriptions/add     → Create an institution-owned subscription record on the founding-locked host
   POST /api/subscriptions/convert → Convert a trial into a paid subscription
   POST /api/subscriptions/verify-payment → Bind payment evidence to a subscription
   POST /api/subscriptions/remove  → Cancel active subscriptions for a Telegram user
   POST /api/subscriptions/set-email → Update subscription email metadata
   POST /api/subscriptions/record-delivery → Append a subscription delivery record
-  POST /api/accounting/expense    → Record an owner-paid expense in the founding ledger
+  POST /api/accounting/expense    → Record an owner-paid expense in the institution-owned ledger
   POST /api/accounting/reimburse  → Reimburse an owner-paid expense from treasury
   POST /api/accounting/draw       → Take an owner draw from treasury above reserve floor
   POST /api/payouts/propose       → Create a payout proposal draft
@@ -147,11 +147,6 @@ _phase_spec = importlib.util.spec_from_file_location('company_phase_machine', PH
 _phase_mod = importlib.util.module_from_spec(_phase_spec)
 _phase_spec.loader.exec_module(_phase_mod)
 
-ACCOUNTING_PY = os.path.join(WORKSPACE, 'company', 'accounting.py')
-_accounting_spec = importlib.util.spec_from_file_location('company_accounting_workspace', ACCOUNTING_PY)
-_accounting_mod = importlib.util.module_from_spec(_accounting_spec)
-_accounting_spec.loader.exec_module(_accounting_mod)
-
 # Import authority, treasury, court via their public APIs
 from authority import (check_authority, request_approval, decide_approval,
                        delegate, revoke_delegation, engage_kill_switch,
@@ -184,6 +179,7 @@ from warrants import (
 )
 import commitments
 import cases
+import accounting_service
 import service_state
 import subscription_service
 from federation import (
@@ -3238,10 +3234,10 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                 })
 
             elif path == '/api/accounting/expense':
-                result = _accounting_mod.record_owner_expense(
+                result = accounting_service.record_owner_expense(
                     body.get('amount_usd'),
                     note=body.get('note', ''),
-                    actor=by,
+                    by=by,
                     org_id=org_id,
                 )
                 log_event(
@@ -3259,10 +3255,10 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                 })
 
             elif path == '/api/accounting/reimburse':
-                result = _accounting_mod.reimburse_owner(
+                result = accounting_service.reimburse_owner(
                     body.get('amount_usd'),
                     note=body.get('note', ''),
-                    actor=by,
+                    by=by,
                     org_id=org_id,
                 )
                 log_event(
@@ -3280,10 +3276,10 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                 })
 
             elif path == '/api/accounting/draw':
-                result = _accounting_mod.take_owner_draw(
+                result = accounting_service.take_owner_draw(
                     body.get('amount_usd'),
                     note=body.get('note', ''),
-                    actor=by,
+                    by=by,
                     org_id=org_id,
                 )
                 log_event(

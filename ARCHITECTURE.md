@@ -179,18 +179,19 @@ whether an adapter is merely registered, whether this host supports it, and
 whether the supplied proof shape would be acceptable before execution.
 The live workspace now also exposes owner-gated accounting mutations through
 `POST /api/accounting/expense|reimburse|draw`. Those routes call tracked
-accounting helpers directly, so the founding capsule owner ledger and treasury
-journal stay canonical even when the operator uses the workspace instead of
-the CLI, and the writer now takes an explicit bound `org_id` all the way down
-to the capsule-backed owner ledger instead of relying on a hidden founding
-default. This is still founding-only service management, not multi-
-institution accounting.
+accounting service helpers directly, so the founding capsule owner ledger and
+treasury journal stay canonical even when the operator uses the workspace
+instead of the CLI, and the writer now takes an explicit bound `org_id` all
+the way down to the capsule-backed owner ledger instead of relying on a hidden
+founding default. This is an institution-owned service running on a
+founding-locked deployment, not multi-institution live accounting.
 The live workspace now also exposes admin-gated subscription mutations through
 `POST /api/subscriptions/add|convert|verify-payment|remove|set-email|record-delivery`.
 Those routes call tracked subscription helpers directly, so the founding
 capsule entitlement store stays canonical even when the operator uses the
-workspace instead of the CLI. This remains founding-only service management,
-not a public multi-institution subscription surface.
+workspace instead of the CLI. This is the same institution-owned service shape
+on a founding-locked deployment, not a public multi-institution subscription
+surface.
 
 ### Court (court.py)
 ```
@@ -405,15 +406,14 @@ which exposes:
 - the live admission model
 - the live federation-gateway state
 
-The owner workspace also now exposes read-only founding-service snapshots for
-the two capsule-canonical service-state files that still remain founding-only:
+The owner workspace also now exposes read-only snapshots for two
+institution-owned service boundaries on the founding-locked host:
 `GET /api/subscriptions` and `GET /api/accounting`. Those surfaces read
-directly from capsule-canonical state. `subscriptions` remains
-`workspace_api_file_backed` with compatibility symlinks, while `accounting`
-now reports `capsule_owned_service` over a capsule-owned owner ledger plus
-legacy symlink path. Accounting now exposes owner-gated workspace mutations,
-and subscriptions expose admin-gated workspace mutations. Both boundaries
-remain founding-only and do not claim self-serve multi-institution routing.
+directly from capsule-canonical state and explicitly surface both canonical and
+legacy compatibility paths. Accounting now exposes owner-gated workspace
+mutations, and subscriptions expose admin-gated workspace mutations. Both
+boundaries remain founding-locked and do not claim self-serve
+multi-institution routing.
 
 That admission model is explicitly `single_institution_deployment`. The live
 workspace is institution-bound, but this deployment does not admit additional
