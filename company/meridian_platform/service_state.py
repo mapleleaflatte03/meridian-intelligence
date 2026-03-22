@@ -5,6 +5,7 @@ import json
 import os
 
 from capsule import ledger_path, subscriptions_path, owner_ledger_path
+import subscription_service
 
 
 PLATFORM_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -68,6 +69,9 @@ def _default_owner(org_id=None):
         '_meta': {
             'service_scope': 'founding_meridian_service',
             'bound_org_id': org_id or '',
+            'boundary_name': 'accounting',
+            'identity_model': 'session',
+            'storage_model': 'capsule_owned_owner_ledger',
         },
     }
 
@@ -91,6 +95,9 @@ def load_owner_ledger_state(org_id=None):
     payload.setdefault('_meta', {})
     payload['_meta'].setdefault('service_scope', 'founding_meridian_service')
     payload['_meta'].setdefault('bound_org_id', org_id or '')
+    payload['_meta'].setdefault('boundary_name', 'accounting')
+    payload['_meta'].setdefault('identity_model', 'session')
+    payload['_meta'].setdefault('storage_model', 'capsule_owned_owner_ledger')
     treasury = _load_json(ledger_path(org_id), {'treasury': {}}).get('treasury', {})
     treasury_owner_capital = round(float(treasury.get('owner_capital_contributed_usd', 0.0) or 0.0), 4)
     owner_capital = round(float(payload.get('capital_contributed_usd', 0.0) or 0.0), 4)
@@ -121,47 +128,22 @@ def load_owner_ledger_state(org_id=None):
 
 def subscription_snapshot(org_id=None):
     payload = load_subscription_state(org_id)
-    internal_ids = set(payload.get('_meta', {}).get('internal_test_ids', []))
-
-    active_subscriptions = 0
-    active_paid = 0
-    external_targets = set()
-    now = _now()
-    for telegram_id, records in payload.get('subscribers', {}).items():
-        for record in records:
-            if record.get('status') != 'active':
-                continue
-            expires_at = (record.get('expires_at') or '').strip()
-            if expires_at:
-                expires = datetime.datetime.strptime(expires_at, '%Y-%m-%dT%H:%M:%SZ')
-                if expires < now:
-                    continue
-            active_subscriptions += 1
-            if record.get('plan') != 'trial' and record.get('payment_verified'):
-                active_paid += 1
-            if str(telegram_id) not in internal_ids:
-                external_targets.add(str(telegram_id))
+    meta = payload.get('_meta', {})
+    summary = subscription_service.subscription_summary(org_id)
 
     return {
-        'bound_org_id': payload.get('_meta', {}).get('bound_org_id', org_id or ''),
+        'bound_org_id': meta.get('bound_org_id', org_id or ''),
         'management_mode': 'workspace_api_file_backed',
         'mutation_enabled': True,
         'mutation_disabled_reason': '',
-        'storage_model': 'capsule_canonical_with_legacy_symlink',
-        'boundary_name': 'subscriptions',
-        'identity_model': 'session',
+        'storage_model': meta.get('storage_model', 'capsule_canonical_with_legacy_symlink'),
+        'boundary_name': meta.get('boundary_name', 'subscriptions'),
+        'identity_model': meta.get('identity_model', 'session'),
         'canonical_path': os.path.relpath(subscriptions_path(org_id), WORKSPACE),
         'legacy_path': os.path.relpath(LEGACY_SUBSCRIPTIONS_FILE, WORKSPACE),
         'mutation_paths': list(SUBSCRIPTIONS_MUTATION_PATHS),
-        'summary': {
-            'subscriber_count': len(payload.get('subscribers', {})),
-            'active_subscription_count': active_subscriptions,
-            'verified_paid_subscription_count': active_paid,
-            'delivery_log_count': len(payload.get('delivery_log', [])),
-            'internal_test_id_count': len(internal_ids),
-            'external_target_count': len(external_targets),
-        },
-        'meta': payload.get('_meta', {}),
+        'summary': summary,
+        'meta': meta,
         'subscribers': payload.get('subscribers', {}),
         'delivery_log_tail': payload.get('delivery_log', [])[-20:],
     }
@@ -169,19 +151,20 @@ def subscription_snapshot(org_id=None):
 
 def accounting_snapshot(org_id=None):
     payload = load_owner_ledger_state(org_id)
+    meta = payload.get('_meta', {})
     expenses_paid = float(payload.get('expenses_paid_usd', 0.0) or 0.0)
     reimbursements = float(payload.get('reimbursements_received_usd', 0.0) or 0.0)
     draws_taken = float(payload.get('draws_taken_usd', 0.0) or 0.0)
     capital = float(payload.get('capital_contributed_usd', 0.0) or 0.0)
 
     return {
-        'bound_org_id': payload.get('_meta', {}).get('bound_org_id', org_id or ''),
-        'management_mode': 'workspace_api_file_backed',
+        'bound_org_id': meta.get('bound_org_id', org_id or ''),
+        'management_mode': 'capsule_owned_service',
         'mutation_enabled': True,
         'mutation_disabled_reason': '',
-        'storage_model': 'capsule_canonical_with_legacy_symlink',
-        'boundary_name': 'accounting',
-        'identity_model': 'session',
+        'storage_model': meta.get('storage_model', 'capsule_owned_owner_ledger'),
+        'boundary_name': meta.get('boundary_name', 'accounting'),
+        'identity_model': meta.get('identity_model', 'session'),
         'canonical_path': os.path.relpath(owner_ledger_path(org_id), WORKSPACE),
         'legacy_path': os.path.relpath(LEGACY_OWNER_LEDGER_FILE, WORKSPACE),
         'mutation_paths': list(ACCOUNTING_MUTATION_PATHS),
@@ -193,7 +176,7 @@ def accounting_snapshot(org_id=None):
             'unreimbursed_expenses_usd': round(expenses_paid - reimbursements, 2),
             'entry_count': len(payload.get('entries', [])),
         },
-        'meta': payload.get('_meta', {}),
+        'meta': meta,
         'owner': payload.get('owner', ''),
         'entries_tail': payload.get('entries', [])[-20:],
     }

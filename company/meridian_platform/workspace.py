@@ -3230,6 +3230,7 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                     body.get('amount_usd'),
                     note=body.get('note', ''),
                     actor=by,
+                    org_id=org_id,
                 )
                 log_event(
                     org_id,
@@ -3250,6 +3251,7 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                     body.get('amount_usd'),
                     note=body.get('note', ''),
                     actor=by,
+                    org_id=org_id,
                 )
                 log_event(
                     org_id,
@@ -3270,6 +3272,7 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                     body.get('amount_usd'),
                     note=body.get('note', ''),
                     actor=by,
+                    org_id=org_id,
                 )
                 log_event(
                     org_id,

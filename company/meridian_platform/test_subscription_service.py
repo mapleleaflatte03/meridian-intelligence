@@ -175,7 +175,7 @@ class SubscriptionServiceTests(unittest.TestCase):
         self.assertEqual(summary['subscriber_count'], 2)
         self.assertEqual(summary['subscription_count'], 2)
         self.assertEqual(summary['active_subscription_count'], 2)
-        self.assertEqual(summary['verified_paid_subscription_count'], 2)
+        self.assertEqual(summary['verified_paid_subscription_count'], 1)
         self.assertEqual(summary['external_target_count'], 2)
 
     def test_verify_subscription_payment_binds_existing_paid_record(self):
@@ -235,6 +235,61 @@ class SubscriptionServiceTests(unittest.TestCase):
             actor='user:admin',
         )
         self.assertEqual(subscription_service.active_delivery_targets(self.org_id), ['400'])
+
+    def test_check_subscription_reports_latest_active_trial(self):
+        created = subscription_service.create_subscription(
+            '500',
+            plan='trial',
+            org_id=self.org_id,
+            actor='user:owner',
+        )
+
+        check = subscription_service.check_subscription('500', org_id=self.org_id)
+
+        self.assertTrue(check['found'])
+        self.assertTrue(check['active'])
+        self.assertTrue(check['eligible_for_delivery'])
+        self.assertEqual(check['subscription_count'], 1)
+        self.assertEqual(check['active_count'], 1)
+        self.assertEqual(check['latest_subscription']['id'], created['subscription']['id'])
+
+    def test_subscription_summary_tracks_internal_and_external_targets(self):
+        subscription_service.create_subscription('600', plan='trial', org_id=self.org_id)
+        subscription_service.create_subscription(
+            '700',
+            plan='premium-brief-weekly',
+            payment_ref='ref-summary',
+            org_id=self.org_id,
+        )
+        self._append_tx({
+            'type': 'customer_payment',
+            'order_id': 'ord-summary',
+            'amount': 2.99,
+            'client': 'cust-summary',
+            'product': 'pilot-weekly',
+            'payment_key': 'ref:ref-summary',
+            'payment_ref': 'ref-summary',
+            'tx_hash': '0xsummary',
+            'ts': subscription_service.now_ts(),
+        })
+        subscription_service.verify_subscription_payment(
+            '700',
+            payment_ref='ref-summary',
+            org_id=self.org_id,
+            actor='user:admin',
+        )
+        payload = subscription_service.load_subscriptions(self.org_id)
+        payload['_meta']['internal_test_ids'] = ['600']
+        subscription_service.save_subscriptions(payload, self.org_id)
+
+        summary = subscription_service.subscription_summary(self.org_id)
+
+        self.assertEqual(summary['subscriber_count'], 2)
+        self.assertEqual(summary['subscription_count'], 2)
+        self.assertEqual(summary['active_subscription_count'], 2)
+        self.assertEqual(summary['verified_paid_subscription_count'], 1)
+        self.assertEqual(summary['internal_test_id_count'], 1)
+        self.assertEqual(summary['external_target_count'], 1)
 
 
 if __name__ == '__main__':

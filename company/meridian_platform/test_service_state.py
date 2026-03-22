@@ -20,6 +20,7 @@ class ServiceStateTests(unittest.TestCase):
         self._orig_legacy_subscriptions = service_state.LEGACY_SUBSCRIPTIONS_FILE
         self._orig_legacy_owner = service_state.LEGACY_OWNER_LEDGER_FILE
         self._orig_workspace = service_state.WORKSPACE
+        self._orig_subscription_summary = service_state.subscription_service.subscription_summary
 
         service_state.subscriptions_path = lambda org_id=None: self._subs
         service_state.owner_ledger_path = lambda org_id=None: self._owner
@@ -35,6 +36,7 @@ class ServiceStateTests(unittest.TestCase):
         service_state.LEGACY_SUBSCRIPTIONS_FILE = self._orig_legacy_subscriptions
         service_state.LEGACY_OWNER_LEDGER_FILE = self._orig_legacy_owner
         service_state.WORKSPACE = self._orig_workspace
+        service_state.subscription_service.subscription_summary = self._orig_subscription_summary
         shutil.rmtree(self._tmp, ignore_errors=True)
 
     def test_subscription_snapshot_reports_canonical_summary(self):
@@ -62,6 +64,15 @@ class ServiceStateTests(unittest.TestCase):
                 },
             }, f, indent=2)
 
+        service_state.subscription_service.subscription_summary = lambda org_id=None: {
+            'subscriber_count': 2,
+            'subscription_count': 3,
+            'active_subscription_count': 2,
+            'verified_paid_subscription_count': 1,
+            'delivery_log_count': 2,
+            'internal_test_id_count': 1,
+            'external_target_count': 1,
+        }
         snap = service_state.subscription_snapshot('org_demo')
         self.assertEqual(snap['bound_org_id'], 'org_demo')
         self.assertEqual(snap['storage_model'], 'capsule_canonical_with_legacy_symlink')
@@ -73,6 +84,7 @@ class ServiceStateTests(unittest.TestCase):
         self.assertIn('/api/subscriptions/verify-payment', snap['mutation_paths'])
         self.assertIn('/api/subscriptions/remove', snap['mutation_paths'])
         self.assertEqual(snap['summary']['subscriber_count'], 2)
+        self.assertEqual(snap['summary']['subscription_count'], 3)
         self.assertEqual(snap['summary']['active_subscription_count'], 2)
         self.assertEqual(snap['summary']['verified_paid_subscription_count'], 1)
         self.assertEqual(snap['summary']['delivery_log_count'], 2)
@@ -96,8 +108,8 @@ class ServiceStateTests(unittest.TestCase):
 
         snap = service_state.accounting_snapshot('org_demo')
         self.assertEqual(snap['bound_org_id'], 'org_demo')
-        self.assertEqual(snap['storage_model'], 'capsule_canonical_with_legacy_symlink')
-        self.assertEqual(snap['management_mode'], 'workspace_api_file_backed')
+        self.assertEqual(snap['storage_model'], 'capsule_owned_owner_ledger')
+        self.assertEqual(snap['management_mode'], 'capsule_owned_service')
         self.assertTrue(snap['mutation_enabled'])
         self.assertEqual(snap['identity_model'], 'session')
         self.assertIn('/api/accounting/expense', snap['mutation_paths'])

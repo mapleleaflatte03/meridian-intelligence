@@ -126,7 +126,8 @@ to that capsule-owned state. The owner workspace now also exposes
 founding-only service states directly from capsule-canonical storage.
 Accounting has now moved beyond read-only surfacing:
 `POST /api/accounting/expense|reimburse|draw` is owner-gated and writes back
-through the same founding capsule owner-ledger + treasury journal path.
+through the same founding capsule owner-ledger + treasury journal path, with
+explicit bound-org plumbing instead of a hidden founding-default writer.
 Subscriptions have now crossed the same boundary:
 `POST /api/subscriptions/add|convert|verify-payment|remove|set-email|record-delivery`
 is admin-gated and writes back through the founding capsule subscription store.

@@ -476,7 +476,10 @@ def subscription_summary(org_id=None):
     rows = list(payload.get('subscribers', {}).values())
     all_subs = [sub for records in rows for sub in records]
     active = [sub for sub in all_subs if sub.get('status') == 'active']
-    verified = [sub for sub in active if sub.get('payment_verified')]
+    verified = [
+        sub for sub in active
+        if sub.get('plan') != 'trial' and sub.get('payment_verified')
+    ]
     return {
         'subscriber_count': len(payload.get('subscribers', {})),
         'subscription_count': len(all_subs),

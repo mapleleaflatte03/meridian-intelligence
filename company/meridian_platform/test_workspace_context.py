@@ -606,6 +606,142 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.assertFalse(handler.body_read)
         self.assertEqual(result, handler.response)
 
+    def test_accounting_expense_route_passes_bound_org_to_writer(self):
+        calls = []
+
+        class FakeHandler:
+            def __init__(self):
+                self.path = '/api/accounting/expense'
+                self.headers = _Headers()
+                self.response = None
+
+            def _require_auth(self, path):
+                calls.append(('require_auth', path))
+                return True
+
+            def _session_claims_from_request(self, expected_org_id=None):
+                calls.append(('session_claims', expected_org_id))
+                return None
+
+            def _read_body(self):
+                return {'amount_usd': 1.25, 'note': 'travel'}
+
+            def _json(self, data, status=200):
+                self.response = {'data': data, 'status': status}
+                return self.response
+
+        recorded = {}
+        handler = FakeHandler()
+        with mock.patch.object(
+            self.workspace,
+            '_resolve_workspace_context',
+            return_value=types.SimpleNamespace(org_id='org_founding'),
+        ), mock.patch.object(
+            self.workspace,
+            '_enforce_request_context',
+            return_value={'requested_org_id': '', 'bound_org_id': 'org_founding'},
+        ), mock.patch.object(
+            self.workspace,
+            '_resolve_auth_context',
+            return_value={'actor_id': 'user_owner', 'session_id': 'ses_demo'},
+        ), mock.patch.object(
+            self.workspace,
+            '_enforce_mutation_authorization',
+            return_value='owner',
+        ), mock.patch.object(
+            self.workspace.service_state,
+            'accounting_snapshot',
+            return_value={'bound_org_id': 'org_founding'},
+        ), mock.patch.object(
+            self.workspace,
+            'log_event',
+        ), mock.patch.object(
+            self.workspace._accounting_mod,
+            'record_owner_expense',
+            side_effect=lambda amount_usd, note='', actor='owner', org_id=None: recorded.update({
+                'amount_usd': amount_usd,
+                'note': note,
+                'actor': actor,
+                'org_id': org_id,
+            }) or {'amount_usd': float(amount_usd), 'unreimbursed_expenses_usd': 1.25},
+        ):
+            result = self.workspace.WorkspaceHandler.do_POST(handler)
+
+        self.assertEqual(calls[0], ('require_auth', '/api/accounting/expense'))
+        self.assertEqual(recorded['org_id'], 'org_founding')
+        self.assertEqual(recorded['actor'], 'user_owner')
+        self.assertEqual(result['status'], 200)
+        self.assertEqual(result['data']['message'], 'Owner expense recorded')
+        self.assertEqual(result['data']['service_state']['bound_org_id'], 'org_founding')
+
+    def test_treasury_contribute_route_passes_bound_org_to_treasury_layer(self):
+        calls = []
+
+        class FakeHandler:
+            def __init__(self):
+                self.path = '/api/treasury/contribute'
+                self.headers = _Headers()
+                self.response = None
+
+            def _require_auth(self, path):
+                calls.append(('require_auth', path))
+                return True
+
+            def _session_claims_from_request(self, expected_org_id=None):
+                calls.append(('session_claims', expected_org_id))
+                return None
+
+            def _read_body(self):
+                return {'amount': 2.0, 'note': 'seed capital'}
+
+            def _json(self, data, status=200):
+                self.response = {'data': data, 'status': status}
+                return self.response
+
+        recorded = {}
+        handler = FakeHandler()
+        with mock.patch.object(
+            self.workspace,
+            '_resolve_workspace_context',
+            return_value=types.SimpleNamespace(org_id='org_founding'),
+        ), mock.patch.object(
+            self.workspace,
+            '_enforce_request_context',
+            return_value={'requested_org_id': '', 'bound_org_id': 'org_founding'},
+        ), mock.patch.object(
+            self.workspace,
+            '_resolve_auth_context',
+            return_value={'actor_id': 'user_owner', 'session_id': 'ses_demo'},
+        ), mock.patch.object(
+            self.workspace,
+            '_enforce_mutation_authorization',
+            return_value='owner',
+        ), mock.patch.object(
+            self.workspace,
+            'contribute_owner_capital',
+            side_effect=lambda amount, note='', by='owner', org_id=None: recorded.update({
+                'amount': amount,
+                'note': note,
+                'by': by,
+                'org_id': org_id,
+            }) or {'amount_usd': float(amount)},
+        ), mock.patch.object(
+            self.workspace,
+            'treasury_snapshot',
+            return_value={'bound_org_id': 'org_founding'},
+        ), mock.patch.object(
+            self.workspace,
+            'log_event',
+        ):
+            result = self.workspace.WorkspaceHandler.do_POST(handler)
+
+        self.assertEqual(calls[0], ('require_auth', '/api/treasury/contribute'))
+        self.assertEqual(recorded['org_id'], 'org_founding')
+        self.assertEqual(recorded['by'], 'user_owner')
+        self.assertEqual(result['status'], 200)
+        self.assertIn('Owner capital recorded', result['data']['message'])
+        self.assertEqual(result['data']['snapshot']['bound_org_id'], 'org_founding')
+
     def test_federation_receipt_is_bound_to_receiver_host_and_org(self):
         from federation import FederationEnvelopeClaims
 

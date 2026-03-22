@@ -339,7 +339,7 @@ def get_spend_summary(org_id, period_days=30):
 def contribute_owner_capital(amount_usd, note='', by='owner', org_id=None):
     """Record owner capital contribution via the accounting layer."""
     org_id = _resolve_org_id(org_id)
-    result = _owner_contribute_capital(amount_usd, note, actor=by)
+    result = _owner_contribute_capital(amount_usd, note, actor=by, org_id=org_id)
     ensure_treasury_aliases(org_id)
     funding_source = _record_funding_source(
         'owner_capital',
@@ -357,7 +357,7 @@ def contribute_owner_capital(amount_usd, note='', by='owner', org_id=None):
 def set_reserve_floor_policy(amount_usd, note='', by='owner', org_id=None):
     """Update reserve floor policy via the accounting layer."""
     org_id = _resolve_org_id(org_id)
-    result = _update_reserve_floor(amount_usd, note, actor=by)
+    result = _update_reserve_floor(amount_usd, note, actor=by, org_id=org_id)
     ensure_treasury_aliases(org_id)
     _sync_treasury_accounts(org_id)
     return result
