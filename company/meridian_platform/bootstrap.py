@@ -24,6 +24,9 @@ from capsule import (
     capsule_path,
     ensure_treasury_aliases,
     ensure_subscription_aliases,
+    ensure_accounting_aliases,
+    ensure_payment_monitor_aliases,
+    ensure_revenue_integrity_aliases,
     ledger_path as capsule_ledger_path,
 )
 
@@ -83,6 +86,9 @@ def bootstrap():
     try:
         aliases = ensure_treasury_aliases(founding_org_id)
         service_aliases = ensure_subscription_aliases(founding_org_id)
+        accounting_aliases = ensure_accounting_aliases(founding_org_id)
+        payment_monitor_aliases = ensure_payment_monitor_aliases(founding_org_id)
+        revenue_integrity_aliases = ensure_revenue_integrity_aliases(founding_org_id)
         print(
             f"  Treasury aliases ready: {os.path.relpath(aliases['ledger'], WORKSPACE)}, "
             f"{os.path.relpath(aliases['revenue'], WORKSPACE)}, "
@@ -90,7 +96,12 @@ def bootstrap():
         )
         print(
             f"  Service aliases ready: {os.path.relpath(service_aliases['subscriptions'], WORKSPACE)}, "
-            f"{os.path.relpath(service_aliases['subscriptions_backup'], WORKSPACE)}"
+            f"{os.path.relpath(service_aliases['subscriptions_backup'], WORKSPACE)}, "
+            f"{os.path.relpath(service_aliases['subscriptions_lock'], WORKSPACE)}, "
+            f"{os.path.relpath(accounting_aliases['owner_ledger'], WORKSPACE)}, "
+            f"{os.path.relpath(payment_monitor_aliases['payment_monitor_state'], WORKSPACE)}, "
+            f"{os.path.relpath(payment_monitor_aliases['payment_events_log'], WORKSPACE)}, "
+            f"{os.path.relpath(revenue_integrity_aliases['payment_integrity_lock'], WORKSPACE)}"
         )
     except FileNotFoundError:
         print(f'No ledger at {LEGACY_LEDGER_FILE}, skipping agent registration')

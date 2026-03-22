@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import importlib.util
 import json
 import os
 import shutil
@@ -7,14 +8,21 @@ import tempfile
 import unittest
 from unittest import mock
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+COMPANY_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, COMPANY_DIR)
 
 import accounting
 import agent_registry
 import authority
 import capsule
 import court
+import payment_monitor
 import treasury
+
+REVENUE_PY = os.path.join(os.path.dirname(COMPANY_DIR), 'economy', 'revenue.py')
+_revenue_spec = importlib.util.spec_from_file_location('treasury_capsule_test_revenue', REVENUE_PY)
+revenue = importlib.util.module_from_spec(_revenue_spec)
+_revenue_spec.loader.exec_module(revenue)
 
 
 class TreasuryCapsuleTests(unittest.TestCase):
@@ -26,6 +34,11 @@ class TreasuryCapsuleTests(unittest.TestCase):
         self._legacy_transactions = os.path.join(self._tmp, 'transactions.jsonl')
         self._legacy_subscriptions = os.path.join(self._tmp, 'subscriptions.json')
         self._legacy_subscriptions_backup = os.path.join(self._tmp, 'subscriptions.json.bak')
+        self._legacy_subscriptions_lock = os.path.join(self._tmp, '.subscriptions.lock')
+        self._legacy_owner_ledger = os.path.join(self._tmp, 'owner_ledger.json')
+        self._legacy_payment_monitor_state = os.path.join(self._tmp, 'payment_monitor_state.json')
+        self._legacy_payment_events = os.path.join(self._tmp, 'payment_events.log')
+        self._legacy_payment_integrity_lock = os.path.join(self._tmp, '.payment_integrity.lock')
         self.org_id = 'org_live'
 
         with open(self._legacy_ledger, 'w') as f:
@@ -89,6 +102,16 @@ class TreasuryCapsuleTests(unittest.TestCase):
             json.dump(subscriptions_payload, f, indent=2)
         with open(self._legacy_subscriptions_backup, 'w') as f:
             json.dump(subscriptions_payload, f, indent=2)
+        with open(self._legacy_subscriptions_lock, 'w') as f:
+            f.write('')
+        with open(self._legacy_owner_ledger, 'w') as f:
+            json.dump({}, f)
+        with open(self._legacy_payment_monitor_state, 'w') as f:
+            json.dump({'last_block': 7}, f, indent=2)
+        with open(self._legacy_payment_events, 'w') as f:
+            f.write('2026-03-21T00:00:00Z boot\n')
+        with open(self._legacy_payment_integrity_lock, 'w') as f:
+            f.write('')
 
         self._orig_capsules_dir = capsule.CAPSULES_DIR
         self._orig_legacy_ledger = capsule.LEGACY_LEDGER_FILE
@@ -96,6 +119,11 @@ class TreasuryCapsuleTests(unittest.TestCase):
         self._orig_legacy_transactions = capsule.LEGACY_TRANSACTIONS_FILE
         self._orig_legacy_subscriptions = capsule.LEGACY_SUBSCRIPTIONS_FILE
         self._orig_legacy_subscriptions_backup = capsule.LEGACY_SUBSCRIPTIONS_BACKUP_FILE
+        self._orig_legacy_subscriptions_lock = capsule.LEGACY_SUBSCRIPTIONS_LOCK_FILE
+        self._orig_legacy_owner_ledger = capsule.LEGACY_OWNER_LEDGER_FILE
+        self._orig_legacy_payment_monitor_state = capsule.LEGACY_PAYMENT_MONITOR_STATE_FILE
+        self._orig_legacy_payment_events = capsule.LEGACY_PAYMENT_EVENTS_LOG_FILE
+        self._orig_legacy_payment_integrity_lock = capsule.LEGACY_PAYMENT_INTEGRITY_LOCK_FILE
         self._orig_default_org = capsule.default_org_id
 
         capsule.CAPSULES_DIR = self._capsules_dir
@@ -104,6 +132,11 @@ class TreasuryCapsuleTests(unittest.TestCase):
         capsule.LEGACY_TRANSACTIONS_FILE = self._legacy_transactions
         capsule.LEGACY_SUBSCRIPTIONS_FILE = self._legacy_subscriptions
         capsule.LEGACY_SUBSCRIPTIONS_BACKUP_FILE = self._legacy_subscriptions_backup
+        capsule.LEGACY_SUBSCRIPTIONS_LOCK_FILE = self._legacy_subscriptions_lock
+        capsule.LEGACY_OWNER_LEDGER_FILE = self._legacy_owner_ledger
+        capsule.LEGACY_PAYMENT_MONITOR_STATE_FILE = self._legacy_payment_monitor_state
+        capsule.LEGACY_PAYMENT_EVENTS_LOG_FILE = self._legacy_payment_events
+        capsule.LEGACY_PAYMENT_INTEGRITY_LOCK_FILE = self._legacy_payment_integrity_lock
         capsule.default_org_id = lambda: self.org_id
 
         self._orig_treasury_default = treasury._default_org_id
@@ -114,6 +147,9 @@ class TreasuryCapsuleTests(unittest.TestCase):
         self._orig_accounting_ledger_path = accounting.capsule_ledger_path
         self._orig_accounting_tx_path = accounting.capsule_transactions_path
         self._orig_accounting_owner = accounting.OWNER_LEDGER
+        self._orig_payment_monitor_state = payment_monitor.STATE_FILE
+        self._orig_payment_monitor_event = payment_monitor.EVENT_LOG
+        self._orig_revenue_payment_lock = revenue.PAYMENT_LOCK
         self._orig_registry_ensure = agent_registry.ensure_treasury_aliases
         self._orig_registry_ledger_path = agent_registry.capsule_ledger_path
         self._orig_registry_file = agent_registry.REGISTRY_FILE
@@ -132,7 +168,11 @@ class TreasuryCapsuleTests(unittest.TestCase):
         accounting.ensure_treasury_aliases = capsule.ensure_treasury_aliases
         accounting.capsule_ledger_path = capsule.ledger_path
         accounting.capsule_transactions_path = capsule.transactions_path
-        accounting.OWNER_LEDGER = os.path.join(self._tmp, 'owner_ledger.json')
+        accounting.OWNER_LEDGER = accounting.DEFAULT_OWNER_LEDGER
+
+        payment_monitor.STATE_FILE = payment_monitor.DEFAULT_STATE_FILE
+        payment_monitor.EVENT_LOG = payment_monitor.DEFAULT_EVENT_LOG
+        revenue.PAYMENT_LOCK = revenue.DEFAULT_PAYMENT_LOCK
 
         agent_registry.ensure_treasury_aliases = capsule.ensure_treasury_aliases
         agent_registry.capsule_ledger_path = capsule.ledger_path
@@ -183,6 +223,11 @@ class TreasuryCapsuleTests(unittest.TestCase):
         capsule.LEGACY_TRANSACTIONS_FILE = self._orig_legacy_transactions
         capsule.LEGACY_SUBSCRIPTIONS_FILE = self._orig_legacy_subscriptions
         capsule.LEGACY_SUBSCRIPTIONS_BACKUP_FILE = self._orig_legacy_subscriptions_backup
+        capsule.LEGACY_SUBSCRIPTIONS_LOCK_FILE = self._orig_legacy_subscriptions_lock
+        capsule.LEGACY_OWNER_LEDGER_FILE = self._orig_legacy_owner_ledger
+        capsule.LEGACY_PAYMENT_MONITOR_STATE_FILE = self._orig_legacy_payment_monitor_state
+        capsule.LEGACY_PAYMENT_EVENTS_LOG_FILE = self._orig_legacy_payment_events
+        capsule.LEGACY_PAYMENT_INTEGRITY_LOCK_FILE = self._orig_legacy_payment_integrity_lock
         capsule.default_org_id = self._orig_default_org
 
         treasury._default_org_id = self._orig_treasury_default
@@ -194,6 +239,10 @@ class TreasuryCapsuleTests(unittest.TestCase):
         accounting.capsule_ledger_path = self._orig_accounting_ledger_path
         accounting.capsule_transactions_path = self._orig_accounting_tx_path
         accounting.OWNER_LEDGER = self._orig_accounting_owner
+
+        payment_monitor.STATE_FILE = self._orig_payment_monitor_state
+        payment_monitor.EVENT_LOG = self._orig_payment_monitor_event
+        revenue.PAYMENT_LOCK = self._orig_revenue_payment_lock
 
         agent_registry.ensure_treasury_aliases = self._orig_registry_ensure
         agent_registry.capsule_ledger_path = self._orig_registry_ledger_path
@@ -220,8 +269,30 @@ class TreasuryCapsuleTests(unittest.TestCase):
         sub_aliases = capsule.ensure_subscription_aliases(self.org_id)
         self.assertTrue(os.path.islink(sub_aliases['subscriptions']))
         self.assertTrue(os.path.islink(sub_aliases['subscriptions_backup']))
+        self.assertTrue(os.path.islink(sub_aliases['subscriptions_lock']))
         self.assertEqual(os.path.realpath(sub_aliases['subscriptions']), self._legacy_subscriptions)
         self.assertEqual(os.path.realpath(sub_aliases['subscriptions_backup']), self._legacy_subscriptions_backup)
+        self.assertEqual(os.path.realpath(sub_aliases['subscriptions_lock']), self._legacy_subscriptions_lock)
+        accounting_aliases = capsule.ensure_accounting_aliases(self.org_id)
+        self.assertTrue(os.path.islink(accounting_aliases['owner_ledger']))
+        self.assertEqual(os.path.realpath(accounting_aliases['owner_ledger']), self._legacy_owner_ledger)
+        monitor_aliases = capsule.ensure_payment_monitor_aliases(self.org_id)
+        self.assertTrue(os.path.islink(monitor_aliases['payment_monitor_state']))
+        self.assertTrue(os.path.islink(monitor_aliases['payment_events_log']))
+        self.assertEqual(
+            os.path.realpath(monitor_aliases['payment_monitor_state']),
+            self._legacy_payment_monitor_state,
+        )
+        self.assertEqual(
+            os.path.realpath(monitor_aliases['payment_events_log']),
+            self._legacy_payment_events,
+        )
+        revenue_aliases = capsule.ensure_revenue_integrity_aliases(self.org_id)
+        self.assertTrue(os.path.islink(revenue_aliases['payment_integrity_lock']))
+        self.assertEqual(
+            os.path.realpath(revenue_aliases['payment_integrity_lock']),
+            self._legacy_payment_integrity_lock,
+        )
 
     def test_matching_regular_file_is_replaced_with_symlink(self):
         org_dir = os.path.join(self._capsules_dir, self.org_id)
@@ -268,6 +339,12 @@ class TreasuryCapsuleTests(unittest.TestCase):
         capsule.ensure_treasury_aliases(self.org_id)
         result = accounting.contribute_capital(1.0, 'test deposit', actor='owner')
         self.assertEqual(result['cash_after_usd'], 8.5)
+        owner_alias = capsule.owner_ledger_path(self.org_id)
+        self.assertTrue(os.path.islink(owner_alias))
+        self.assertEqual(os.path.realpath(owner_alias), self._legacy_owner_ledger)
+        with open(self._legacy_owner_ledger) as f:
+            owner = json.load(f)
+        self.assertEqual(owner['capital_contributed_usd'], 1.0)
         with open(self._legacy_ledger) as f:
             ledger = json.load(f)
         self.assertEqual(ledger['treasury']['cash_usd'], 8.5)
@@ -275,6 +352,26 @@ class TreasuryCapsuleTests(unittest.TestCase):
         with open(self._legacy_transactions) as f:
             entries = [json.loads(line) for line in f if line.strip()]
         self.assertTrue(any(entry.get('deposit_type') == 'owner_capital' for entry in entries))
+
+    def test_payment_monitor_uses_capsule_aliases(self):
+        capsule.ensure_treasury_aliases(self.org_id)
+        state = payment_monitor.load_state()
+        self.assertEqual(state['last_block'], 7)
+        payment_monitor.save_state({'last_block': 12})
+        with open(self._legacy_payment_monitor_state) as f:
+            persisted = json.load(f)
+        self.assertEqual(persisted['last_block'], 12)
+        payment_monitor.log_event('probe')
+        with open(self._legacy_payment_events) as f:
+            content = f.read()
+        self.assertIn('probe', content)
+
+    def test_revenue_payment_lock_uses_capsule_alias(self):
+        with revenue.payment_lock():
+            revenue.append_tx({'type': 'lock_probe'})
+        lock_path = capsule.payment_integrity_lock_path(self.org_id)
+        self.assertTrue(os.path.islink(lock_path))
+        self.assertEqual(os.path.realpath(lock_path), self._legacy_payment_integrity_lock)
 
     def test_agent_registry_sync_reads_capsule_alias(self):
         capsule.ensure_treasury_aliases(self.org_id)

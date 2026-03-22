@@ -19,6 +19,11 @@ LEGACY_REVENUE_FILE = os.path.join(WORKSPACE, 'economy', 'revenue.json')
 LEGACY_TRANSACTIONS_FILE = os.path.join(WORKSPACE, 'economy', 'transactions.jsonl')
 LEGACY_SUBSCRIPTIONS_FILE = os.path.join(WORKSPACE, 'company', 'subscriptions.json')
 LEGACY_SUBSCRIPTIONS_BACKUP_FILE = os.path.join(WORKSPACE, 'company', 'subscriptions.json.bak')
+LEGACY_SUBSCRIPTIONS_LOCK_FILE = os.path.join(WORKSPACE, 'company', '.subscriptions.lock')
+LEGACY_OWNER_LEDGER_FILE = os.path.join(WORKSPACE, 'company', 'owner_ledger.json')
+LEGACY_PAYMENT_MONITOR_STATE_FILE = os.path.join(WORKSPACE, 'company', 'payment_monitor_state.json')
+LEGACY_PAYMENT_EVENTS_LOG_FILE = os.path.join(WORKSPACE, 'company', 'payment_events.log')
+LEGACY_PAYMENT_INTEGRITY_LOCK_FILE = os.path.join(WORKSPACE, 'economy', '.payment_integrity.lock')
 
 
 def _load_orgs():
@@ -165,6 +170,16 @@ def _ensure_default_json(path, payload):
     _write_json(path, payload)
 
 
+def _ensure_default_text(path, content=''):
+    if os.path.exists(path):
+        return
+    parent = os.path.dirname(path)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+    with open(path, 'w') as f:
+        f.write(content)
+
+
 def ensure_subscription_aliases(org_id=None):
     resolved_org_id = resolve_org_id(org_id)
     _ensure_default_json(
@@ -185,14 +200,52 @@ def ensure_subscription_aliases(org_id=None):
             '_meta': {'service_scope': 'founding_meridian_service'},
         },
     )
+    _ensure_default_text(LEGACY_SUBSCRIPTIONS_LOCK_FILE, '')
 
     subscriptions_alias = capsule_path(resolved_org_id, 'subscriptions.json')
     subscriptions_backup_alias = capsule_path(resolved_org_id, 'subscriptions.json.bak')
+    subscriptions_lock_alias = capsule_path(resolved_org_id, '.subscriptions.lock')
     _ensure_alias(subscriptions_alias, LEGACY_SUBSCRIPTIONS_FILE)
     _ensure_alias(subscriptions_backup_alias, LEGACY_SUBSCRIPTIONS_BACKUP_FILE)
+    _ensure_alias(subscriptions_lock_alias, LEGACY_SUBSCRIPTIONS_LOCK_FILE)
     return {
         'subscriptions': subscriptions_alias,
         'subscriptions_backup': subscriptions_backup_alias,
+        'subscriptions_lock': subscriptions_lock_alias,
+    }
+
+
+def ensure_accounting_aliases(org_id=None):
+    resolved_org_id = resolve_org_id(org_id)
+    _ensure_default_json(LEGACY_OWNER_LEDGER_FILE, {})
+    owner_ledger_alias = capsule_path(resolved_org_id, 'owner_ledger.json')
+    _ensure_alias(owner_ledger_alias, LEGACY_OWNER_LEDGER_FILE)
+    return {
+        'owner_ledger': owner_ledger_alias,
+    }
+
+
+def ensure_payment_monitor_aliases(org_id=None):
+    resolved_org_id = resolve_org_id(org_id)
+    _ensure_default_json(LEGACY_PAYMENT_MONITOR_STATE_FILE, {'last_block': 0})
+    _ensure_default_text(LEGACY_PAYMENT_EVENTS_LOG_FILE, '')
+    state_alias = capsule_path(resolved_org_id, 'payment_monitor_state.json')
+    events_alias = capsule_path(resolved_org_id, 'payment_events.log')
+    _ensure_alias(state_alias, LEGACY_PAYMENT_MONITOR_STATE_FILE)
+    _ensure_alias(events_alias, LEGACY_PAYMENT_EVENTS_LOG_FILE)
+    return {
+        'payment_monitor_state': state_alias,
+        'payment_events_log': events_alias,
+    }
+
+
+def ensure_revenue_integrity_aliases(org_id=None):
+    resolved_org_id = resolve_org_id(org_id)
+    _ensure_default_text(LEGACY_PAYMENT_INTEGRITY_LOCK_FILE, '')
+    integrity_alias = capsule_path(resolved_org_id, '.payment_integrity.lock')
+    _ensure_alias(integrity_alias, LEGACY_PAYMENT_INTEGRITY_LOCK_FILE)
+    return {
+        'payment_integrity_lock': integrity_alias,
     }
 
 
@@ -214,3 +267,23 @@ def subscriptions_path(org_id=None):
 
 def subscriptions_backup_path(org_id=None):
     return ensure_subscription_aliases(org_id)['subscriptions_backup']
+
+
+def subscriptions_lock_path(org_id=None):
+    return ensure_subscription_aliases(org_id)['subscriptions_lock']
+
+
+def owner_ledger_path(org_id=None):
+    return ensure_accounting_aliases(org_id)['owner_ledger']
+
+
+def payment_monitor_state_path(org_id=None):
+    return ensure_payment_monitor_aliases(org_id)['payment_monitor_state']
+
+
+def payment_events_log_path(org_id=None):
+    return ensure_payment_monitor_aliases(org_id)['payment_events_log']
+
+
+def payment_integrity_lock_path(org_id=None):
+    return ensure_revenue_integrity_aliases(org_id)['payment_integrity_lock']

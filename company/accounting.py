@@ -25,11 +25,13 @@ COMPANY_DIR      = os.path.dirname(os.path.abspath(__file__))
 ECONOMY_DIR      = os.path.join(COMPANY_DIR, '..', 'economy')
 MERIDIAN_PLATFORM_DIR = os.path.join(COMPANY_DIR, 'meridian_platform')
 OWNER_LEDGER     = os.path.join(COMPANY_DIR, 'owner_ledger.json')
+DEFAULT_OWNER_LEDGER = OWNER_LEDGER
 if MERIDIAN_PLATFORM_DIR not in sys.path:
     sys.path.insert(0, MERIDIAN_PLATFORM_DIR)
 
 from capsule import ensure_treasury_aliases, ledger_path as capsule_ledger_path
 from capsule import transactions_path as capsule_transactions_path
+from capsule import ensure_accounting_aliases, owner_ledger_path as capsule_owner_ledger_path
 
 def now_ts():
     return datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
@@ -43,6 +45,13 @@ def load_json(path, default=None):
 def save_json(path, data):
     with open(path, 'w') as f:
         json.dump(data, f, indent=2)
+
+
+def owner_ledger_path():
+    if OWNER_LEDGER != DEFAULT_OWNER_LEDGER:
+        return OWNER_LEDGER
+    ensure_accounting_aliases()
+    return capsule_owner_ledger_path()
 
 def load_ledger():
     ensure_treasury_aliases()
@@ -62,7 +71,7 @@ def append_tx(entry):
         f.write(json.dumps(entry) + '\n')
 
 def load_owner():
-    data = load_json(OWNER_LEDGER)
+    data = load_json(owner_ledger_path())
     if not data:
         data = {
             'version': 1,
@@ -95,7 +104,7 @@ def contribute_capital(amount_usd, note='', actor='owner'):
         'by': actor,
         'at': now_ts(),
     })
-    save_json(OWNER_LEDGER, owner)
+    save_json(owner_ledger_path(), owner)
 
     t = ledger['treasury']
     t['cash_usd'] += amount
@@ -158,7 +167,7 @@ def cmd_expense(args):
     owner['expenses_paid_usd'] += amount
     owner['entries'].append({'type': 'owner_expense', 'amount_usd': amount,
                              'note': args.note, 'at': now_ts()})
-    save_json(OWNER_LEDGER, owner)
+    save_json(owner_ledger_path(), owner)
     append_tx({'type': 'owner_expense_recorded', 'amount_usd': amount, 'note': args.note})
     unreimbursed = owner['expenses_paid_usd'] - owner['reimbursements_received_usd']
     print(f"Expense recorded: ${amount:.2f} | Unreimbursed total: ${unreimbursed:.2f}")
@@ -184,7 +193,7 @@ def cmd_reimburse(args):
     owner['reimbursements_received_usd'] += amount
     owner['entries'].append({'type': 'reimbursement', 'amount_usd': amount,
                              'note': args.note, 'at': now_ts()})
-    save_json(OWNER_LEDGER, owner)
+    save_json(owner_ledger_path(), owner)
     save_ledger(ledger)
     append_tx({'type': 'treasury_withdraw', 'withdraw_type': 'owner_reimbursement',
                'amount_usd': amount, 'cash_after': t['cash_usd'], 'note': args.note})
@@ -209,7 +218,7 @@ def cmd_draw(args):
     owner['draws_taken_usd'] += amount
     owner['entries'].append({'type': 'owner_draw', 'amount_usd': amount,
                              'note': args.note, 'at': now_ts()})
-    save_json(OWNER_LEDGER, owner)
+    save_json(owner_ledger_path(), owner)
     save_ledger(ledger)
     append_tx({'type': 'treasury_withdraw', 'withdraw_type': 'owner_draw',
                'amount_usd': amount, 'cash_after': t['cash_usd'], 'note': args.note})

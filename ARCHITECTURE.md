@@ -146,7 +146,10 @@ contributor payouts are active; execution remains phase- and reserve-gated.
 The same treasury surface now also validates a founding settlement adapter
 contract. The live host exposes that registry through
 `GET /api/treasury/settlement-adapters`, but only `internal_ledger` is
-execution-enabled today.
+execution-enabled today. Founding-only service state now follows the same
+canonical rule: subscriptions, the owner ledger, and payment-monitor daemon
+state all resolve through founding capsule aliases rather than standalone
+singleton files.
 
 ### Court (court.py)
 ```
@@ -281,6 +284,13 @@ to justify settlement.
 | `economy/capsules/<org_id>/cases.json` | Court-network | Local inter-institution case records |
 | `economy/capsules/<org_id>/ledger.json` | Treasury pointer | Live treasury alias to current ledger state |
 | `economy/capsules/<org_id>/revenue.json` | Treasury pointer | Live treasury alias to current revenue state |
+| `economy/capsules/<org_id>/transactions.jsonl` | Treasury pointer | Live transaction journal alias |
+| `economy/capsules/<org_id>/subscriptions.json` | Service state | Founding subscription registry alias |
+| `economy/capsules/<org_id>/subscriptions.json.bak` | Service state | Founding subscription backup alias |
+| `economy/capsules/<org_id>/.subscriptions.lock` | Service state | Founding subscription lock alias |
+| `economy/capsules/<org_id>/owner_ledger.json` | Service state | Founding owner-ledger alias |
+| `economy/capsules/<org_id>/payment_monitor_state.json` | Daemon state | Founding payment monitor state alias |
+| `economy/capsules/<org_id>/payment_events.log` | Daemon state | Founding payment monitor event-log alias |
 | `meridian_platform/audit_log.jsonl` | Audit | Event stream (append-only) |
 | `meridian_platform/metering.jsonl` | Metering | Usage meters (append-only) |
 | `economy/ledger.json` | Economy | 3-ledger (REP/AUTH/CASH) |

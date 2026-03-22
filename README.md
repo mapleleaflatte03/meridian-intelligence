@@ -30,6 +30,10 @@ endpoint now also reports whether Basic auth is simply process-bound or
 explicitly credential-bound to the founding org. When credentials also carry a
 `user_id`, workspace mutations are role-checked against the founding
 institution membership instead of being treated as a generic Basic-auth user.
+Founding-only service state now follows the same rule: subscriptions,
+accounting owner-ledger state, and payment-monitor daemon state all resolve
+through founding capsule aliases instead of hiding behind ad hoc singleton
+files.
 `/api/context` also exposes the effective mutation permission snapshot for the
 bound actor. `/api/context` and `/api/status` now also expose `runtime_core`,
 which surfaces the bound institution context, the serving host identity, the
