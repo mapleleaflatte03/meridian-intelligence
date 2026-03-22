@@ -51,6 +51,7 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.orig_ensure_case_for_delivery_failure = self.workspace.cases.ensure_case_for_delivery_failure
         self.orig_subscription_snapshot = self.workspace.service_state.subscription_snapshot
         self.orig_accounting_snapshot = self.workspace.service_state.accounting_snapshot
+        self.orig_summarize_inbox_entries = self.workspace.summarize_inbox_entries
 
     def tearDown(self):
         self.workspace.WORKSPACE_ORG_ID = self.orig_workspace_org_id
@@ -78,6 +79,7 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.workspace.cases.ensure_case_for_delivery_failure = self.orig_ensure_case_for_delivery_failure
         self.workspace.service_state.subscription_snapshot = self.orig_subscription_snapshot
         self.workspace.service_state.accounting_snapshot = self.orig_accounting_snapshot
+        self.workspace.summarize_inbox_entries = self.orig_summarize_inbox_entries
 
     def test_live_workspace_rejects_non_founding_configured_org(self):
         self.workspace._load_workspace_credentials = lambda: (None, None, None, None)
@@ -443,6 +445,34 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.assertEqual(snap['disabled_reason'], 'host_federation_disabled')
         self.assertEqual(snap['management_mode'], 'founding_locked')
         self.assertFalse(snap['mutation_enabled'])
+
+    def test_federation_snapshot_surfaces_inbox_summary(self):
+        from runtime_host import default_host_identity
+        self.workspace.summarize_inbox_entries = lambda org_id: {
+            'org_id': org_id,
+            'total': 1,
+            'received': 1,
+            'processed': 0,
+            'message_type_counts': {'execution_request': 1},
+            'state_counts': {'received': 1},
+            'updatedAt': '2026-03-22T00:00:00Z',
+        }
+        host = default_host_identity(
+            host_id='host_live',
+            label='Meridian Live Host',
+            federation_enabled=False,
+            supported_boundaries=['workspace', 'cli', 'federation_gateway'],
+        )
+        snap = self.workspace._federation_snapshot(
+            'org_founding',
+            host_identity=host,
+            admission_registry={'admitted_org_ids': ['org_founding']},
+        )
+        self.assertEqual(snap['inbox_summary']['total'], 1)
+        self.assertEqual(
+            snap['inbox_summary']['message_type_counts']['execution_request'],
+            1,
+        )
 
     def test_federation_receipt_is_bound_to_receiver_host_and_org(self):
         from federation import FederationEnvelopeClaims

@@ -399,6 +399,10 @@ institutions beyond the founding Meridian org. The live federation gateway is
 also explicit now: the boundary exists in surfaced state, but this deployment
 keeps it disabled until a real peer transport, signing secret, and trusted
 peer registry are configured.
+The same boundary now also surfaces a founding capsule-backed federation inbox
+read model. Live still does not claim active federation execution, but if the
+gateway ever accepts a message, the receiver-side state no longer exists only
+in audit lines.
 `/api/admission` now exposes that founding-only admission state directly, and
 the matching `POST /api/admission/admit|suspend|revoke` routes fail closed with
 an explicit `founding_locked` rejection instead of implying shared admission.

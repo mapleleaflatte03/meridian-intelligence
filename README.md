@@ -49,6 +49,9 @@ with a structural rejection instead of pretending live multi-institution
 admission exists. The same surface now also exposes `runtime_core.federation`: on live today that
 federation gateway stays explicitly disabled unless the host is configured with
 peer transport, a signing secret, and trusted peers.
+`GET /api/federation/inbox` now mirrors the founding capsule-backed receiver
+inbox shape as a read surface, so any accepted envelope would persist into the
+founding institution capsule instead of existing only as audit lines.
 The live boundary registry also declares warrant requirements for
 `federation_gateway`, so this disabled host can still say honestly which
 message types would require court-first execution review if federation were

@@ -24,6 +24,8 @@ LEGACY_OWNER_LEDGER_FILE = os.path.join(WORKSPACE, 'company', 'owner_ledger.json
 LEGACY_PAYMENT_MONITOR_STATE_FILE = os.path.join(WORKSPACE, 'company', 'payment_monitor_state.json')
 LEGACY_PAYMENT_EVENTS_LOG_FILE = os.path.join(WORKSPACE, 'company', 'payment_events.log')
 LEGACY_PAYMENT_INTEGRITY_LOCK_FILE = os.path.join(WORKSPACE, 'economy', '.payment_integrity.lock')
+LEGACY_FEDERATION_INBOX_FILE = os.path.join(WORKSPACE, 'economy', 'federation_inbox.json')
+LEGACY_FEDERATION_INBOX_LOCK_FILE = os.path.join(WORKSPACE, 'economy', '.federation_inbox.lock')
 
 
 def _load_orgs():
@@ -321,6 +323,30 @@ def ensure_payment_monitor_aliases(org_id=None):
     }
 
 
+def ensure_federation_inbox_aliases(org_id=None):
+    resolved_org_id = resolve_org_id(org_id)
+    default_payload = {
+        'version': 1,
+        'updatedAt': '',
+        'entries': {},
+        'states': ['received', 'processed'],
+        '_meta': {
+            'service_scope': 'founding_meridian_service',
+            'bound_org_id': resolved_org_id,
+        },
+    }
+    _ensure_default_json(LEGACY_FEDERATION_INBOX_FILE, default_payload)
+    _ensure_default_text(LEGACY_FEDERATION_INBOX_LOCK_FILE, '')
+    inbox_alias = capsule_path(resolved_org_id, 'federation_inbox.json')
+    lock_alias = capsule_path(resolved_org_id, '.federation_inbox.lock')
+    _ensure_alias(inbox_alias, LEGACY_FEDERATION_INBOX_FILE)
+    _ensure_alias(lock_alias, LEGACY_FEDERATION_INBOX_LOCK_FILE)
+    return {
+        'federation_inbox': inbox_alias,
+        'federation_inbox_lock': lock_alias,
+    }
+
+
 def ensure_revenue_integrity_aliases(org_id=None):
     resolved_org_id = resolve_org_id(org_id)
     _ensure_default_text(LEGACY_PAYMENT_INTEGRITY_LOCK_FILE, '')
@@ -357,6 +383,10 @@ def subscriptions_lock_path(org_id=None):
 
 def owner_ledger_path(org_id=None):
     return ensure_accounting_aliases(org_id)['owner_ledger']
+
+
+def federation_inbox_path(org_id=None):
+    return ensure_federation_inbox_aliases(org_id)['federation_inbox']
 
 
 def payment_monitor_state_path(org_id=None):

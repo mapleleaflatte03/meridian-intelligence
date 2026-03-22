@@ -26,6 +26,7 @@ Endpoints:
   GET  /api/admission             → Host admission state
   GET  /api/federation            → Federation gateway state
   GET  /api/federation/peers      → Federation peer registry state
+  GET  /api/federation/inbox      → Founding federation inbox state
   GET  /api/federation/manifest   → Public host federation manifest
   POST /api/authority/kill-switch → Engage/disengage kill switch
   POST /api/authority/approve     → Decide an approval
@@ -189,6 +190,11 @@ from federation import (
     FederationDeliveryError,
     FederationValidationError,
     FederationReplayError,
+)
+from federation_inbox import (
+    load_inbox_entries,
+    summarize_inbox_entries,
+    upsert_inbox_entry,
 )
 from capsule import capsule_dir
 from ci_vertical import PIPELINE_PHASES, _phase_gate_snapshot, get_agent_remediation
@@ -391,6 +397,7 @@ def _federation_snapshot(bound_org_id, host_identity=None, admission_registry=No
         admission_registry=admission_registry,
     )
     snapshot.update(_federation_management_state())
+    snapshot['inbox_summary'] = summarize_inbox_entries(bound_org_id)
     return snapshot
 
 
@@ -784,6 +791,41 @@ def _federation_receipt(bound_org_id, receiver_host_id, claims):
         'message_type': claim_data.get('message_type', ''),
         'boundary_name': claim_data.get('boundary_name', ''),
         'identity_model': 'signed_host_service',
+    }
+
+
+def _federation_inbox_entry(bound_org_id, claims, receipt, *, payload=None, state='received'):
+    claim_data = _federation_claims_dict(claims)
+    accepted_at = (receipt or {}).get('accepted_at', '') or _now()
+    return upsert_inbox_entry(
+        bound_org_id,
+        envelope_id=claim_data.get('envelope_id', ''),
+        source_host_id=claim_data.get('source_host_id', ''),
+        source_institution_id=claim_data.get('source_institution_id', ''),
+        target_host_id=claim_data.get('target_host_id', ''),
+        target_institution_id=claim_data.get('target_institution_id', ''),
+        message_type=claim_data.get('message_type', ''),
+        warrant_id=claim_data.get('warrant_id', ''),
+        commitment_id=claim_data.get('commitment_id', ''),
+        payload=payload,
+        payload_hash=claim_data.get('payload_hash', ''),
+        receipt_id=(receipt or {}).get('receipt_id', ''),
+        accepted_at=accepted_at,
+        received_at=accepted_at,
+        state=state,
+    )
+
+
+def _federation_inbox_snapshot(bound_org_id, *, limit=50):
+    return {
+        'management_mode': 'capsule_backed',
+        'mutation_enabled': False,
+        'mutation_disabled_reason': 'receive_only',
+        'storage_model': 'capsule_canonical',
+        'boundary_name': 'federation_gateway',
+        'identity_model': 'signed_host_service',
+        'summary': summarize_inbox_entries(bound_org_id),
+        'entries': load_inbox_entries(bound_org_id)[:limit],
     }
 
 
@@ -2183,6 +2225,8 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                 host_identity=host_identity,
                 admission_registry=admission_registry,
             ))
+        elif path == '/api/federation/inbox':
+            return self._json(_federation_inbox_snapshot(org_id))
         elif path == '/api/federation/manifest':
             host_identity, admission_registry = _runtime_host_state(org_id)
             return self._json(_federation_manifest(
@@ -2260,6 +2304,12 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                     federation_state.get('host_id', ''),
                     claims,
                 )
+                inbox_entry = _federation_inbox_entry(
+                    inst_ctx.org_id,
+                    claims,
+                    receipt,
+                    payload=body.get('payload'),
+                )
                 log_event(
                     inst_ctx.org_id,
                     claims.actor_id or f'peer:{claims.source_host_id}',
@@ -2285,8 +2335,12 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                     'message': 'Federation envelope accepted',
                     'claims': claims.to_dict(),
                     'receipt': receipt,
+                    'inbox_entry': inbox_entry,
                     'runtime_core': {
-                        'federation': federation_state,
+                        'federation': dict(
+                            federation_state,
+                            inbox_summary=summarize_inbox_entries(inst_ctx.org_id),
+                        ),
                     },
                 })
             except FederationUnavailable as e:
