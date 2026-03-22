@@ -180,34 +180,6 @@ def record_owner_expense(amount_usd, note='', actor='owner'):
     }
 
 
-def update_reserve_floor(new_floor_usd, note='', actor='owner'):
-    """Update the treasury reserve floor as an explicit policy action."""
-    amount = float(new_floor_usd)
-    if amount < 0:
-        raise ValueError('Reserve floor cannot be negative')
-
-    ledger = load_ledger()
-    t = ledger['treasury']
-    old = float(t.get('reserve_floor_usd', 50.0))
-    t['reserve_floor_usd'] = amount
-    save_ledger(ledger)
-
-    append_tx({
-        'type': 'treasury_policy_update',
-        'policy': 'reserve_floor_usd',
-        'old_value': old,
-        'new_value': amount,
-        'cash_after': t['cash_usd'],
-        'note': note,
-        'by': actor,
-    })
-    return {
-        'old_reserve_floor_usd': old,
-        'new_reserve_floor_usd': amount,
-        'cash_usd': t['cash_usd'],
-    }
-
-
 def reimburse_owner(amount_usd, note='', actor='owner'):
     """Draw from treasury to reimburse a previously recorded owner expense."""
     amount = float(amount_usd)

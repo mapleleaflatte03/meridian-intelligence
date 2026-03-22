@@ -47,7 +47,6 @@ _accounting_spec = importlib.util.spec_from_file_location(
 _accounting_mod = importlib.util.module_from_spec(_accounting_spec)
 _accounting_spec.loader.exec_module(_accounting_mod)
 _owner_contribute_capital = _accounting_mod.contribute_capital
-_update_reserve_floor = _accounting_mod.update_reserve_floor
 
 # Import platform metering
 sys.path.insert(0, PLATFORM_DIR)
@@ -355,12 +354,39 @@ def contribute_owner_capital(amount_usd, note='', by='owner', org_id=None):
 
 
 def set_reserve_floor_policy(amount_usd, note='', by='owner', org_id=None):
-    """Update reserve floor policy via the accounting layer."""
+    """Update reserve floor policy."""
     org_id = _resolve_org_id(org_id)
-    result = _update_reserve_floor(amount_usd, note, actor=by)
+    amount = float(amount_usd)
+    if amount < 0:
+        raise ValueError('Reserve floor cannot be negative')
+
+    ledger = _load_ledger(org_id)
+    t = ledger.setdefault('treasury', {})
+    old = float(t.get('reserve_floor_usd', 50.0))
+    t['reserve_floor_usd'] = amount
+    ledger['updatedAt'] = _now()
+
     ensure_treasury_aliases(org_id)
+    with open(capsule_ledger_path(org_id), 'w') as f:
+        json.dump(ledger, f, indent=2)
+
+    _append_transaction(org_id, {
+        'tx_ref': f'ptx_{uuid.uuid4().hex[:12]}',
+        'type': 'treasury_policy_update',
+        'policy': 'reserve_floor_usd',
+        'old_value': old,
+        'new_value': amount,
+        'cash_after': t.get('cash_usd', 0.0),
+        'note': note,
+        'by': by,
+    })
+
     _sync_treasury_accounts(org_id)
-    return result
+    return {
+        'old_reserve_floor_usd': old,
+        'new_reserve_floor_usd': amount,
+        'cash_usd': t.get('cash_usd', 0.0),
+    }
 
 
 def check_budget(agent_id, cost_usd, org_id=None):
