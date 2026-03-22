@@ -53,7 +53,6 @@ _update_reserve_floor = _accounting_mod.update_reserve_floor
 sys.path.insert(0, PLATFORM_DIR)
 from metering import get_spend, summary as metering_summary
 from agent_registry import (
-    check_budget as _agent_check_budget,
     get_agent,
     get_agent_by_economy_key,
 )
@@ -368,14 +367,17 @@ def check_budget(agent_id, cost_usd, org_id=None):
     reg_agent = get_agent(agent_id)
     if reg_agent is None:
         reg_agent = get_agent_by_economy_key(agent_id)
-    lookup_id = reg_agent['id'] if reg_agent else agent_id
     if reg_agent and org_id and reg_agent.get('org_id') not in (None, '', org_id):
         return False, f'Agent belongs to {reg_agent.get("org_id")}, not {org_id}'
 
     # Check agent-level budget
-    allowed, reason = _agent_check_budget(lookup_id, cost_usd)
-    if not allowed:
-        return False, reason
+    if not reg_agent:
+        return False, 'Agent not found'
+    if reg_agent['rollout_state'] in ('quarantined', 'disabled'):
+        return False, f'Agent is {reg_agent["rollout_state"]}'
+    if cost_usd > reg_agent['budget']['max_per_run_usd']:
+        return False, f'Exceeds per-run budget (${reg_agent["budget"]["max_per_run_usd"]})'
+
     # Then check treasury runway — negative runway blocks all spending
     runway = get_runway(org_id)
     if runway < 0:
