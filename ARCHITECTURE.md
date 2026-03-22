@@ -161,6 +161,12 @@ events as explicit treasury inputs rather than implicit ledger deltas.
 contract as a non-executing validation surface, so live can say honestly
 whether an adapter is merely registered, whether this host supports it, and
 whether the supplied proof shape would be acceptable before execution.
+The live workspace now also exposes owner-gated accounting mutations through
+`POST /api/accounting/expense|reimburse|draw`. Those routes call tracked
+accounting helpers directly, so the founding capsule owner ledger and treasury
+journal stay canonical even when the operator uses the workspace instead of
+the CLI. This is still founding-only service management, not multi-
+institution accounting.
 
 ### Court (court.py)
 ```
@@ -376,8 +382,9 @@ The owner workspace also now exposes read-only founding-service snapshots for
 the two capsule-canonical service-state files that still remain founding-only:
 `GET /api/subscriptions` and `GET /api/accounting`. Those surfaces read
 directly from capsule-canonical state and report their storage model as
-`capsule_canonical_with_legacy_symlink`; they do not claim self-serve mutation
-or multi-institution routing.
+`capsule_canonical_with_legacy_symlink`. Accounting now exposes owner-gated
+workspace mutations, while subscriptions remain read-only and do not claim
+self-serve mutation or multi-institution routing.
 
 That admission model is explicitly `single_institution_deployment`. The live
 workspace is institution-bound, but this deployment does not admit additional

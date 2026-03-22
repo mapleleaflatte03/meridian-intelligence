@@ -185,6 +185,12 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.assertTrue(permissions['/api/payouts/review']['allowed'])
         self.assertFalse(permissions['/api/payouts/approve']['allowed'])
         self.assertTrue(permissions['/api/treasury/settlement-adapters/preflight']['allowed'])
+        self.assertFalse(permissions['/api/accounting/expense']['allowed'])
+        self.assertEqual(permissions['/api/accounting/expense']['required_role'], 'owner')
+        self.assertFalse(permissions['/api/accounting/reimburse']['allowed'])
+        self.assertEqual(permissions['/api/accounting/reimburse']['required_role'], 'owner')
+        self.assertFalse(permissions['/api/accounting/draw']['allowed'])
+        self.assertEqual(permissions['/api/accounting/draw']['required_role'], 'owner')
         self.assertEqual(
             permissions['/api/treasury/settlement-adapters/preflight']['required_role'],
             'member',

@@ -132,14 +132,19 @@ def accounting_snapshot(org_id=None):
 
     return {
         'bound_org_id': payload.get('_meta', {}).get('bound_org_id', org_id or ''),
-        'management_mode': 'founding_service_operator',
-        'mutation_enabled': False,
-        'mutation_disabled_reason': 'managed_via_founding_service_cli',
+        'management_mode': 'workspace_service_api',
+        'mutation_enabled': True,
+        'mutation_disabled_reason': '',
         'storage_model': 'capsule_canonical_with_legacy_symlink',
         'boundary_name': 'accounting',
-        'identity_model': 'none',
+        'identity_model': 'session',
         'canonical_path': os.path.relpath(owner_ledger_path(org_id), WORKSPACE),
         'legacy_path': os.path.relpath(LEGACY_OWNER_LEDGER_FILE, WORKSPACE),
+        'mutation_paths': [
+            '/api/accounting/expense',
+            '/api/accounting/reimburse',
+            '/api/accounting/draw',
+        ],
         'summary': {
             'capital_contributed_usd': capital,
             'expenses_paid_usd': expenses_paid,

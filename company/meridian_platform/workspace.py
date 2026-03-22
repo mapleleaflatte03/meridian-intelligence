@@ -51,6 +51,9 @@ Endpoints:
   POST /api/treasury/contribute   → Record owner capital contribution
   POST /api/treasury/reserve-floor → Update reserve floor policy
   POST /api/treasury/settlement-adapters/preflight → Validate settlement-adapter execution requirements
+  POST /api/accounting/expense    → Record an owner-paid expense in the founding ledger
+  POST /api/accounting/reimburse  → Reimburse an owner-paid expense from treasury
+  POST /api/accounting/draw       → Take an owner draw from treasury above reserve floor
   POST /api/payouts/propose       → Create a payout proposal draft
   POST /api/payouts/submit        → Submit a payout proposal for review
   POST /api/payouts/review        → Move a payout proposal into review
@@ -132,6 +135,11 @@ import importlib.util
 _phase_spec = importlib.util.spec_from_file_location('company_phase_machine', PHASE_MACHINE_FILE)
 _phase_mod = importlib.util.module_from_spec(_phase_spec)
 _phase_spec.loader.exec_module(_phase_mod)
+
+ACCOUNTING_PY = os.path.join(WORKSPACE, 'company', 'accounting.py')
+_accounting_spec = importlib.util.spec_from_file_location('company_accounting_workspace', ACCOUNTING_PY)
+_accounting_mod = importlib.util.module_from_spec(_accounting_spec)
+_accounting_spec.loader.exec_module(_accounting_mod)
 
 # Import authority, treasury, court via their public APIs
 from authority import (check_authority, request_approval, decide_approval,
@@ -230,6 +238,9 @@ MUTATION_ROLE_REQUIREMENTS = {
     '/api/treasury/contribute': 'owner',
     '/api/treasury/reserve-floor': 'owner',
     '/api/treasury/settlement-adapters/preflight': 'member',
+    '/api/accounting/expense': 'owner',
+    '/api/accounting/reimburse': 'owner',
+    '/api/accounting/draw': 'owner',
     '/api/payouts/propose': 'member',
     '/api/payouts/submit': 'member',
     '/api/payouts/review': 'admin',
@@ -2455,6 +2466,66 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                     'message': f"Payout proposal created: {proposal['proposal_id']}",
                     'proposal': proposal,
                     'summary': payout_proposal_summary(org_id),
+                })
+
+            elif path == '/api/accounting/expense':
+                result = _accounting_mod.record_owner_expense(
+                    body.get('amount_usd'),
+                    note=body.get('note', ''),
+                    actor=by,
+                )
+                log_event(
+                    org_id,
+                    by,
+                    'owner_expense_recorded',
+                    outcome='success',
+                    details={'amount_usd': result['amount_usd']},
+                    session_id=_sid,
+                )
+                return self._json({
+                    'message': 'Owner expense recorded',
+                    'result': result,
+                    'service_state': service_state.accounting_snapshot(org_id),
+                })
+
+            elif path == '/api/accounting/reimburse':
+                result = _accounting_mod.reimburse_owner(
+                    body.get('amount_usd'),
+                    note=body.get('note', ''),
+                    actor=by,
+                )
+                log_event(
+                    org_id,
+                    by,
+                    'owner_reimbursement_recorded',
+                    outcome='success',
+                    details={'amount_usd': result['amount_usd']},
+                    session_id=_sid,
+                )
+                return self._json({
+                    'message': 'Owner reimbursement recorded',
+                    'result': result,
+                    'service_state': service_state.accounting_snapshot(org_id),
+                })
+
+            elif path == '/api/accounting/draw':
+                result = _accounting_mod.take_owner_draw(
+                    body.get('amount_usd'),
+                    note=body.get('note', ''),
+                    actor=by,
+                )
+                log_event(
+                    org_id,
+                    by,
+                    'owner_draw_recorded',
+                    outcome='success',
+                    details={'amount_usd': result['amount_usd']},
+                    session_id=_sid,
+                )
+                return self._json({
+                    'message': 'Owner draw recorded',
+                    'result': result,
+                    'service_state': service_state.accounting_snapshot(org_id),
                 })
 
             elif path == '/api/payouts/submit':

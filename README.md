@@ -102,8 +102,12 @@ file lives inside the founding capsule, and the old
 `company/subscriptions*.json` paths remain only as compatibility symlinks back
 to that capsule-owned state. The owner workspace now also exposes
 `GET /api/subscriptions` and `GET /api/accounting`, which surface those
-founding-only service states directly from capsule-canonical storage while
-leaving mutation on the operator/CLI path.
+founding-only service states directly from capsule-canonical storage.
+Accounting has now moved beyond read-only surfacing:
+`POST /api/accounting/expense|reimburse|draw` is owner-gated and writes back
+through the same founding capsule owner-ledger + treasury journal path.
+Subscriptions still remain read-only in the workspace while entitlement
+mutation stays on the operator path.
 
 **Live service:** https://app.welliam.codes
 **Product demo:** https://app.welliam.codes/demo.html

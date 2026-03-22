@@ -151,6 +151,35 @@ def contribute_capital(amount_usd, note='', actor='owner'):
     }
 
 
+def record_owner_expense(amount_usd, note='', actor='owner'):
+    """Record an owner-paid expense without mutating treasury cash."""
+    amount = float(amount_usd)
+    if amount <= 0:
+        raise ValueError('Expense amount must be greater than 0')
+
+    owner = load_owner()
+    owner['expenses_paid_usd'] += amount
+    owner['entries'].append({
+        'type': 'owner_expense',
+        'amount_usd': amount,
+        'note': note,
+        'by': actor,
+        'at': now_ts(),
+    })
+    save_json(owner_ledger_path(), owner)
+    append_tx({
+        'type': 'owner_expense_recorded',
+        'amount_usd': amount,
+        'note': note,
+        'by': actor,
+    })
+    unreimbursed = owner['expenses_paid_usd'] - owner['reimbursements_received_usd']
+    return {
+        'amount_usd': amount,
+        'unreimbursed_expenses_usd': round(unreimbursed, 2),
+    }
+
+
 def update_reserve_floor(new_floor_usd, note='', actor='owner'):
     """Update the treasury reserve floor as an explicit policy action."""
     amount = float(new_floor_usd)
@@ -178,6 +207,99 @@ def update_reserve_floor(new_floor_usd, note='', actor='owner'):
         'cash_usd': t['cash_usd'],
     }
 
+
+def reimburse_owner(amount_usd, note='', actor='owner'):
+    """Draw from treasury to reimburse a previously recorded owner expense."""
+    amount = float(amount_usd)
+    if amount <= 0:
+        raise ValueError('Reimbursement amount must be greater than 0')
+
+    owner = load_owner()
+    ledger = load_ledger()
+    t = ledger['treasury']
+
+    unreimbursed = owner['expenses_paid_usd'] - owner['reimbursements_received_usd']
+    if amount > unreimbursed:
+        raise ValueError(
+            f'Reimbursement ${amount:.2f} exceeds unreimbursed expenses ${unreimbursed:.2f}'
+        )
+    if t['cash_usd'] - amount < t['reserve_floor_usd']:
+        raise PermissionError(
+            f"Reimbursement ${amount:.2f} would breach reserve floor ${t['reserve_floor_usd']:.2f}"
+        )
+
+    t['cash_usd'] -= amount
+    t['owner_draws_usd'] += amount
+    owner['reimbursements_received_usd'] += amount
+    owner['entries'].append({
+        'type': 'reimbursement',
+        'amount_usd': amount,
+        'note': note,
+        'by': actor,
+        'at': now_ts(),
+    })
+    save_json(owner_ledger_path(), owner)
+    save_ledger(ledger)
+    append_tx({
+        'type': 'treasury_withdraw',
+        'withdraw_type': 'owner_reimbursement',
+        'amount_usd': amount,
+        'cash_after': t['cash_usd'],
+        'note': note,
+        'by': actor,
+    })
+    return {
+        'amount_usd': amount,
+        'cash_after_usd': t['cash_usd'],
+        'unreimbursed_expenses_usd': round(
+            owner['expenses_paid_usd'] - owner['reimbursements_received_usd'],
+            2,
+        ),
+    }
+
+
+def take_owner_draw(amount_usd, note='', actor='owner'):
+    """Take a profit draw from treasury cash while respecting the reserve floor."""
+    amount = float(amount_usd)
+    if amount <= 0:
+        raise ValueError('Draw amount must be greater than 0')
+
+    ledger = load_ledger()
+    t = ledger['treasury']
+    floor = t['reserve_floor_usd']
+    available = max(0.0, t['cash_usd'] - floor)
+    if amount > available:
+        raise ValueError(
+            f'Draw ${amount:.2f} exceeds available above floor ${available:.2f}'
+        )
+
+    owner = load_owner()
+    t['cash_usd'] -= amount
+    t['owner_draws_usd'] += amount
+    owner['draws_taken_usd'] += amount
+    owner['entries'].append({
+        'type': 'owner_draw',
+        'amount_usd': amount,
+        'note': note,
+        'by': actor,
+        'at': now_ts(),
+    })
+    save_json(owner_ledger_path(), owner)
+    save_ledger(ledger)
+    append_tx({
+        'type': 'treasury_withdraw',
+        'withdraw_type': 'owner_draw',
+        'amount_usd': amount,
+        'cash_after': t['cash_usd'],
+        'note': note,
+        'by': actor,
+    })
+    return {
+        'amount_usd': amount,
+        'cash_after_usd': t['cash_usd'],
+        'available_for_draw_usd': round(max(0.0, t['cash_usd'] - floor), 2),
+    }
+
 # ── commands ──────────────────────────────────────────────────────────────────
 
 def cmd_contribute(args):
@@ -187,67 +309,35 @@ def cmd_contribute(args):
 
 def cmd_expense(args):
     """Record owner-paid expense. Does NOT touch treasury (owner paid out-of-pocket)."""
-    amount = float(args.amount)
-    owner  = load_owner()
-    owner['expenses_paid_usd'] += amount
-    owner['entries'].append({'type': 'owner_expense', 'amount_usd': amount,
-                             'note': args.note, 'at': now_ts()})
-    save_json(owner_ledger_path(), owner)
-    append_tx({'type': 'owner_expense_recorded', 'amount_usd': amount, 'note': args.note})
-    unreimbursed = owner['expenses_paid_usd'] - owner['reimbursements_received_usd']
-    print(f"Expense recorded: ${amount:.2f} | Unreimbursed total: ${unreimbursed:.2f}")
+    result = record_owner_expense(args.amount, args.note, actor='owner')
+    print(
+        f"Expense recorded: ${result['amount_usd']:.2f} | "
+        f"Unreimbursed total: ${result['unreimbursed_expenses_usd']:.2f}"
+    )
 
 def cmd_reimburse(args):
     """Owner draws from treasury to reimburse a previous expense."""
-    amount = float(args.amount)
-    owner  = load_owner()
-    ledger = load_ledger()
-    t      = ledger['treasury']
-
-    unreimbursed = owner['expenses_paid_usd'] - owner['reimbursements_received_usd']
-    if amount > unreimbursed:
-        print(f"ERROR: reimbursement ${amount:.2f} exceeds unreimbursed expenses ${unreimbursed:.2f}")
+    try:
+        result = reimburse_owner(args.amount, args.note, actor='owner')
+    except (ValueError, PermissionError) as exc:
+        print(f'ERROR: {exc}')
         sys.exit(1)
-    if t['cash_usd'] - amount < t['reserve_floor_usd']:
-        print(f"ERROR: would breach reserve floor ${t['reserve_floor_usd']:.2f} "
-              f"(cash ${t['cash_usd']:.2f})")
-        sys.exit(1)
-
-    t['cash_usd']         -= amount
-    t['owner_draws_usd']  += amount
-    owner['reimbursements_received_usd'] += amount
-    owner['entries'].append({'type': 'reimbursement', 'amount_usd': amount,
-                             'note': args.note, 'at': now_ts()})
-    save_json(owner_ledger_path(), owner)
-    save_ledger(ledger)
-    append_tx({'type': 'treasury_withdraw', 'withdraw_type': 'owner_reimbursement',
-               'amount_usd': amount, 'cash_after': t['cash_usd'], 'note': args.note})
-    print(f"Reimbursement: -${amount:.2f} | Treasury cash: ${t['cash_usd']:.2f}")
+    print(
+        f"Reimbursement: -${result['amount_usd']:.2f} | "
+        f"Treasury cash: ${result['cash_after_usd']:.2f}"
+    )
 
 def cmd_draw(args):
     """Owner takes a profit draw. Respects reserve floor."""
-    amount = float(args.amount)
-    ledger = load_ledger()
-    t      = ledger['treasury']
-    floor  = t['reserve_floor_usd']
-
-    available = max(0.0, t['cash_usd'] - floor)
-    if amount > available:
-        print(f"ERROR: draw ${amount:.2f} exceeds available above floor "
-              f"(cash ${t['cash_usd']:.2f}, floor ${floor:.2f}, available ${available:.2f})")
+    try:
+        result = take_owner_draw(args.amount, args.note, actor='owner')
+    except ValueError as exc:
+        print(f'ERROR: {exc}')
         sys.exit(1)
-
-    owner = load_owner()
-    t['cash_usd']        -= amount
-    t['owner_draws_usd'] += amount
-    owner['draws_taken_usd'] += amount
-    owner['entries'].append({'type': 'owner_draw', 'amount_usd': amount,
-                             'note': args.note, 'at': now_ts()})
-    save_json(owner_ledger_path(), owner)
-    save_ledger(ledger)
-    append_tx({'type': 'treasury_withdraw', 'withdraw_type': 'owner_draw',
-               'amount_usd': amount, 'cash_after': t['cash_usd'], 'note': args.note})
-    print(f"Owner draw: -${amount:.2f} | Treasury cash: ${t['cash_usd']:.2f}")
+    print(
+        f"Owner draw: -${result['amount_usd']:.2f} | "
+        f"Treasury cash: ${result['cash_after_usd']:.2f}"
+    )
 
 def cmd_show(args):
     owner  = load_owner()

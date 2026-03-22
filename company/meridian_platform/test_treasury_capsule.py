@@ -755,6 +755,32 @@ class TreasuryCapsuleTests(unittest.TestCase):
         self.assertEqual(result['error_type'], 'permission_error')
         self.assertIn('not enabled', result['error'])
 
+    def test_accounting_helpers_record_expense_reimburse_and_draw(self):
+        result = accounting.record_owner_expense(1.25, note='travel', actor='user:owner')
+        self.assertEqual(result['amount_usd'], 1.25)
+        self.assertAlmostEqual(result['unreimbursed_expenses_usd'], 1.25, places=2)
+
+        owner = accounting.load_owner()
+        ledger = accounting.load_ledger()
+        self.assertAlmostEqual(owner['expenses_paid_usd'], 1.25, places=2)
+        self.assertAlmostEqual(ledger['treasury']['cash_usd'], 7.5, places=2)
+
+        result = accounting.reimburse_owner(1.0, note='travel repay', actor='user:owner')
+        self.assertEqual(result['amount_usd'], 1.0)
+        self.assertAlmostEqual(result['cash_after_usd'], 6.5, places=2)
+        self.assertAlmostEqual(result['unreimbursed_expenses_usd'], 0.25, places=2)
+
+        result = accounting.take_owner_draw(1.0, note='profit', actor='user:owner')
+        self.assertEqual(result['amount_usd'], 1.0)
+        self.assertAlmostEqual(result['cash_after_usd'], 5.5, places=2)
+        self.assertAlmostEqual(result['available_for_draw_usd'], 0.5, places=2)
+
+        owner = accounting.load_owner()
+        ledger = accounting.load_ledger()
+        self.assertAlmostEqual(owner['reimbursements_received_usd'], 1.0, places=2)
+        self.assertAlmostEqual(owner['draws_taken_usd'], 1.0, places=2)
+        self.assertAlmostEqual(ledger['treasury']['cash_usd'], 5.5, places=2)
+
 
 if __name__ == '__main__':
     unittest.main()
