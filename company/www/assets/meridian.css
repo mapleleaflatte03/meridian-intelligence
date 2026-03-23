@@ -331,6 +331,40 @@ code { background: #0e0e1a; padding: 2px 6px; border-radius: 3px; font-size: 0.8
 /* ── Section intro ── */
 .section-intro { color: var(--dim); margin-bottom: 1rem; }
 
+/* ── Hero mark — warrior mark prominent in hero ── */
+.hero-mark {
+  display: block; margin: 0 auto 1.5rem;
+  width: 72px; height: 72px;
+  filter: drop-shadow(0 0 20px rgba(0,229,255,0.4));
+  animation: glowPulse 3s ease-in-out infinite;
+}
+.hero-mark-sm { width: 48px; height: 48px; margin-bottom: 1.1rem; }
+
+/* ── Page intro — full-width branded entry for inner pages ── */
+.page-intro {
+  padding: 3.5rem 1.5rem 2.5rem;
+  text-align: center;
+  background: linear-gradient(180deg, #030306 0%, var(--bg) 100%);
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 2.5rem;
+  position: relative; overflow: hidden;
+}
+.page-intro::before {
+  content: '';
+  position: absolute; inset: 0;
+  background: radial-gradient(ellipse 500px 280px at 50% 0%, rgba(0,229,255,0.05) 0%, transparent 70%);
+  pointer-events: none;
+}
+.page-intro h1 { font-size: 2rem; max-width: 680px; margin: 0 auto 0.9rem; }
+.page-intro .subtitle { max-width: 600px; margin: 0 auto; }
+
+/* ── h3 baseline ── */
+h3 { color: #fff; font-size: 1rem; margin: 1.1rem 0 0.4rem; }
+
+/* ── Card paragraph spacing ── */
+.card p + p { margin-top: 0.6rem; }
+.card strong + p { margin-top: 0.5rem; }
+
 /* ── Scroll reveal ── */
 .reveal {
   opacity: 0; transform: translateY(12px);
