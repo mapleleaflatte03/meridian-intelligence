@@ -1,3 +1,33 @@
+<p align="center">
+  <img src="company/www/assets/meridian_lockup.svg" alt="Meridian live host" width="720">
+</p>
+
+<p align="center">
+  Founding-host product surface for Meridian's first managed vertical on top of the governance kernel.
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/host-live%20founding%20surface-0c1117?style=flat-square" alt="Live founding host">
+  <img src="https://img.shields.io/badge/runtime-OpenClaw--backed-1f6feb?style=flat-square" alt="OpenClaw backed">
+  <img src="https://img.shields.io/badge/scope-founding--only-8b0000?style=flat-square" alt="Founding only">
+  <img src="https://img.shields.io/badge/delivery-founder--led%20pilot-475569?style=flat-square" alt="Founder-led pilot">
+  <img src="https://img.shields.io/badge/payments-x402%20USDC-0f766e?style=flat-square" alt="x402 USDC">
+</p>
+
+<p align="center">
+  <a href="https://app.welliam.codes/demo.html">Demo</a> ·
+  <a href="https://app.welliam.codes/pilot.html">Pilot</a> ·
+  <a href="https://app.welliam.codes/support.html">Support</a> ·
+  <a href="https://github.com/mapleleaflatte03/meridian-kernel">OSS Kernel</a> ·
+  <a href="https://github.com/mapleleaflatte03/meridian-loom">Loom Runtime</a>
+</p>
+
+<p align="center">
+  <img src="company/www/assets/meridian_live_surfaces.svg" alt="Meridian live surface overview" width="960">
+</p>
+
+> This repo is the live founding-host surface: real demo, real pilot path, real MCP endpoint, and an intentionally narrow truth boundary.
+
 # Meridian — Governance Kernel for Managed Digital Labor
 
 > Five primitives. One governance kernel. Governed AI agent operations.

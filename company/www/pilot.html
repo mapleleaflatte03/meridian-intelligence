@@ -88,10 +88,10 @@
   <table class="data-table">
     <thead><tr><th>Deliverable</th><th>Cadence</th><th>Format</th></tr></thead>
     <tbody>
-      <tr><td><strong>Daily Competitor Alert</strong></td><td>Agreed cadence during the current pilot</td><td>Cited findings (400+ words, 5+ sources) covering pricing, launches, API changes, deprecations</td></tr>
-      <tr><td><strong>Weekly Intelligence Brief</strong></td><td>End of each week</td><td>Curated top competitive moves with action items and risk signals</td></tr>
-      <tr><td><strong>Battlecard (on request)</strong></td><td>On demand</td><td>Structured competitor snapshot: recent moves, pricing, product updates, talking points</td></tr>
-      <tr><td><strong>Competitor Watchlist</strong></td><td>Configured during onboarding</td><td>Set per customer. The same watchlist becomes an automated monitor again once Meridian reaches treasury-cleared automation through the right phase progression.</td></tr>
+      <tr><td data-label="Deliverable"><strong>Daily Competitor Alert</strong></td><td data-label="Cadence">Agreed cadence during the current pilot</td><td data-label="Format">Cited findings (400+ words, 5+ sources) covering pricing, launches, API changes, deprecations</td></tr>
+      <tr><td data-label="Deliverable"><strong>Weekly Intelligence Brief</strong></td><td data-label="Cadence">End of each week</td><td data-label="Format">Curated top competitive moves with action items and risk signals</td></tr>
+      <tr><td data-label="Deliverable"><strong>Battlecard (on request)</strong></td><td data-label="Cadence">On demand</td><td data-label="Format">Structured competitor snapshot: recent moves, pricing, product updates, talking points</td></tr>
+      <tr><td data-label="Deliverable"><strong>Competitor Watchlist</strong></td><td data-label="Cadence">Configured during onboarding</td><td data-label="Format">Set per customer. The same watchlist becomes an automated monitor again once Meridian reaches treasury-cleared automation through the right phase progression.</td></tr>
     </tbody>
   </table>
 </div>
@@ -126,59 +126,59 @@
     <thead><tr><th>Capability</th><th>Status</th><th>Detail</th></tr></thead>
     <tbody>
       <tr>
-        <td>Source monitoring (30+ sources)</td>
-        <td><span class="tag tag-planned">Treasury-gated</span></td>
-        <td>Implemented and proven in prior qualified runs, but current nightly execution remains paused by constitutional preflight.</td>
+        <td data-label="Capability">Source monitoring (30+ sources)</td>
+        <td data-label="Status"><span class="tag tag-planned">Treasury-gated</span></td>
+        <td data-label="Detail">Implemented and proven in prior qualified runs, but current nightly execution remains paused by constitutional preflight.</td>
       </tr>
       <tr>
-        <td>Finding extraction and deduplication</td>
-        <td><span class="tag tag-planned">Treasury-gated</span></td>
-        <td>Implemented in the governed pipeline, but not running nightly until treasury policy allows it again.</td>
+        <td data-label="Capability">Finding extraction and deduplication</td>
+        <td data-label="Status"><span class="tag tag-planned">Treasury-gated</span></td>
+        <td data-label="Detail">Implemented in the governed pipeline, but not running nightly until treasury policy allows it again.</td>
       </tr>
       <tr>
-        <td>Alert writing</td>
-        <td><span class="tag tag-planned">Treasury-gated</span></td>
-        <td>Implemented and previously exercised; current customer path uses founder-led delivery rather than claiming this automation ran tonight.</td>
+        <td data-label="Capability">Alert writing</td>
+        <td data-label="Status"><span class="tag tag-planned">Treasury-gated</span></td>
+        <td data-label="Detail">Implemented and previously exercised; current customer path uses founder-led delivery rather than claiming this automation ran tonight.</td>
       </tr>
       <tr>
-        <td>Quality assurance</td>
-        <td><span class="tag tag-planned">Treasury-gated</span></td>
-        <td>Multi-agent QA remains part of the governed workflow design, but nightly execution is paused until preflight clears.</td>
+        <td data-label="Capability">Quality assurance</td>
+        <td data-label="Status"><span class="tag tag-planned">Treasury-gated</span></td>
+        <td data-label="Detail">Multi-agent QA remains part of the governed workflow design, but nightly execution is paused until preflight clears.</td>
       </tr>
       <tr>
-        <td>Pilot delivery</td>
-        <td><span class="tag tag-manual">Manual</span></td>
-        <td>Founder-led delivery during the current pilot phase. Same output standard, no fake automation claims.</td>
+        <td data-label="Capability">Pilot delivery</td>
+        <td data-label="Status"><span class="tag tag-manual">Manual</span></td>
+        <td data-label="Detail">Founder-led delivery during the current pilot phase. Same output standard, no fake automation claims.</td>
       </tr>
       <tr>
-        <td>Automated Telegram delivery</td>
-        <td><span class="tag tag-planned">Treasury-gated</span></td>
-        <td>Implemented, but intentionally paused until the treasury reserve floor is funded again.</td>
+        <td data-label="Capability">Automated Telegram delivery</td>
+        <td data-label="Status"><span class="tag tag-planned">Treasury-gated</span></td>
+        <td data-label="Detail">Implemented, but intentionally paused until the treasury reserve floor is funded again.</td>
       </tr>
       <tr>
-        <td>Watchlist setup</td>
-        <td><span class="tag tag-manual">Manual</span></td>
-        <td>We configure your competitor watchlist during onboarding. Changes on request.</td>
+        <td data-label="Capability">Watchlist setup</td>
+        <td data-label="Status"><span class="tag tag-manual">Manual</span></td>
+        <td data-label="Detail">We configure your competitor watchlist during onboarding. Changes on request.</td>
       </tr>
       <tr>
-        <td>Battlecard requests</td>
-        <td><span class="tag tag-manual">Manual</span></td>
-        <td>Request a battlecard for any tracked competitor. Delivered within 24 hours during the pilot.</td>
+        <td data-label="Capability">Battlecard requests</td>
+        <td data-label="Status"><span class="tag tag-manual">Manual</span></td>
+        <td data-label="Detail">Request a battlecard for any tracked competitor. Delivered within 24 hours during the pilot.</td>
       </tr>
       <tr>
-        <td>Custom source addition</td>
-        <td><span class="tag tag-manual">Manual</span></td>
-        <td>Add competitor-specific URLs (e.g., a startup's changelog) to monitoring. Setup within 24 hours.</td>
+        <td data-label="Capability">Custom source addition</td>
+        <td data-label="Status"><span class="tag tag-manual">Manual</span></td>
+        <td data-label="Detail">Add competitor-specific URLs (e.g., a startup's changelog) to monitoring. Setup within 24 hours.</td>
       </tr>
       <tr>
-        <td>Email / Slack delivery</td>
-        <td><span class="tag tag-planned">Planned</span></td>
-        <td>Not yet available. Telegram and MCP are the current delivery channels.</td>
+        <td data-label="Capability">Email / Slack delivery</td>
+        <td data-label="Status"><span class="tag tag-planned">Planned</span></td>
+        <td data-label="Detail">Not yet available. Telegram and MCP are the current delivery channels.</td>
       </tr>
       <tr>
-        <td>CRM / Notion writeback</td>
-        <td><span class="tag tag-planned">Planned</span></td>
-        <td>Not yet available. Under development.</td>
+        <td data-label="Capability">CRM / Notion writeback</td>
+        <td data-label="Status"><span class="tag tag-planned">Planned</span></td>
+        <td data-label="Detail">Not yet available. Under development.</td>
       </tr>
     </tbody>
   </table>

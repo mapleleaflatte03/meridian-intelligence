@@ -811,28 +811,32 @@ h3 { font-family: var(--display); color: #fff; font-size: 1rem; margin: 1.1rem 0
   }
   .site-nav {
     width: 100%;
-    gap: 0.45rem;
+    gap: 0.5rem;
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .page-home .site-nav {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .site-nav a {
     display: flex;
     justify-content: center;
     align-items: center;
-    min-height: 38px;
-    font-size: 0.63rem;
-    letter-spacing: 0.11em;
-    padding: 0.5rem 0.35rem;
+    min-height: 42px;
+    font-size: 0.68rem;
+    letter-spacing: 0.12em;
+    line-height: 1.35;
+    text-align: center;
+    white-space: normal;
+    padding: 0.6rem 0.45rem;
     border-color: rgba(255,255,255,0.05);
     background: rgba(255,255,255,0.015);
   }
   .nav-cta {
     display: flex !important;
+    grid-column: 1 / -1;
     border-radius: 0;
-    min-height: 38px;
+    min-height: 42px;
     background: linear-gradient(180deg, rgba(135,216,255,0.2), rgba(106,200,243,0.12)) !important;
     color: var(--fg) !important;
     border-color: rgba(135,216,255,0.2) !important;
@@ -863,10 +867,74 @@ h3 { font-family: var(--display); color: #fff; font-size: 1rem; margin: 1.1rem 0
   .offer-table,
   .roster {
     display: block;
-    overflow-x: auto;
+    overflow: visible;
+    border: none;
+    background: none;
+    box-shadow: none;
+  }
+  .data-table thead { display: none; }
+  .data-table tbody,
+  .data-table tr,
+  .data-table td,
+  .offer-table tbody,
+  .offer-table tr,
+  .offer-table td,
+  .roster tbody,
+  .roster tr,
+  .roster td {
+    display: block;
+    width: 100%;
+  }
+  .data-table tr,
+  .offer-table tr,
+  .roster tr {
+    margin: 0 0 0.8rem;
+    padding: 0.9rem 0.95rem;
+    border: 1px solid rgba(255,255,255,0.05);
+    background: linear-gradient(180deg, rgba(7,11,17,0.92), rgba(4,7,12,0.98));
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.03);
+  }
+  .data-table td,
+  .offer-table td,
+  .roster td {
+    padding: 0.45rem 0;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+    background: none !important;
+  }
+  .data-table td:last-child,
+  .offer-table td:last-child,
+  .roster td:last-child {
+    border-bottom: none;
+    padding-bottom: 0;
+  }
+  .data-table td::before {
+    content: attr(data-label);
+    display: block;
+    margin-bottom: 0.18rem;
+    color: var(--accent);
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+  }
+  .data-table tbody tr:nth-child(odd) td,
+  .data-table tbody tr:hover td {
+    background: none !important;
   }
   .offer-table td:first-child {
     width: auto;
-    min-width: 130px;
+    min-width: 0;
+    margin-bottom: 0.1rem;
+    color: var(--accent);
+    padding-top: 0;
+  }
+  .roster td:first-child {
+    width: auto;
+    padding-top: 0;
+  }
+  .roster .agent-name {
+    display: block;
+    margin-bottom: 0.12rem;
+    font-size: 1rem;
   }
 }
