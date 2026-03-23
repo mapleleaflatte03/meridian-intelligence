@@ -56,9 +56,9 @@ li { padding: 0.2rem 0; }
 .brand { display: flex; align-items: center; gap: 0.55rem; text-decoration: none; color: inherit; }
 .brand-mark { width: 28px; height: 28px; flex-shrink: 0; }
 .brand-name {
-  font-family: var(--mono);
-  font-size: 0.8rem; font-weight: 700; color: #fff;
-  letter-spacing: 0.12em; text-transform: uppercase;
+  font-family: var(--display);
+  font-size: 0.88rem; font-weight: 700; color: #fff;
+  letter-spacing: 0.04em;
 }
 .site-nav { display: flex; align-items: center; gap: 1.5rem; }
 .site-nav a { color: var(--dim); text-decoration: none; font-size: 0.875rem; transition: color 0.15s; }
@@ -278,7 +278,8 @@ details p { padding: 0 0 1rem 0; color: var(--dim); }
   display: flex; align-items: center; justify-content: center;
   gap: 0.5rem; margin-bottom: 1rem;
 }
-.footer-brand img { height: 22px; width: auto; }
+.footer-brand img { height: 28px; width: auto; }
+.footer-lockup { height: 48px; width: auto; }
 .footer-wordmark { display: flex; flex-direction: column; gap: 0; line-height: 1; }
 .footer-name {
   font-family: var(--display);
