@@ -9,7 +9,7 @@
 <link rel="alternate icon" type="image/png" href="/assets/logo_favicon_64.png">
 <link rel="stylesheet" href="/assets/meridian.css">
 <style>
-  h1 { font-size: 2rem; text-align: center; padding-top: 2rem; }
+  h1 { font-size: 2rem; text-align: center; margin-top: 1rem; }
   .subtitle { text-align: center; margin-bottom: 2.5rem; }
   h3 { color: #fff; font-size: 1.05rem; margin: 1.25rem 0 0.5rem; }
   .step-label { display: inline-block; background: var(--accent); color: #000; font-weight: 700; font-size: 0.8rem; padding: 2px 10px; border-radius: 4px; margin-bottom: 0.5rem; }
@@ -50,7 +50,7 @@
   .delivery-arrow { color: var(--accent); font-size: 1.2rem; }
   @media (max-width: 600px) { .delivery-visual { grid-template-columns: 1fr; } .delivery-arrow { transform: rotate(90deg); } }
   .cta-section { text-align: center; margin: 3rem 0 2rem; padding: 2rem; background: linear-gradient(180deg, #060810, var(--bg)); border-radius: 12px; }
-  .cta-section h2 { border: none; margin-bottom: 0.75rem; }
+  .cta-section h2 { border-left: none; margin-bottom: 0.75rem; padding-left: 0; text-align: center; }
   .cta { margin: 0.5rem; }
   .note { color: var(--dim); font-size: 0.85rem; font-style: italic; margin: 0.5rem 0; }
   .confidence { display: inline-block; padding: 2px 8px; border-radius: 3px; font-size: 0.75rem; font-weight: 600; }
@@ -59,14 +59,30 @@
 </style>
 </head>
 <body>
+
+<header class="site-header">
+  <div class="header-inner">
+    <a class="brand" href="index.html">
+      <img src="/assets/meridian_mark_flat.svg" alt="Meridian" class="brand-mark">
+      <span class="brand-name">Meridian</span>
+    </a>
+    <nav class="site-nav">
+      <a href="index.html">Home</a>
+      <a href="pilot.html">Pilot</a>
+      <a href="support.html">Support</a>
+      <a href="demo.html" class="current nav-cta">Demo</a>
+    </nav>
+  </div>
+</header>
+
 <div class="container">
 
 <h1>Meridian: First Managed Vertical Demo</h1>
 <p class="subtitle">Competitive intelligence running on Meridian's governance kernel with real workflow output. This is the first managed vertical, not the whole definition of Meridian.</p>
 
-<div class="card" style="font-size: 0.92rem; margin-bottom: 1.5rem;">
-  <p style="margin-bottom: 0.6rem;"><strong style="color:#fff;">What this demo proves:</strong> Meridian can govern a real workflow through institution, agent, authority, treasury, and court primitives.</p>
-  <p style="color: var(--dim);"><strong style="color:#fff;">What this demo does not prove:</strong> broad cross-runtime adapter maturity or live multi-institution routing. Those are separate architecture programs, not claims hidden inside this page.</p>
+<div class="card small" style="margin-bottom: 1.5rem;">
+  <p style="margin-bottom: 0.6rem;"><strong>What this demo proves:</strong> Meridian can govern a real workflow through institution, agent, authority, treasury, and court primitives.</p>
+  <p><strong>What this demo does not prove:</strong> broad cross-runtime adapter maturity or live multi-institution routing. Those are separate architecture programs, not claims hidden inside this page.</p>
 </div>
 
 <!-- ─────────────── STEP 1: WATCHLIST ─────────────── -->
@@ -299,8 +315,18 @@
 </div>
 
 <div class="footer">
-  <p><a href="index.html">Home</a> &middot; <a href="pilot.html">Pilot Offer</a> &middot; <a href="support.html">Support</a> &middot; <a href="https://t.me/MeridianIntelligence">Telegram Channel</a> &middot; <a href="https://github.com/mapleleaflatte03/meridian-intelligence">GitHub</a></p>
-  <p style="margin-top: 0.5rem;">Meridian &copy; 2026 &mdash; Constitutional Operating System for Autonomous Institutions</p>
+  <div class="footer-brand">
+    <img src="/assets/meridian_mark_flat.svg" alt="Meridian">
+    <span>Meridian</span>
+  </div>
+  <div class="footer-links">
+    <a href="index.html">Home</a>
+    <a href="pilot.html">Pilot</a>
+    <a href="support.html">Support</a>
+    <a href="https://t.me/MeridianIntelligence" target="_blank" rel="noopener">Telegram Channel</a>
+    <a href="https://github.com/mapleleaflatte03/meridian-kernel" target="_blank" rel="noopener">OSS Kernel</a>
+  </div>
+  <p>Constitutional operating system for autonomous AI institutions &copy; 2026</p>
 </div>
 
 </div>

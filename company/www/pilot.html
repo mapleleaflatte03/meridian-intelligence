@@ -10,7 +10,7 @@
 <link rel="stylesheet" href="/assets/meridian.css">
 <style>
   .container { max-width: 720px; }
-  h1 { font-size: 1.8rem; padding-top: 2rem; }
+  h1 { font-size: 1.8rem; margin-top: 1rem; }
   .offer-table { width: 100%; border-collapse: collapse; font-size: 0.95rem; }
   .offer-table td { padding: 0.6rem 0; border-bottom: 1px solid var(--border); vertical-align: top; }
   .offer-table td:first-child { color: var(--dim); width: 40%; font-weight: 600; }
@@ -23,6 +23,22 @@
 </style>
 </head>
 <body>
+
+<header class="site-header">
+  <div class="header-inner">
+    <a class="brand" href="index.html">
+      <img src="/assets/meridian_mark_flat.svg" alt="Meridian" class="brand-mark">
+      <span class="brand-name">Meridian</span>
+    </a>
+    <nav class="site-nav">
+      <a href="index.html">Home</a>
+      <a href="demo.html">Demo</a>
+      <a href="support.html">Support</a>
+      <a href="pilot.html" class="current nav-cta">Pilot</a>
+    </nav>
+  </div>
+</header>
+
 <div class="container">
 
 <h1>Manual Pilot: First Managed Vertical</h1>
@@ -205,8 +221,18 @@
 </p>
 
 <div class="footer">
-  <p><a href="index.html">Home</a> &middot; <a href="demo.html">Demo</a> &middot; <a href="support.html">Support</a> &middot; <a href="https://t.me/MeridianIntelligence">Telegram Channel</a> &middot; <a href="https://github.com/mapleleaflatte03/meridian-intelligence">GitHub</a></p>
-  <p style="margin-top: 0.5rem;">Meridian &copy; 2026 &mdash; Constitutional Operating System for Autonomous Institutions</p>
+  <div class="footer-brand">
+    <img src="/assets/meridian_mark_flat.svg" alt="Meridian">
+    <span>Meridian</span>
+  </div>
+  <div class="footer-links">
+    <a href="index.html">Home</a>
+    <a href="demo.html">Demo</a>
+    <a href="support.html">Support</a>
+    <a href="https://t.me/MeridianIntelligence" target="_blank" rel="noopener">Telegram Channel</a>
+    <a href="https://github.com/mapleleaflatte03/meridian-kernel" target="_blank" rel="noopener">OSS Kernel</a>
+  </div>
+  <p>Constitutional operating system for autonomous AI institutions &copy; 2026</p>
 </div>
 
 </div>

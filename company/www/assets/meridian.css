@@ -3,6 +3,8 @@
    Cyberpunk refresh — deep blacks, electric teal, glow effects
    ═══════════════════════════════════════════════════════════════ */
 
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
 /* ── Design tokens ── */
 :root {
   --bg:       #050508;
@@ -17,6 +19,7 @@
   --warn:     #ffa726;
   --dim:      #666;
   --purple:   #b39ddb;
+  --mono:     'Menlo', 'Consolas', 'Liberation Mono', monospace;
 }
 
 /* ── Reset ── */
@@ -51,7 +54,10 @@ li { padding: 0.2rem 0; }
 }
 .brand { display: flex; align-items: center; gap: 0.55rem; text-decoration: none; color: inherit; }
 .brand-mark { width: 28px; height: 28px; flex-shrink: 0; }
-.brand-name { font-size: 0.95rem; font-weight: 700; color: #fff; letter-spacing: -0.01em; }
+.brand-name {
+  font-size: 0.8rem; font-weight: 700; color: #fff;
+  letter-spacing: 0.12em; text-transform: uppercase;
+}
 .site-nav { display: flex; align-items: center; gap: 1.5rem; }
 .site-nav a { color: var(--dim); text-decoration: none; font-size: 0.875rem; transition: color 0.15s; }
 .site-nav a:hover, .site-nav a.current { color: var(--fg); }
@@ -91,9 +97,10 @@ li { padding: 0.2rem 0; }
   animation: live-pulse 2.4s ease-in-out infinite;
 }
 .hero h1 {
-  font-size: 2.4rem; color: #fff;
-  margin-bottom: 0.9rem; line-height: 1.18;
+  font-size: 2.2rem; color: #fff;
+  margin-bottom: 0.9rem; line-height: 1.15;
   letter-spacing: -0.03em; font-weight: 700;
+  text-transform: none;
 }
 .hero .tagline {
   font-size: 1.05rem; color: var(--dim);
@@ -143,12 +150,13 @@ li { padding: 0.2rem 0; }
 .cta-note { color: var(--dim); font-size: 0.85rem; }
 
 /* ── Headings ── */
-h1 { color: #fff; font-size: 2.35rem; line-height: 1.14; letter-spacing: -0.03em; margin-bottom: 0.9rem; }
+h1 { color: #fff; font-size: 2.2rem; line-height: 1.14; letter-spacing: -0.03em; margin-bottom: 0.9rem; text-transform: none; }
 h2 {
-  font-size: 1.25rem; color: var(--accent);
-  margin: 2.75rem 0 1rem; padding-bottom: 0.5rem;
-  border-bottom: 1px solid var(--border);
-  letter-spacing: -0.01em;
+  font-size: 0.85rem; color: var(--accent);
+  margin: 2.75rem 0 1rem; padding: 0 0 0 0.75rem;
+  border-left: 2px solid var(--glow);
+  letter-spacing: 0.08em; text-transform: uppercase;
+  font-weight: 700;
 }
 .subtitle { color: var(--dim); margin-bottom: 2rem; font-size: 1.05rem; }
 
@@ -158,7 +166,9 @@ h2 {
   border-radius: 8px; padding: 1.25rem; margin-bottom: 1rem;
 }
 .card h3 { color: #fff; font-size: 1rem; margin-bottom: 0.55rem; }
+.card strong { color: #fff; }
 .card p { color: var(--dim); font-size: 0.93rem; }
+.small { font-size: 0.92rem; }
 .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 1rem; }
 
 /* ── Feature grid ── */
@@ -196,7 +206,7 @@ h2 {
 .tag-planned { background: #0a1520; color: var(--accent); }
 
 /* ── Layer diagram ── */
-.layer-stack { margin: 1.25rem 0; font-family: 'Menlo', 'Consolas', monospace; font-size: 0.82rem; }
+.layer-stack { margin: 1.25rem 0; font-family: var(--mono); font-size: 0.82rem; }
 .layer {
   background: var(--card); border: 1px solid var(--border);
   padding: 0.65rem 1rem; margin-bottom: 2px;
@@ -225,7 +235,7 @@ h2 {
 .sample-box {
   background: #060810; border: 1px solid var(--border); border-radius: 8px;
   padding: 1.25rem; margin: 1rem 0; white-space: pre-wrap;
-  font-family: 'Menlo', 'Consolas', monospace; font-size: 0.875rem;
+  font-family: var(--mono); font-size: 0.875rem;
   line-height: 1.55; color: #c9d1d9; max-height: 480px; overflow-y: auto;
 }
 .sample-meta { color: var(--dim); font-size: 0.82rem; margin-top: 0.5rem; }
@@ -265,8 +275,8 @@ details p { padding: 0 0 1rem 0; color: var(--dim); }
 }
 .footer-brand img { width: 22px; height: 22px; }
 .footer-brand span {
-  color: #444; font-size: 0.85rem; font-weight: 600;
-  letter-spacing: 0.04em; text-transform: uppercase;
+  color: #555; font-size: 0.75rem; font-weight: 700;
+  letter-spacing: 0.12em; text-transform: uppercase;
 }
 .footer-links {
   display: flex; gap: 1.25rem; justify-content: center;
@@ -295,7 +305,7 @@ code { background: #0e0e1a; padding: 2px 6px; border-radius: 3px; font-size: 0.8
 .trust span::before { content: '\00B7'; color: var(--glow); }
 
 /* ── Wallet ── */
-.wallet { word-break: break-all; font-family: 'Menlo', 'Consolas', monospace; color: var(--accent); font-size: 0.84rem; }
+.wallet { word-break: break-all; font-family: var(--mono); color: var(--accent); font-size: 0.84rem; }
 
 /* ── Channel list (support page) ── */
 .channel-list { display: grid; gap: 0.85rem; margin-top: 1rem; }
@@ -306,6 +316,20 @@ code { background: #0e0e1a; padding: 2px 6px; border-radius: 3px; font-size: 0.8
 /* ── Misc lists ── */
 .rule-list, .next-steps { margin: 0.75rem 0 0 1.2rem; color: var(--fg); }
 .rule-list li, .next-steps li { padding: 0.22rem 0; }
+
+/* ── Utilities ── */
+.dim { color: var(--dim); }
+
+/* ── Agent roster table ── */
+.roster { width: 100%; font-size: 0.9rem; border-collapse: collapse; }
+.roster td { padding: 0.45rem 0; border-bottom: 1px solid var(--border); }
+.roster tr:last-child td { border-bottom: none; }
+.roster td:first-child { width: 36%; }
+.roster .agent-name { color: #fff; font-weight: 600; }
+.roster .agent-role { color: var(--dim); }
+
+/* ── Section intro ── */
+.section-intro { color: var(--dim); margin-bottom: 1rem; }
 
 /* ── Scroll reveal ── */
 .reveal {
@@ -337,6 +361,7 @@ code { background: #0e0e1a; padding: 2px 6px; border-radius: 3px; font-size: 0.8
   .site-nav a:not(.nav-cta) { display: none; }
   .header-inner { padding: 0.55rem 1rem; }
   .feature-grid, .pricing-grid, .grid { grid-template-columns: 1fr; }
-  .hero h1 { font-size: 1.8rem; }
-  h1 { font-size: 1.8rem; }
+  .hero h1 { font-size: 1.6rem; }
+  h1 { font-size: 1.6rem; }
+  .container { padding: 1.5rem 1rem 2rem; }
 }
