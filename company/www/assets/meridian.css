@@ -3,7 +3,7 @@
    Cyberpunk refresh — deep blacks, electric teal, glow effects
    ═══════════════════════════════════════════════════════════════ */
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap');
 
 /* ── Design tokens ── */
 :root {
@@ -18,8 +18,7 @@
   --gold:     #ffd54f;
   --warn:     #ffa726;
   --dim:      #666;
-  --purple:   #b39ddb;
-  --mono:     'Menlo', 'Consolas', 'Liberation Mono', monospace;
+  --mono:     'JetBrains Mono', monospace;
 }
 
 /* ── Reset ── */
@@ -55,6 +54,7 @@ li { padding: 0.2rem 0; }
 .brand { display: flex; align-items: center; gap: 0.55rem; text-decoration: none; color: inherit; }
 .brand-mark { width: 28px; height: 28px; flex-shrink: 0; }
 .brand-name {
+  font-family: var(--mono);
   font-size: 0.8rem; font-weight: 700; color: #fff;
   letter-spacing: 0.12em; text-transform: uppercase;
 }
@@ -88,8 +88,9 @@ li { padding: 0.2rem 0; }
   background: rgba(0,229,255,0.06);
   border: 1px solid rgba(0,229,255,0.18);
   border-radius: 20px; padding: 5px 14px;
-  font-size: 0.8rem; color: var(--accent);
-  margin-bottom: 1.5rem; letter-spacing: 0.01em;
+  font-family: var(--mono);
+  font-size: 0.78rem; color: var(--accent);
+  margin-bottom: 1.5rem; letter-spacing: 0.02em;
 }
 .badge-dot {
   width: 6px; height: 6px; border-radius: 50%;
@@ -117,7 +118,8 @@ li { padding: 0.2rem 0; }
   border: 1px solid rgba(0,229,255,0.2);
   background: rgba(0,229,255,0.06);
   color: var(--accent); border-radius: 999px;
-  padding: 5px 14px; font-size: 0.8rem; margin-bottom: 1.25rem;
+  padding: 5px 14px; font-family: var(--mono);
+  font-size: 0.78rem; margin-bottom: 1.25rem; letter-spacing: 0.02em;
 }
 .eyebrow-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--glow); }
 
@@ -152,7 +154,8 @@ li { padding: 0.2rem 0; }
 /* ── Headings ── */
 h1 { color: #fff; font-size: 2.2rem; line-height: 1.14; letter-spacing: -0.03em; margin-bottom: 0.9rem; text-transform: none; }
 h2 {
-  font-size: 0.85rem; color: var(--accent);
+  font-family: var(--mono);
+  font-size: 0.82rem; color: var(--accent);
   margin: 2.75rem 0 1rem; padding: 0 0 0 0.75rem;
   border-left: 2px solid var(--glow);
   letter-spacing: 0.08em; text-transform: uppercase;
@@ -197,7 +200,7 @@ h2 {
 .price-features li::before { content: "\2192 "; color: var(--accent); }
 
 /* ── Tags ── */
-.tag { display: inline-block; font-size: 0.75rem; padding: 2px 8px; border-radius: 3px; font-weight: 600; }
+.tag { display: inline-block; font-family: var(--mono); font-size: 0.72rem; padding: 2px 8px; border-radius: 3px; font-weight: 600; letter-spacing: 0.02em; }
 .tag-free { display: inline-block; background: #0a1f0a; color: var(--green); padding: 3px 10px; border-radius: 4px; font-size: 0.8rem; font-weight: 700; }
 .tag-live { display: inline-block; background: #0a1f0a; color: var(--green); padding: 3px 10px; border-radius: 4px; font-size: 0.75rem; font-weight: 700; }
 .tag-building { display: inline-block; background: #1f1f0a; color: var(--gold); padding: 3px 10px; border-radius: 4px; font-size: 0.75rem; font-weight: 700; }
@@ -275,6 +278,7 @@ details p { padding: 0 0 1rem 0; color: var(--dim); }
 }
 .footer-brand img { width: 22px; height: 22px; }
 .footer-brand span {
+  font-family: var(--mono);
   color: #555; font-size: 0.75rem; font-weight: 700;
   letter-spacing: 0.12em; text-transform: uppercase;
 }
@@ -299,7 +303,9 @@ code { background: #0e0e1a; padding: 2px 6px; border-radius: 3px; font-size: 0.8
 .trust {
   display: flex; gap: 1.75rem; justify-content: center;
   flex-wrap: wrap; margin: 1.75rem 0;
-  color: var(--dim); font-size: 0.875rem;
+  font-family: var(--mono);
+  color: var(--dim); font-size: 0.82rem;
+  letter-spacing: 0.02em;
 }
 .trust span { display: flex; align-items: center; gap: 0.4rem; }
 .trust span::before { content: '\00B7'; color: var(--glow); }
@@ -330,6 +336,18 @@ code { background: #0e0e1a; padding: 2px 6px; border-radius: 3px; font-size: 0.8
 
 /* ── Section intro ── */
 .section-intro { color: var(--dim); margin-bottom: 1rem; }
+
+/* ── Full-width CTA button ── */
+.cta-block { width: 100%; display: block; text-align: center; }
+
+/* ── Status utilities ── */
+.status-warn { color: var(--warn); }
+.note { color: var(--dim); font-size: 0.85rem; font-style: italic; margin: 0.5rem 0; }
+
+/* ── Dev section overrides ── */
+.dev-section h3 { margin: 1.5rem 0 0.5rem; }
+.dev-section .card { font-size: 0.9rem; }
+.dev-section > p { color: var(--dim); font-size: 0.9rem; }
 
 /* ── Hero mark — warrior mark prominent in hero ── */
 .hero-mark {
