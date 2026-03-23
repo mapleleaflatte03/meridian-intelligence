@@ -27,8 +27,9 @@
 
 /* ── Base ── */
 body {
-  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-family: 'Inter', sans-serif;
   font-feature-settings: 'ss01', 'cv05';
+  letter-spacing: -0.005em;
   background: var(--bg);
   color: var(--fg);
   line-height: 1.6;
@@ -173,7 +174,6 @@ h2 {
 .card h3 { color: #fff; font-size: 1rem; margin-bottom: 0.55rem; }
 .card strong { color: #fff; }
 .card p { color: var(--dim); font-size: 0.93rem; }
-.small { font-size: 0.92rem; }
 .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 1rem; }
 
 /* ── Feature grid ── */
@@ -278,11 +278,18 @@ details p { padding: 0 0 1rem 0; color: var(--dim); }
   display: flex; align-items: center; justify-content: center;
   gap: 0.5rem; margin-bottom: 1rem;
 }
-.footer-brand img { width: 22px; height: 22px; }
-.footer-brand span {
+.footer-brand img { height: 22px; width: auto; }
+.footer-wordmark { display: flex; flex-direction: column; gap: 0; line-height: 1; }
+.footer-name {
+  font-family: var(--display);
+  color: #888; font-size: 0.95rem; font-weight: 700;
+  letter-spacing: 0.08em;
+}
+.footer-sub {
   font-family: var(--mono);
-  color: #555; font-size: 0.75rem; font-weight: 700;
+  color: #444; font-size: 0.6rem; font-weight: 500;
   letter-spacing: 0.12em; text-transform: uppercase;
+  margin-top: 2px;
 }
 .footer-links {
   display: flex; gap: 1.25rem; justify-content: center;
@@ -327,6 +334,16 @@ code { background: #0e0e1a; padding: 2px 6px; border-radius: 3px; font-size: 0.8
 
 /* ── Utilities ── */
 .dim { color: var(--dim); }
+.small { font-size: 0.92rem; }
+.text-center { text-align: center; }
+.mt-sm { margin-top: 0.5rem; }
+.mt-md { margin-top: 0.75rem; }
+.mt-lg { margin-top: 1rem; }
+.mt-xl { margin-top: 1.5rem; }
+.mb-sm { margin-bottom: 0.5rem; }
+.mb-md { margin-bottom: 0.75rem; }
+.mb-lg { margin-bottom: 1rem; }
+.mb-xl { margin-bottom: 1.5rem; }
 
 /* ── Agent roster table ── */
 .roster { width: 100%; font-size: 0.9rem; border-collapse: collapse; }
@@ -341,6 +358,10 @@ code { background: #0e0e1a; padding: 2px 6px; border-radius: 3px; font-size: 0.8
 
 /* ── Full-width CTA button ── */
 .cta-block { width: 100%; display: block; text-align: center; }
+
+/* ── Brief-box labels (demo page) ── */
+.brief-label { margin-top: 1rem; font-size: 0.95rem; }
+.brief-label-accent { margin-top: 1rem; font-size: 0.95rem; color: var(--accent); }
 
 /* ── Status utilities ── */
 .status-warn { color: var(--warn); }
