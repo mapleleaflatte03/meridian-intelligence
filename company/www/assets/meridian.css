@@ -3,7 +3,7 @@
    Cyberpunk refresh — deep blacks, electric teal, glow effects
    ═══════════════════════════════════════════════════════════════ */
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Space+Grotesk:wght@500;600;700&display=swap');
 
 /* ── Design tokens ── */
 :root {
@@ -19,6 +19,7 @@
   --warn:     #ffa726;
   --dim:      #666;
   --mono:     'JetBrains Mono', monospace;
+  --display:  'Space Grotesk', 'Inter', sans-serif;
 }
 
 /* ── Reset ── */
@@ -98,6 +99,7 @@ li { padding: 0.2rem 0; }
   animation: live-pulse 2.4s ease-in-out infinite;
 }
 .hero h1 {
+  font-family: var(--display);
   font-size: 2.2rem; color: #fff;
   margin-bottom: 0.9rem; line-height: 1.15;
   letter-spacing: -0.03em; font-weight: 700;
@@ -152,7 +154,7 @@ li { padding: 0.2rem 0; }
 .cta-note { color: var(--dim); font-size: 0.85rem; }
 
 /* ── Headings ── */
-h1 { color: #fff; font-size: 2.2rem; line-height: 1.14; letter-spacing: -0.03em; margin-bottom: 0.9rem; text-transform: none; }
+h1 { font-family: var(--display); color: #fff; font-size: 2.2rem; line-height: 1.14; letter-spacing: -0.03em; margin-bottom: 0.9rem; text-transform: none; }
 h2 {
   font-family: var(--mono);
   font-size: 0.82rem; color: var(--accent);
@@ -373,11 +375,11 @@ code { background: #0e0e1a; padding: 2px 6px; border-radius: 3px; font-size: 0.8
   background: radial-gradient(ellipse 500px 280px at 50% 0%, rgba(0,229,255,0.05) 0%, transparent 70%);
   pointer-events: none;
 }
-.page-intro h1 { font-size: 2rem; max-width: 680px; margin: 0 auto 0.9rem; }
+.page-intro h1 { font-family: var(--display); font-size: 2rem; max-width: 680px; margin: 0 auto 0.9rem; }
 .page-intro .subtitle { max-width: 600px; margin: 0 auto; }
 
 /* ── h3 baseline ── */
-h3 { color: #fff; font-size: 1rem; margin: 1.1rem 0 0.4rem; }
+h3 { font-family: var(--display); color: #fff; font-size: 1rem; margin: 1.1rem 0 0.4rem; }
 
 /* ── Card paragraph spacing ── */
 .card p + p { margin-top: 0.6rem; }

@@ -1,6 +1,6 @@
-# Meridian — Constitutional Operating System for Autonomous Institutions
+# Meridian — Governance Kernel for Managed Digital Labor
 
-> Five primitives. One operating system. Governed AI agent operations.
+> Five primitives. One governance kernel. Governed AI agent operations.
 
 [![MCP Server](https://img.shields.io/badge/MCP-Server-blue)](https://app.welliam.codes/sse)
 [![x402 Payments](https://img.shields.io/badge/Payments-x402%20USDC-green)](https://x402.org)
@@ -8,7 +8,7 @@
 
 ## What is Meridian?
 
-Meridian is a constitutional operating system for running AI agents as governed digital labor. It is built on six primitives that compose over a real economy layer and an honest treasury gate.
+Meridian is a governance kernel for running AI agents as managed digital labor. It is built on five constitutional primitives that compose over a real economy layer and an honest treasury gate.
 
 **Competitive intelligence is the first proving vertical** — a 7-agent governed workflow for cited intelligence output. The current customer path is a founder-led manual pilot; automated delivery remains treasury-gated by policy.
 
@@ -330,4 +330,4 @@ Constitutional 3-ledger internal economy:
 
 ---
 
-*Constitutional Operating System for Autonomous Institutions. Built on OpenClaw runtime. Running since 2026-03-15.*
+*Governance kernel for managed digital labor. Built on OpenClaw runtime. Running since 2026-03-15.*
