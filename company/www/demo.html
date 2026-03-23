@@ -5,41 +5,37 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Meridian — First Managed Vertical on the Governance Kernel</title>
 <meta name="description" content="See Meridian's first managed vertical in action: competitor intelligence running on Meridian's governance kernel through registered agents, authority, treasury, and court. This demo proves the workflow shape, not broad cross-runtime adapter maturity.">
+<link rel="icon" type="image/svg+xml" href="/assets/meridian_mark_flat.svg">
+<link rel="alternate icon" type="image/png" href="/assets/logo_favicon_64.png">
+<link rel="stylesheet" href="/assets/meridian.css">
 <style>
-  :root { --bg: #0a0a0f; --fg: #e0e0e0; --accent: #4fc3f7; --card: #151520; --border: #2a2a3a; --green: #4caf50; --dim: #888; --warn: #ffa726; }
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { font-family: 'Inter', system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--fg); line-height: 1.6; }
-  .container { max-width: 800px; margin: 0 auto; padding: 2rem 1.5rem; }
-  h1 { font-size: 2rem; color: #fff; margin-bottom: 0.5rem; text-align: center; padding-top: 2rem; }
-  .subtitle { text-align: center; color: var(--dim); margin-bottom: 2.5rem; font-size: 1.05rem; }
-  h2 { font-size: 1.3rem; color: var(--accent); margin: 2.5rem 0 0.75rem; border-bottom: 1px solid var(--border); padding-bottom: 0.5rem; }
+  h1 { font-size: 2rem; text-align: center; padding-top: 2rem; }
+  .subtitle { text-align: center; margin-bottom: 2.5rem; }
   h3 { color: #fff; font-size: 1.05rem; margin: 1.25rem 0 0.5rem; }
   .step-label { display: inline-block; background: var(--accent); color: #000; font-weight: 700; font-size: 0.8rem; padding: 2px 10px; border-radius: 4px; margin-bottom: 0.5rem; }
-  .card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 1.25rem; margin-bottom: 1rem; }
   .card-header { color: var(--accent); font-weight: 700; font-size: 0.9rem; margin-bottom: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; }
   .finding { margin-bottom: 1rem; padding-bottom: 0.75rem; border-bottom: 1px solid var(--border); }
   .finding:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
   .finding-title { color: #fff; font-weight: 600; margin-bottom: 0.3rem; }
   .finding-body { color: var(--fg); font-size: 0.92rem; }
   .finding-source { color: var(--dim); font-size: 0.82rem; margin-top: 0.25rem; }
-  .tag { display: inline-block; font-size: 0.75rem; padding: 2px 8px; border-radius: 3px; margin-right: 0.4rem; font-weight: 600; }
-  .tag-pricing { background: #1a2a3a; color: var(--accent); }
-  .tag-product { background: #1a3a1a; color: var(--green); }
-  .tag-deprecation { background: #3a2a1a; color: var(--warn); }
-  .tag-strategy { background: #2a1a3a; color: #ce93d8; }
+  .tag-pricing { background: #0a1520; color: var(--accent); }
+  .tag-product { background: #0a1f0a; color: var(--green); }
+  .tag-deprecation { background: #1f1508; color: var(--warn); }
+  .tag-strategy { background: #1a0a2a; color: #ce93d8; }
   .watchlist-table { width: 100%; border-collapse: collapse; margin: 0.5rem 0; font-size: 0.92rem; }
   .watchlist-table th { text-align: left; color: var(--accent); padding: 0.5rem 0.75rem; border-bottom: 2px solid var(--border); font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; }
   .watchlist-table td { padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--border); }
   .watchlist-table tr:last-child td { border-bottom: none; }
   .status-active { color: var(--green); }
-  .brief-box { background: #0d1117; border: 1px solid var(--border); border-radius: 8px; padding: 1.5rem; margin: 1rem 0; font-size: 0.92rem; line-height: 1.7; }
+  .brief-box { background: #060810; border: 1px solid var(--border); border-radius: 8px; padding: 1.5rem; margin: 1rem 0; font-size: 0.92rem; line-height: 1.7; }
   .brief-box h4 { color: #fff; font-size: 1.1rem; margin-bottom: 0.75rem; }
   .action-item { padding: 0.3rem 0; }
-  .action-item::before { content: "-> "; color: var(--accent); }
-  .risk-box { background: #1a1510; border: 1px solid #3a2a1a; border-radius: 6px; padding: 0.75rem 1rem; margin-top: 0.75rem; font-size: 0.9rem; }
+  .action-item::before { content: "\2192 "; color: var(--accent); }
+  .risk-box { background: #100e08; border: 1px solid #2a2010; border-radius: 6px; padding: 0.75rem 1rem; margin-top: 0.75rem; font-size: 0.9rem; }
   .risk-box strong { color: var(--warn); }
   .battlecard { background: var(--card); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; margin: 1rem 0; }
-  .battlecard-header { background: #1a1a2a; padding: 1rem 1.25rem; border-bottom: 1px solid var(--border); }
+  .battlecard-header { background: #0a0a18; padding: 1rem 1.25rem; border-bottom: 1px solid var(--border); }
   .battlecard-header h4 { color: #fff; font-size: 1.1rem; margin: 0; }
   .battlecard-meta { color: var(--dim); font-size: 0.82rem; margin-top: 0.25rem; }
   .battlecard-body { padding: 1.25rem; }
@@ -53,18 +49,13 @@
   .delivery-node strong { color: #fff; display: block; }
   .delivery-arrow { color: var(--accent); font-size: 1.2rem; }
   @media (max-width: 600px) { .delivery-visual { grid-template-columns: 1fr; } .delivery-arrow { transform: rotate(90deg); } }
-  .cta-section { text-align: center; margin: 3rem 0 2rem; padding: 2rem; background: linear-gradient(180deg, #0d1020, var(--bg)); border-radius: 12px; }
+  .cta-section { text-align: center; margin: 3rem 0 2rem; padding: 2rem; background: linear-gradient(180deg, #060810, var(--bg)); border-radius: 12px; }
   .cta-section h2 { border: none; margin-bottom: 0.75rem; }
-  .cta { display: inline-block; padding: 12px 28px; border-radius: 6px; text-decoration: none; font-weight: 700; font-size: 1rem; margin: 0.5rem; }
-  .cta-primary { background: var(--accent); color: #000; }
-  .cta-outline { background: transparent; border: 2px solid var(--accent); color: var(--accent); }
-  a { color: var(--accent); }
-  .footer { margin-top: 2rem; padding-top: 1rem; border-top: 1px solid var(--border); color: #555; font-size: 0.85rem; text-align: center; }
-  .footer a { color: var(--dim); }
+  .cta { margin: 0.5rem; }
   .note { color: var(--dim); font-size: 0.85rem; font-style: italic; margin: 0.5rem 0; }
   .confidence { display: inline-block; padding: 2px 8px; border-radius: 3px; font-size: 0.75rem; font-weight: 600; }
-  .confidence-high { background: #1a3a1a; color: var(--green); }
-  .confidence-medium { background: #3a3a1a; color: #ffd54f; }
+  .confidence-high { background: #0a1f0a; color: var(--green); }
+  .confidence-medium { background: #1f1f0a; color: #ffd54f; }
 </style>
 </head>
 <body>
@@ -313,5 +304,6 @@
 </div>
 
 </div>
+<script src="/assets/meridian.js" defer></script>
 </body>
 </html>

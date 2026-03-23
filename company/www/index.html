@@ -46,119 +46,9 @@
   ]
 }
 </script>
+<link rel="stylesheet" href="/assets/meridian.css">
 <style>
-  :root { --bg: #0a0a0f; --fg: #e0e0e0; --accent: #4fc3f7; --card: #151520; --border: #2a2a3a; --green: #4caf50; --gold: #ffd54f; --dim: #888; --purple: #b39ddb; }
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { font-family: 'Inter', system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--fg); line-height: 1.6; }
-  .container { max-width: 760px; margin: 0 auto; padding: 2rem 1.5rem; }
-
-  /* Site header */
-  .site-header { position: sticky; top: 0; z-index: 100; background: rgba(10,10,15,0.96); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border-bottom: 1px solid var(--border); }
-  .header-inner { max-width: 960px; margin: 0 auto; padding: 0.65rem 1.5rem; display: flex; justify-content: space-between; align-items: center; }
-  .brand { display: flex; align-items: center; gap: 0.55rem; text-decoration: none; color: inherit; }
-  .brand-mark { width: 28px; height: 28px; border-radius: 50%; flex-shrink: 0; }
-  .brand-name { font-size: 0.95rem; font-weight: 700; color: #fff; letter-spacing: -0.01em; }
-  .site-nav { display: flex; align-items: center; gap: 1.5rem; }
-  .site-nav a { color: var(--dim); text-decoration: none; font-size: 0.875rem; transition: color 0.15s; }
-  .site-nav a:hover { color: var(--fg); }
-  .nav-cta { background: var(--accent) !important; color: #000 !important; padding: 6px 15px; border-radius: 5px; font-weight: 700 !important; transition: background 0.15s !important; }
-  .nav-cta:hover { background: #81d4fa !important; color: #000 !important; }
-  @media (max-width: 640px) { .site-nav a:not(.nav-cta) { display: none; } .header-inner { padding: 0.55rem 1rem; } }
-
-  /* Hero */
-  .hero { text-align: center; padding: 4.5rem 0 2.5rem; background: linear-gradient(180deg, #0c0f1e 0%, #0a0a0f 100%); animation: fadeInUp 0.5s ease-out both; }
-  @keyframes fadeInUp { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0); } }
-  .hero-badge { display: inline-flex; align-items: center; gap: 0.5rem; background: rgba(79,195,247,0.07); border: 1px solid rgba(79,195,247,0.2); border-radius: 20px; padding: 5px 14px; font-size: 0.8rem; color: var(--accent); margin-bottom: 1.5rem; letter-spacing: 0.01em; }
-  .badge-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); flex-shrink: 0; animation: live-pulse 2.4s ease-in-out infinite; }
-  @keyframes live-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
-  .hero h1 { font-size: 2.4rem; color: #fff; margin-bottom: 0.9rem; line-height: 1.18; letter-spacing: -0.025em; font-weight: 700; }
-  .hero .tagline { font-size: 1.05rem; color: var(--dim); margin-bottom: 2rem; max-width: 560px; margin-left: auto; margin-right: auto; line-height: 1.65; }
-  .cta-group { display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap; margin-bottom: 1rem; }
-  .cta { display: inline-block; padding: 12px 28px; border-radius: 6px; text-decoration: none; font-weight: 700; font-size: 1rem; transition: background 0.15s, border-color 0.15s; }
-  .cta-primary { background: var(--accent); color: #000; }
-  .cta-primary:hover { background: #81d4fa; }
-  .cta-outline { background: transparent; border: 2px solid var(--accent); color: var(--accent); }
-  .cta-outline:hover { background: rgba(79,195,247,0.1); }
-  .cta-note { color: var(--dim); font-size: 0.85rem; }
-
-  /* Sections */
-  h2 { font-size: 1.25rem; color: var(--accent); margin: 2.75rem 0 1rem; padding-bottom: 0.5rem; border-bottom: 1px solid var(--border); letter-spacing: -0.01em; }
-  .card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 1.25rem; margin-bottom: 1rem; }
-
-  /* Sample brief */
-  .sample-box { background: #0d1117; border: 1px solid var(--border); border-radius: 8px; padding: 1.25rem; margin: 1rem 0; white-space: pre-wrap; font-family: 'Menlo', 'Consolas', monospace; font-size: 0.875rem; line-height: 1.55; color: #c9d1d9; max-height: 480px; overflow-y: auto; }
-  .sample-meta { color: var(--dim); font-size: 0.82rem; margin-top: 0.5rem; }
-
-  /* Steps */
-  .steps { counter-reset: step; list-style: none; margin: 1rem 0; padding: 0; }
-  .steps li { counter-increment: step; padding: 0.75rem 0 0.75rem 3rem; position: relative; border-bottom: 1px solid var(--border); }
-  .steps li:last-child { border-bottom: none; }
-  .steps li::before { content: counter(step); position: absolute; left: 0; width: 2rem; height: 2rem; background: var(--accent); color: #000; border-radius: 50%; text-align: center; line-height: 2rem; font-weight: 700; font-size: 0.9rem; }
-  .steps li strong { color: #fff; }
-
-  /* Pricing */
-  .pricing-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin: 1rem 0; }
-  @media (max-width: 600px) { .pricing-grid { grid-template-columns: 1fr; } }
-  .price-card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 1.5rem; text-align: center; }
-  .price-card.featured { border-color: var(--accent); }
-  .price-card h3 { color: #fff; margin-bottom: 0.5rem; }
-  .price-amount { font-size: 1.8rem; color: var(--accent); font-weight: 700; letter-spacing: -0.02em; }
-  .price-period { color: var(--dim); font-size: 0.9rem; }
-  .price-features { list-style: none; margin: 1rem 0; text-align: left; font-size: 0.9rem; }
-  .price-features li { padding: 0.3rem 0; }
-  .price-features li::before { content: "→ "; color: var(--accent); }
-  .tag-free { display: inline-block; background: #1a3a1a; color: var(--green); padding: 3px 10px; border-radius: 4px; font-size: 0.8rem; font-weight: 700; }
-  .tag-live { display: inline-block; background: #1a3a1a; color: var(--green); padding: 3px 10px; border-radius: 4px; font-size: 0.75rem; font-weight: 700; }
-  .tag-building { display: inline-block; background: #2a2a1a; color: var(--gold); padding: 3px 10px; border-radius: 4px; font-size: 0.75rem; font-weight: 700; }
-
-  /* FAQ */
-  details { margin-bottom: 0.5rem; }
-  summary { cursor: pointer; padding: 0.75rem 0; color: #fff; font-weight: 600; list-style: none; display: flex; justify-content: space-between; align-items: center; }
-  summary::-webkit-details-marker { display: none; }
-  summary::after { content: '+'; color: var(--accent); font-size: 1.1rem; transition: transform 0.2s; }
-  details[open] summary::after { content: '−'; }
-  summary:hover { color: var(--accent); }
-  details p { padding: 0 0 1rem 0; color: var(--dim); }
-
-  /* Footer */
-  .footer { margin-top: 4rem; padding: 2rem 0 1.5rem; border-top: 1px solid var(--border); color: #555; font-size: 0.85rem; text-align: center; }
-  .footer a { color: var(--dim); text-decoration: none; }
-  .footer a:hover { color: var(--fg); }
-  .footer-brand { display: flex; align-items: center; justify-content: center; gap: 0.5rem; margin-bottom: 1rem; }
-  .footer-brand img { width: 22px; height: 22px; border-radius: 50%; }
-  .footer-brand span { color: #555; font-size: 0.85rem; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
-  .footer-links { display: flex; gap: 1.25rem; justify-content: center; flex-wrap: wrap; margin-bottom: 0.75rem; }
-
-  /* Feature grid */
-  .feature-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin: 1rem 0; }
-  @media (max-width: 600px) { .feature-grid { grid-template-columns: 1fr; } }
-  .feature-card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 1.1rem; transition: border-color 0.2s; }
-  .feature-card:hover { border-color: #3a3a5a; }
-  .feature-card h3 { color: #fff; font-size: 0.95rem; margin-bottom: 0.4rem; letter-spacing: -0.01em; }
-  .feature-card p { color: var(--dim); font-size: 0.88rem; line-height: 1.55; }
-
-  /* Layer diagram */
-  .layer-stack { margin: 1.25rem 0; font-family: 'Menlo', 'Consolas', monospace; font-size: 0.82rem; }
-  .layer { background: var(--card); border: 1px solid var(--border); padding: 0.65rem 1rem; margin-bottom: 2px; display: flex; justify-content: space-between; align-items: center; transition: background 0.15s; }
-  .layer:hover { background: #1c1c2a; }
-  .layer:first-child { border-radius: 8px 8px 0 0; }
-  .layer:last-child { border-radius: 0 0 8px 8px; margin-bottom: 0; }
-  .layer-name { color: #fff; font-weight: 600; }
-  .layer-desc { color: var(--dim); font-size: 0.78rem; }
-
-  /* Dev section toggle */
-  .dev-toggle { color: var(--dim); cursor: pointer; font-size: 0.9rem; margin-top: 1rem; user-select: none; }
-  .dev-toggle:hover { color: var(--fg); }
-  .dev-section { display: none; }
-  .dev-section.open { display: block; }
-  pre { background: #0d1117; border: 1px solid var(--border); padding: 1rem; border-radius: 6px; overflow-x: auto; margin: 0.5rem 0; font-size: 0.84rem; line-height: 1.5; }
-  code { background: #1a1a2a; padding: 2px 6px; border-radius: 3px; font-size: 0.88rem; }
-  a { color: var(--accent); }
-  .trust { display: flex; gap: 1.75rem; justify-content: center; flex-wrap: wrap; margin: 1.75rem 0; color: var(--dim); font-size: 0.875rem; }
-  .trust span { display: flex; align-items: center; gap: 0.4rem; }
-  .trust span::before { content: '·'; color: var(--accent); }
-  .wallet { word-break: break-all; font-family: 'Menlo', 'Consolas', monospace; color: var(--accent); font-size: 0.84rem; }
-  .notice { background: #1a1510; border: 1px solid #3a2a1a; border-radius: 8px; padding: 1rem 1.25rem; margin: 1.5rem 0; font-size: 0.92rem; }
+  .container { max-width: 760px; }
 </style>
 </head>
 <body>
@@ -182,6 +72,7 @@
 
 <!-- Hero -->
 <div class="hero">
+  <div class="scan-overlay"></div>
   <div class="container">
     <div class="hero-badge">
       <span class="badge-dot"></span>
@@ -206,7 +97,7 @@
   </div>
 
   <!-- Why Telegram -->
-  <h2 id="why-telegram">Why Telegram?</h2>
+  <h2 id="why-telegram" class="reveal">Why Telegram?</h2>
   <p style="color: var(--dim); margin-bottom: 1rem;">Intelligence that sits unread in an inbox is wasted. Telegram is where Meridian lands first: direct, fast, and easy to forward. Today it supports manual pilot delivery plus internal lifecycle testing; automated subscriber lifecycle resumes only after Meridian reaches customer-backed treasury and treasury-cleared automation. Three surfaces:</p>
   <div class="card" style="font-size: 0.93rem;">
     <p style="margin-bottom: 0.7rem;"><strong style="color:#fff;">@MeridianIntelligence</strong> — public preview surface. Abbreviated preview posts go here when a fresh brief is worth posting. No account needed.</p>
@@ -215,7 +106,7 @@
   </div>
 
   <!-- Five Primitives -->
-  <h2 id="platform">The Platform Behind It</h2>
+  <h2 id="platform" class="reveal">The Platform Behind It</h2>
   <p style="color: var(--dim); margin-bottom: 1rem;">The intelligence workflow runs on Meridian — a governance layer above AI runtimes. Five primitives keep every agent action audited, budgeted, and accountable.</p>
   <div class="card" style="font-size: 0.92rem;">
     <p style="margin-bottom: 0.65rem;"><strong style="color:#fff;">What Meridian is:</strong> a governance kernel for digital labor. It does not replace every agent runtime; it governs identity, authority, treasury, and accountability above the runtime boundary.</p>
@@ -232,9 +123,9 @@
   <p style="color: var(--dim); font-size: 0.875rem; margin-top: 0.75rem;">The kernel is open-source. <a href="https://github.com/mapleleaflatte03/meridian-kernel" target="_blank" rel="noopener">Meridian Constitutional Kernel →</a> The current runtime-core surfaces explicitly say which boundaries are institution-routable today and which remain founding-service-only.</p>
 
   <!-- What You Get -->
-  <h2>What You Get</h2>
+  <h2 class="reveal">What You Get</h2>
   <p style="color: var(--dim); margin-bottom: 1rem;">A 7-agent governed pipeline monitors 30+ sources nightly and writes a cited brief. Every finding names its source and date. Every agent action is audited.</p>
-  <div class="feature-grid">
+  <div class="feature-grid reveal">
     <div class="feature-card">
       <h3>Cited Competitor Alerts</h3>
       <p>Cited findings from 30+ monitored sources. Pricing changes, product launches, API updates, deprecations — delivered founder-led during the current pilot and designed to become an automated morning send only after Meridian reaches customer-backed treasury and treasury-cleared automation.</p>
@@ -260,7 +151,7 @@
   <p style="text-align: center; margin-top: 0.75rem;"><a href="demo.html">See full product demo with watchlists, weekly brief, and battlecard →</a></p>
 
   <!-- How It Works -->
-  <h2>How It Works</h2>
+  <h2 class="reveal">How It Works</h2>
   <ol class="steps">
     <li><strong>Set your watchlist</strong> — Tell us which competitors to track and what topics matter.</li>
     <li><strong>Agents research nightly</strong> — 7 managed agents fetch, extract, verify, and write. Every action is audited and metered.</li>
@@ -269,7 +160,7 @@
   </ol>
 
   <!-- Agent Team -->
-  <h2>Managed Agent Team</h2>
+  <h2 class="reveal">Managed Agent Team</h2>
   <div class="card">
     <p style="color: var(--dim); font-size: 0.9rem; margin-bottom: 0.75rem;">Every agent is a registered entity with identity, scopes, budget, and reputation scores. Agents earn and lose standing based on accepted output.</p>
     <table style="width: 100%; font-size: 0.9rem; border-collapse: collapse;">
@@ -286,7 +177,7 @@
 
   <!-- Pricing -->
   <h2 id="pricing">Pricing</h2>
-  <div class="pricing-grid">
+  <div class="pricing-grid reveal">
     <div class="price-card featured">
       <span class="tag-free">FREE</span>
       <h3>7-Day Manual Pilot</h3>
@@ -331,7 +222,7 @@
   </div>
 
   <!-- FAQ -->
-  <h2>FAQ</h2>
+  <h2 class="reveal">FAQ</h2>
   <details>
     <summary>What is Meridian?</summary>
     <p>Meridian is a governance kernel for operating AI agents as managed digital labor. Organizations register agents, define permissions and budgets, and run governed workflows above the runtime layer. The competitor intelligence pipeline is the first live workflow vertical built on that kernel, not the whole definition of Meridian.</p>
@@ -468,5 +359,6 @@ fetch('/api/sample-brief')
       'Representative sample from pipeline data (March 2026) · 5 findings, 5 sources · Full demo: demo.html';
   });
 </script>
+<script src="/assets/meridian.js" defer></script>
 </body>
 </html>
