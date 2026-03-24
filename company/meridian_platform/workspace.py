@@ -174,7 +174,6 @@ from treasury import (treasury_snapshot, get_balance,
                       open_payout_dispute_window, reject_payout_proposal,
                       cancel_payout_proposal, execute_payout_proposal,
                       load_payout_proposals)
-<<<<<<< HEAD
 from court import (file_violation, resolve_violation,
                    file_appeal, decide_appeal, auto_review,
                    get_restrictions, remediate, _load_records)
