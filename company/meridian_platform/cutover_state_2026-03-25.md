@@ -1,9 +1,10 @@
 # Meridian Cutover State 2026-03-25
 
 ## Repo Truth
-- meridian-intelligence: /home/ubuntu/.openclaw/workspace is main...origin/main [ahead 18] and dirty; cutover commits 7312491 and 736624b landed.
-- meridian-loom: cutover commits 5622c5651a6a98a2ca79edacf52d106f04926774 and 1eca5ea3e09381008cca4a190c2939f613dcfa7b landed.
-- meridian-kernel: cutover commit 598345d56a658b648edeff61a8da91718c9cb5df landed.
+- meridian-intelligence: commit 153ee32bab6f91a6b2487e32c6b6e31c94ce2d42 landed.
+- meridian-loom: commits e2e0d8e, 88f0793, and b7cf5dd6105b0a6c5dcc41c8b6166ee3a84a51d9 landed.
+- meridian-kernel: commit 598345d56a658b648edeff61a8da91718c9cb5df landed.
+- branch origin/phase3/minimal-gap-replay-slice includes ff618f3 as an extra not-yet-merged readiness slice.
 - safety snapshot: /home/ubuntu/.openclaw/workspace/.openclaw/migration-safety/2026-03-25/vps-exit/meridian-intelligence-prep.
 
 ## Active Services
