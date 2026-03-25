@@ -12,6 +12,7 @@ import glob
 import importlib.util
 import json
 import os
+import shlex
 import subprocess
 import sys
 
@@ -21,6 +22,8 @@ from organizations import load_orgs
 
 PLATFORM_DIR = os.path.dirname(os.path.abspath(__file__))
 COMPANY_DIR = os.path.dirname(PLATFORM_DIR)
+if COMPANY_DIR not in sys.path:
+    sys.path.insert(0, COMPANY_DIR)
 WORKSPACE = os.path.dirname(COMPANY_DIR)
 NIGHT_SHIFT_DIR = os.path.join(WORKSPACE, "night-shift")
 SUBSCRIPTIONS_PY = os.path.join(COMPANY_DIR, "subscriptions.py")
@@ -38,6 +41,12 @@ _phase_spec = importlib.util.spec_from_file_location(
 )
 _phase_mod = importlib.util.module_from_spec(_phase_spec)
 _phase_spec.loader.exec_module(_phase_mod)
+
+_mcp_spec = importlib.util.spec_from_file_location(
+    'company_mcp_server', os.path.join(COMPANY_DIR, 'mcp_server.py')
+)
+_mcp_mod = importlib.util.module_from_spec(_mcp_spec)
+_mcp_spec.loader.exec_module(_mcp_mod)
 
 
 def _run(cmd, cwd=WORKSPACE, timeout=30):
@@ -100,6 +109,61 @@ def _founding_org_id():
     return None
 
 
+def _pong_ok(result):
+    if not result["ok"]:
+        return False
+    lines = [line.strip() for line in result["stdout"].splitlines() if line.strip()]
+    return bool(lines) and lines[-1] == "PONG"
+
+
+def _runtime_env_defaults():
+    env = dict(os.environ)
+    env_file = env.get('MERIDIAN_MCP_RUNTIME_ENV_FILE') or '/etc/default/meridian-mcp-runtime'
+    if not os.path.exists(env_file):
+        return env
+    with open(env_file) as f:
+        for raw in f:
+            line = raw.strip()
+            if not line or line.startswith('#') or '=' not in line:
+                continue
+            key, value = line.split('=', 1)
+            env.setdefault(key.strip(), shlex.split(value.strip())[0] if value.strip() else '')
+    return env
+
+
+def _route_cutovers():
+    runtime_env = _runtime_env_defaults()
+    route_override = runtime_env.get('MERIDIAN_INTELLIGENCE_ON_DEMAND_RESEARCH_RUNTIME')
+    research_runtime = runtime_env.get('MERIDIAN_INTELLIGENCE_RESEARCH_RUNTIME')
+    exec_runtime = runtime_env.get('MERIDIAN_INTELLIGENCE_EXEC_RUNTIME') or 'openclaw'
+    requested_runtime = _mcp_mod._normalize_runtime(route_override or research_runtime or exec_runtime)
+    fallback_enabled = (runtime_env.get('MERIDIAN_INTELLIGENCE_ON_DEMAND_RESEARCH_ALLOW_FALLBACK') or '').strip().lower() in {'1', 'true', 'yes', 'on'}
+    capability_name = (runtime_env.get('MERIDIAN_LOOM_RESEARCH_CAPABILITY') or '').strip()
+    route = {
+        'route': 'intelligence_on_demand_research',
+        'owner': 'loom' if requested_runtime == 'loom' else 'openclaw',
+        'requested_runtime': requested_runtime,
+        'runtime_source': 'route_override' if route_override else 'research_runtime_inherit',
+        'fallback_enabled': fallback_enabled,
+        'loom_capability_name': capability_name,
+    }
+    if requested_runtime == 'loom':
+        original = {}
+        for key, value in runtime_env.items():
+            if key.startswith('MERIDIAN_') or key == 'LOOM_SERVICE_TOKEN':
+                original[key] = os.environ.get(key)
+                os.environ[key] = value
+        try:
+            route['loom_preflight'] = _mcp_mod._loom_research_preflight(capability_name)
+        finally:
+            for key, value in original.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
+    return {'intelligence_on_demand_research': route}
+
+
 def collect():
     org_id = _founding_org_id()
     runtime_health = _run(["openclaw", "health"], timeout=20)
@@ -113,7 +177,8 @@ def collect():
     brief = _latest_brief()
     targets = _delivery_targets()
 
-    runtime_ok = runtime_health["ok"] and pong["ok"] and pong["stdout"] == "PONG"
+    pong_ok = _pong_ok(pong)
+    runtime_ok = runtime_health["ok"] and pong_ok
     preflight_ok = preflight["ok"]
     treasury_blocked = not treasury.get("above_reserve", False)
 
@@ -135,7 +200,7 @@ def collect():
         "verdict": verdict,
         "runtime": {
             "health_ok": runtime_health["ok"],
-            "pong_ok": pong["ok"] and pong["stdout"] == "PONG",
+            "pong_ok": pong_ok,
             "pong_output": pong["stdout"],
             "health_stderr": runtime_health["stderr"],
             "pong_stderr": pong["stderr"],
@@ -162,6 +227,7 @@ def collect():
             "returncode": preflight["returncode"],
             "summary": preflight["stdout"].splitlines()[-1] if preflight["stdout"] else "",
         },
+        "route_cutovers": _route_cutovers(),
         "brief": brief,
         "delivery_targets": targets,
     }
@@ -194,6 +260,19 @@ def print_report(report):
         "Preflight: "
         + ("OK" if report["preflight"]["ok"] else f"BLOCKED ({report['preflight']['summary']})")
     )
+    route = report.get('route_cutovers', {}).get('intelligence_on_demand_research', {})
+    if route:
+        print(
+            "On-demand research route: "
+            f"owner={route.get('owner', '')} source={route.get('runtime_source', '')} "
+            f"fallback={'on' if route.get('fallback_enabled') else 'off'}"
+        )
+        preflight = route.get('loom_preflight')
+        if isinstance(preflight, dict):
+            print(
+                "On-demand research Loom preflight: "
+                + ("OK" if preflight.get('ok') else f"BLOCKED ({'; '.join(preflight.get('errors', []))})")
+            )
     if report["brief"]["exists"]:
         print(f"Latest brief: {report['brief']['date']} ({report['brief']['path']})")
     else:
