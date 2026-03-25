@@ -113,7 +113,10 @@ def _pong_ok(result):
     if not result["ok"]:
         return False
     lines = [line.strip() for line in result["stdout"].splitlines() if line.strip()]
-    return bool(lines) and lines[-1] == "PONG"
+    if not lines:
+        return False
+    # The agent wrapper can emit chatter before the terminal success marker.
+    return lines[-1] in {"PONG", "HEARTBEAT_OK"}
 
 
 def _runtime_env_defaults():

@@ -182,6 +182,26 @@ class ReadinessVerdictTests(unittest.TestCase):
         )
         self.assertEqual(report["verdict"], "CONSTITUTION_BLOCKED_PREFLIGHT")
 
+    def test_pong_ok_accepts_terminal_heartbeat_marker(self):
+        self.assertTrue(
+            readiness._pong_ok(
+                {
+                    "ok": True,
+                    "stdout": "agent log\nHEARTBEAT_OK\n",
+                    "stderr": "",
+                }
+            )
+        )
+        self.assertFalse(
+            readiness._pong_ok(
+                {
+                    "ok": True,
+                    "stdout": "agent log\nHEARTBEAT_WAITING\n",
+                    "stderr": "",
+                }
+            )
+        )
+
     def test_print_report_includes_normalized_loom_import_metadata(self):
         report = {
             'checked_at': '2026-03-25T00:00:00Z',
