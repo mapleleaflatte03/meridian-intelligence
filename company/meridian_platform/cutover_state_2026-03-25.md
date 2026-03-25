@@ -4,7 +4,7 @@
 - meridian-intelligence: commit 153ee32bab6f91a6b2487e32c6b6e31c94ce2d42 landed.
 - meridian-loom: commits e2e0d8e, 88f0793, and b7cf5dd6105b0a6c5dcc41c8b6166ee3a84a51d9 landed.
 - meridian-kernel: commit 598345d56a658b648edeff61a8da91718c9cb5df landed.
-- branch origin/phase3/minimal-gap-replay-slice (ff618f3) and origin/codex-push (0e4b86c) are superseded by main; keep them non-main.
+- remote meridian-loom branches origin/codex-push (0e4b86c), origin/phase3/minimal-gap-replay-slice (ff618f3), origin/phase3/gap-replay-seam, and origin/phase3/evidence-slice are historical/non-main/superseded; keep them non-main.
 - safety snapshot: /home/ubuntu/.openclaw/workspace/.openclaw/migration-safety/2026-03-25/vps-exit/meridian-intelligence-prep.
 
 ## Active Services
