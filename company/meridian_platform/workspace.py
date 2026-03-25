@@ -3594,8 +3594,10 @@ function render(data) {
   var dbStatus = (persistence.db && persistence.db.status) || 'unknown';
   var auditTotal = observability.metrics && observability.metrics.audit ? observability.metrics.audit.total_events : 0;
   var monthCost = observability.metrics && observability.metrics.metering ? observability.metrics.metering.total_cost_usd : 0;
+  var slo = observability.slo || {};
   sb += '<span class="item">DB: <strong>' + dbStatus + '</strong></span>';
   sb += '<span class="item">Obs: <strong>audit ' + auditTotal + ' / $' + monthCost.toFixed(2) + '</strong></span>';
+  sb += '<span class="item">SLO: <strong>' + (slo.status || 'unknown') + '</strong></span>';
   if (data.context && data.context.auth && data.context.auth.actor_id) {
     sb += '<span class="item">Actor: <strong>' + data.context.auth.actor_id + '</strong> (' + (data.context.auth.role || 'unbound') + ')</span>';
   }

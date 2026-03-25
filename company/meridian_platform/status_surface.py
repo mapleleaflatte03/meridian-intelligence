@@ -14,6 +14,7 @@ import metering
 from metering import get_usage as metering_usage
 from metering import summary as metering_summary
 import observability_store
+import slo_policy
 
 
 PLATFORM_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -197,6 +198,21 @@ def observability_snapshot(org_id):
     metering_events = metering_usage(org_id)
     metering_latest = metering_events[-1] if metering_events else {}
     persistence = persistence_snapshot(org_id)
+    metrics = {
+        'audit': {
+            **audit_summary,
+            'latest_at': audit_latest.get('timestamp', ''),
+            'latest_action': audit_latest.get('action', ''),
+            'latest_outcome': audit_latest.get('outcome', ''),
+        },
+        'metering': {
+            **metering_month,
+            'latest_at': metering_latest.get('timestamp', ''),
+            'latest_metric': metering_latest.get('metric', ''),
+            'latest_cost_usd': round(float(metering_latest.get('cost_usd', 0.0) or 0.0), 4),
+        },
+    }
+    slo = slo_policy.evaluate_observability(metrics)
 
     return {
         'backend': persistence.get('backend', 'file-backed-jsonl'),
@@ -205,37 +221,17 @@ def observability_snapshot(org_id):
             'route': '/metrics',
             'content_type': 'text/plain; charset=utf-8',
         },
-        'metrics': {
-            'audit': {
-                **audit_summary,
-                'latest_at': audit_latest.get('timestamp', ''),
-                'latest_action': audit_latest.get('action', ''),
-                'latest_outcome': audit_latest.get('outcome', ''),
-            },
-            'metering': {
-                **metering_month,
-                'latest_at': metering_latest.get('timestamp', ''),
-                'latest_metric': metering_latest.get('metric', ''),
-                'latest_cost_usd': round(float(metering_latest.get('cost_usd', 0.0) or 0.0), 4),
-            },
-        },
-        'slo': {
-            'status': 'not_formalized',
-            'reason': 'no dedicated SLO engine or metrics exporter exists yet',
-            'signals': {
-                'audit_total_events': audit_summary.get('total_events', 0),
-                'audit_latest_at': audit_latest.get('timestamp', ''),
-                'metering_total_events_month': metering_month.get('total_events', 0),
-                'metering_latest_at': metering_latest.get('timestamp', ''),
-                'metering_total_cost_usd_month': metering_month.get('total_cost_usd', 0.0),
-            },
-        },
+        'metrics': metrics,
+        'slo': slo,
     }
 
 
 def observability_metrics_text(org_id):
-    return observability_store.prometheus_text(
+    snapshot = observability_snapshot(org_id)
+    base_text = observability_store.prometheus_text(
         audit_log_path=audit.AUDIT_FILE,
         metering_log_path=metering.METERING_FILE,
         org_id=org_id,
     )
+    slo_lines = slo_policy.prometheus_lines(snapshot.get('slo', {}), org_id=org_id)
+    return base_text + '\n'.join(slo_lines) + '\n'

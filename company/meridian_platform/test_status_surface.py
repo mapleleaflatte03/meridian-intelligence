@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import importlib.util
+import datetime
 import json
 import os
 import sqlite3
@@ -21,6 +22,7 @@ SPEC.loader.exec_module(status_surface)
 import audit
 import metering
 import observability_store
+import slo_policy
 
 
 class StatusSurfaceTests(unittest.TestCase):
@@ -56,13 +58,16 @@ class StatusSurfaceTests(unittest.TestCase):
                     'cost_usd': 1.25,
                     'timestamp': '2026-03-25T00:01:00Z',
                 }) + '\n')
-            with mock.patch.object(audit, 'AUDIT_FILE', audit_path),                  mock.patch.object(metering, 'METERING_FILE', metering_path):
+            with mock.patch.object(audit, 'AUDIT_FILE', audit_path), \
+                 mock.patch.object(metering, 'METERING_FILE', metering_path), \
+                 mock.patch.object(slo_policy, '_now', return_value=datetime.datetime(2026, 3, 25, 0, 30, 0)):
                 snapshot = status_surface.observability_snapshot('org_founding')
 
         self.assertEqual(snapshot['backend'], 'file-backed-jsonl')
         self.assertEqual(snapshot['metrics']['audit']['total_events'], 1)
         self.assertEqual(snapshot['metrics']['metering']['total_cost_usd'], 1.25)
-        self.assertEqual(snapshot['slo']['status'], 'not_formalized')
+        self.assertEqual(snapshot['slo']['status'], 'healthy')
+        self.assertEqual(snapshot['slo']['policy_name'], 'meridian_observability_slo_v1')
         self.assertEqual(snapshot['metrics']['metering']['latest_metric'], 'mcp_tool_call')
 
     def test_sqlite_observability_mirror_supports_queries_and_export(self):
@@ -70,7 +75,9 @@ class StatusSurfaceTests(unittest.TestCase):
             audit_path = os.path.join(tmp, 'audit_log.jsonl')
             metering_path = os.path.join(tmp, 'metering.jsonl')
             with mock.patch.object(audit, 'AUDIT_FILE', audit_path), \
-                 mock.patch.object(metering, 'METERING_FILE', metering_path):
+                 mock.patch.object(metering, 'METERING_FILE', metering_path), \
+                 mock.patch.object(audit, '_now', return_value='2026-03-25T00:30:00Z'), \
+                 mock.patch.object(metering, '_now', return_value='2026-03-25T00:30:00Z'):
                 audit.log_event(
                     'org_founding',
                     'agent_main',
@@ -99,15 +106,18 @@ class StatusSurfaceTests(unittest.TestCase):
             self.assertEqual(meter_count, 1)
 
             with mock.patch.object(audit, 'AUDIT_FILE', audit_path), \
-                 mock.patch.object(metering, 'METERING_FILE', metering_path):
+                 mock.patch.object(metering, 'METERING_FILE', metering_path), \
+                 mock.patch.object(slo_policy, '_now', return_value=datetime.datetime(2026, 3, 25, 0, 30, 0)):
                 snapshot = status_surface.observability_snapshot('org_founding')
                 metrics_text = status_surface.observability_metrics_text('org_founding')
 
         self.assertEqual(snapshot['backend'], 'sqlite+jsonl')
         self.assertEqual(snapshot['db']['status'], 'present')
         self.assertEqual(snapshot['export']['route'], '/metrics')
+        self.assertEqual(snapshot['slo']['status'], 'healthy')
         self.assertIn('meridian_audit_events_total{org_id="org_founding"} 1', metrics_text)
         self.assertIn('meridian_metering_cost_usd_total{org_id="org_founding"} 1.2500', metrics_text)
+        self.assertIn('meridian_slo_overall_status{org_id="org_founding"} 1', metrics_text)
 
 
 if __name__ == '__main__':
