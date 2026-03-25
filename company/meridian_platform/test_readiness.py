@@ -1,14 +1,80 @@
 #!/usr/bin/env python3
 import importlib.util
+import io
 import os
 import sys
+import types
 import unittest
+from contextlib import redirect_stdout
 from unittest.mock import patch
 
 
 THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 if THIS_DIR not in sys.path:
     sys.path.insert(0, THIS_DIR)
+
+_real_spec_from_file_location = importlib.util.spec_from_file_location
+
+
+class _StubLoader:
+    def create_module(self, spec):
+        return None
+
+    def exec_module(self, module):
+        module.internal_test_ids = lambda data=None, org_id=None: set()
+
+
+def _spec_from_file_location(name, location, *args, **kwargs):
+    if str(location).endswith(os.path.join('company', 'subscriptions.py')):
+        return importlib.machinery.ModuleSpec(name, _StubLoader())
+    return _real_spec_from_file_location(name, location, *args, **kwargs)
+
+
+importlib.util.spec_from_file_location = _spec_from_file_location
+
+_fake_treasury = types.ModuleType('treasury')
+_fake_treasury.treasury_snapshot = lambda org_id=None: {
+    'balance_usd': 0.0,
+    'reserve_floor_usd': 0.0,
+    'runway_usd': 0.0,
+    'shortfall_usd': 0.0,
+    'above_reserve': True,
+} 
+_fake_treasury.check_budget = lambda *args, **kwargs: (True, 'ok')
+sys.modules.setdefault('treasury', _fake_treasury)
+
+_fake_organizations = types.ModuleType('organizations')
+_fake_organizations.load_orgs = lambda: {
+    'organizations': {
+        'org_founding': {
+            'id': 'org_founding',
+            'slug': 'meridian',
+            'name': 'Meridian',
+        }
+    }
+}
+_fake_organizations.get_org = lambda org_id: _fake_organizations.load_orgs()['organizations'].get(org_id)
+sys.modules.setdefault('organizations', _fake_organizations)
+
+_fake_brief_quality = types.ModuleType('brief_quality')
+_fake_brief_quality.analyze_brief = lambda path: {'passed': True}
+sys.modules.setdefault('brief_quality', _fake_brief_quality)
+
+_fake_treasury = types.ModuleType('treasury')
+_fake_treasury.treasury_snapshot = lambda org_id=None: {
+    'balance_usd': 0.0,
+    'reserve_floor_usd': 0.0,
+    'runway_usd': 0.0,
+    'shortfall_usd': 0.0,
+    'above_reserve': True,
+}
+_fake_treasury.check_budget = lambda *args, **kwargs: (True, 'ok')
+sys.modules.setdefault('treasury', _fake_treasury)
+
+_fake_authority = types.ModuleType('authority')
+_fake_authority.check_authority = lambda *args, **kwargs: True
+_fake_authority.is_kill_switch_engaged = lambda *args, **kwargs: False
+sys.modules.setdefault('authority', _fake_authority)
 
 READINESS_PATH = os.path.join(THIS_DIR, "readiness.py")
 SPEC = importlib.util.spec_from_file_location("meridian_readiness", READINESS_PATH)
@@ -115,6 +181,47 @@ class ReadinessVerdictTests(unittest.TestCase):
             preflight_ok=False,
         )
         self.assertEqual(report["verdict"], "CONSTITUTION_BLOCKED_PREFLIGHT")
+
+    def test_print_report_includes_normalized_loom_import_metadata(self):
+        report = {
+            'checked_at': '2026-03-25T00:00:00Z',
+            'verdict': 'READY_FOR_CONTROLLED_DELIVERY_CHECK',
+            'runtime': {'health_ok': True, 'pong_ok': True, 'pong_output': 'PONG'},
+            'treasury': {
+                'blocked': False,
+                'runway_usd': 25.0,
+                'customer_revenue_usd': 0.0,
+                'support_received_usd': 0.0,
+                'owner_capital_usd': 0.0,
+            },
+            'phase': {'number': 4, 'name': 'Treasury-Cleared Automation'},
+            'preflight': {'ok': True, 'summary': 'PREFLIGHT: OK'},
+            'route_cutovers': {
+                'intelligence_on_demand_research': {
+                    'owner': 'loom',
+                    'runtime_source': 'route_override',
+                    'fallback_enabled': False,
+                    'loom_preflight': {
+                        'ok': True,
+                        'errors': [],
+                        'normalized_import_metadata': {
+                            'supported': True,
+                            'skill_slug': 'safe-web-research',
+                            'worker_entry': 'workers/python/imported-clawskill-safe-web-research-v0.py',
+                        },
+                    },
+                }
+            },
+            'brief': {'exists': False, 'path': None, 'date': None},
+            'delivery_targets': {'count': 0, 'internal_test_count': 0},
+        }
+
+        buffer = io.StringIO()
+        with redirect_stdout(buffer):
+            readiness.print_report(report)
+
+        output = buffer.getvalue()
+        self.assertIn('On-demand research Loom import metadata: OK skill=safe-web-research', output)
 
 
 if __name__ == "__main__":

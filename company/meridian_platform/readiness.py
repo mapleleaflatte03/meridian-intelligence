@@ -335,6 +335,14 @@ def print_report(report):
                 "On-demand research Loom preflight: "
                 + ("OK" if preflight.get('ok') else f"BLOCKED ({'; '.join(preflight.get('errors', []))})")
             )
+            import_metadata = preflight.get('normalized_import_metadata')
+            if isinstance(import_metadata, dict):
+                support_text = 'OK' if import_metadata.get('supported') else f"BLOCKED ({import_metadata.get('unsupported_reason', '')})"
+                skill_slug = import_metadata.get('skill_slug') or 'unknown'
+                print(
+                    "On-demand research Loom import metadata: "
+                    f"{support_text} skill={skill_slug} worker={import_metadata.get('worker_entry', '')}"
+                )
     if report["brief"]["exists"]:
         print(f"Latest brief: {report['brief']['date']} ({report['brief']['path']})")
     else:

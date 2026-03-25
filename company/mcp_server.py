@@ -36,6 +36,7 @@ import glob
 import json
 import logging
 import os
+import re
 import subprocess
 import sys
 import time
@@ -111,6 +112,17 @@ PRICES = {
     'weekly-digest': 1.50,
     'competitor-snapshot': 3.00,
 }
+
+SUPPORTED_LOOM_IMPORT_RUNTIME_LANE = 'python_host_process/imported_workspace_skill'
+SUPPORTED_LOOM_IMPORT_WORKER_KIND = 'python'
+SUPPORTED_LOOM_IMPORT_PAYLOAD_MODE = 'json'
+SUPPORTED_LOOM_IMPORT_ADAPTER_KIND = 'url_report_v0'
+SUPPORTED_LOOM_IMPORT_DEPENDENCY_MODE = 'workspace_host_python'
+SUPPORTED_LOOM_IMPORT_PROVENANCE = 'clawfamily_skill_contract_v0/workspace_python_entrypoint'
+
+_LOOM_SKILL_MANIFEST_RE = re.compile(r'(?P<root>.*/skills/(?P<skill_slug>[^/]+)/SKILL\.md)$')
+_LOOM_SKILL_PATH_RE = re.compile(r'(?P<root>.*/skills/(?P<skill_slug>[^/]+))$')
+_LOOM_IMPORTED_WORKER_ENTRY_RE = re.compile(r'^workers/python/imported-(?P<import_token>[^/]+)\.py$')
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(name)s] %(message)s')
 logger = logging.getLogger('meridian.mcp')
@@ -255,6 +267,107 @@ def _loom_research_payload(topic: str, depth: str, prompt: str) -> dict:
     return payload
 
 
+def _normalize_loom_skill_slug(value: str) -> str:
+    value = (value or '').strip().lower().replace('_', '-')
+    value = re.sub(r'[^a-z0-9-]+', '-', value)
+    return re.sub(r'-{2,}', '-', value).strip('-')
+
+
+def _normalize_loom_import_metadata(capability_payload: dict) -> dict:
+    payload = dict(capability_payload or {})
+    source_manifest = (payload.get('source_manifest') or '').strip()
+    source_path = (payload.get('source_path') or '').strip()
+    worker_entry = (payload.get('worker_entry') or '').strip()
+    worker_kind = (payload.get('worker_kind') or '').strip().lower()
+    runtime_lane = (payload.get('runtime_lane') or '').strip()
+    payload_mode = (payload.get('payload_mode') or '').strip().lower()
+    adapter_kind = (payload.get('adapter_kind') or '').strip()
+    dependency_mode = (payload.get('dependency_mode') or '').strip()
+    import_provenance = (payload.get('import_provenance') or '').strip()
+    source_kind = (payload.get('source_kind') or '').strip()
+    env_contract = (payload.get('env_contract') or '').strip()
+    capability_name = (payload.get('name') or '').strip()
+
+    unsupported_reasons = []
+    skill_slug = ''
+    import_token = ''
+
+    manifest_match = _LOOM_SKILL_MANIFEST_RE.match(source_manifest)
+    if manifest_match:
+        skill_slug = _normalize_loom_skill_slug(manifest_match.group('skill_slug'))
+    elif source_manifest:
+        unsupported_reasons.append('source_manifest must end in /skills/<skill>/SKILL.md')
+
+    path_match = _LOOM_SKILL_PATH_RE.match(source_path)
+    if path_match:
+        path_slug = _normalize_loom_skill_slug(path_match.group('skill_slug'))
+        if skill_slug and path_slug != skill_slug:
+            unsupported_reasons.append(
+                f'source_path skill slug {path_slug} does not match source_manifest skill slug {skill_slug}'
+            )
+        skill_slug = skill_slug or path_slug
+    elif source_path:
+        unsupported_reasons.append('source_path must end in /skills/<skill>')
+
+    worker_match = _LOOM_IMPORTED_WORKER_ENTRY_RE.match(worker_entry)
+    if worker_match and not import_token:
+        import_token = _normalize_loom_skill_slug(worker_match.group('import_token'))
+        derived_skill_slug = import_token
+        if derived_skill_slug.startswith('clawskill-'):
+            derived_skill_slug = derived_skill_slug[len('clawskill-'):]
+        if derived_skill_slug.endswith('-v0'):
+            derived_skill_slug = derived_skill_slug[:-3]
+        skill_slug = skill_slug or _normalize_loom_skill_slug(derived_skill_slug)
+
+    normalized_source_path = source_path or (source_manifest.rsplit('/SKILL.md', 1)[0] if source_manifest else '')
+    normalized_source_manifest = source_manifest or (f'{normalized_source_path}/SKILL.md' if normalized_source_path else '')
+    if capability_name:
+        import_token = _normalize_loom_skill_slug(capability_name.replace('.', '-'))
+    elif not import_token and skill_slug:
+        import_token = f'clawskill-{skill_slug}-v0'
+    normalized_worker_entry = f'workers/python/imported-{import_token}.py' if import_token else worker_entry
+
+    if not skill_slug:
+        unsupported_reasons.append('could not derive a skill slug from import metadata')
+    if worker_kind and worker_kind != SUPPORTED_LOOM_IMPORT_WORKER_KIND:
+        unsupported_reasons.append(f'worker_kind={worker_kind}')
+    if runtime_lane and runtime_lane != SUPPORTED_LOOM_IMPORT_RUNTIME_LANE:
+        unsupported_reasons.append(f'runtime_lane={runtime_lane}')
+    if payload_mode and payload_mode != SUPPORTED_LOOM_IMPORT_PAYLOAD_MODE:
+        unsupported_reasons.append(f'payload_mode={payload_mode}')
+    if adapter_kind and adapter_kind != SUPPORTED_LOOM_IMPORT_ADAPTER_KIND:
+        unsupported_reasons.append(f'adapter_kind={adapter_kind}')
+    if dependency_mode and dependency_mode != SUPPORTED_LOOM_IMPORT_DEPENDENCY_MODE:
+        unsupported_reasons.append(f'dependency_mode={dependency_mode}')
+    if import_provenance and import_provenance != SUPPORTED_LOOM_IMPORT_PROVENANCE:
+        unsupported_reasons.append(f'import_provenance={import_provenance}')
+    if normalized_worker_entry and worker_entry and worker_entry != normalized_worker_entry:
+        unsupported_reasons.append(f'worker_entry={worker_entry}')
+    if source_kind and source_kind not in {'openclaw_workspace_skill', 'openclaw_plugin_skill', 'openclaw_plugin_packaged_skill'}:
+        unsupported_reasons.append(f'source_kind={source_kind}')
+
+    supported = not unsupported_reasons
+    return {
+        'subset': 'openclaw_plugin_skill_subset',
+        'supported': supported,
+        'unsupported_reasons': unsupported_reasons,
+        'unsupported_reason': '; '.join(unsupported_reasons) if unsupported_reasons else '',
+        'skill_slug': skill_slug,
+        'capability_name': capability_name,
+        'import_token': import_token,
+        'source_kind': source_kind,
+        'source_manifest': normalized_source_manifest,
+        'source_path': normalized_source_path,
+        'worker_kind': worker_kind or SUPPORTED_LOOM_IMPORT_WORKER_KIND,
+        'worker_entry': normalized_worker_entry,
+        'runtime_lane': runtime_lane,
+        'payload_mode': payload_mode or SUPPORTED_LOOM_IMPORT_PAYLOAD_MODE,
+        'adapter_kind': adapter_kind,
+        'dependency_mode': dependency_mode,
+        'import_provenance': import_provenance,
+    }
+
+
 def _on_demand_research_prompt(topic: str, depth: str = 'standard') -> str:
     depth_map = {'quick': 3, 'standard': 5, 'deep': 7}
     n_findings = depth_map.get(depth, 5)
@@ -331,6 +444,13 @@ def _loom_research_preflight(capability_name: str) -> dict:
                 preflight['errors'].append('loom capability show returned non-JSON output')
             else:
                 preflight['capability'] = capability_payload
+                normalized_import_metadata = _normalize_loom_import_metadata(capability_payload)
+                preflight['normalized_import_metadata'] = normalized_import_metadata
+                if not normalized_import_metadata['supported']:
+                    preflight['errors'].append(
+                        'loom imported skill subset unsupported: '
+                        + normalized_import_metadata['unsupported_reason']
+                    )
                 if not capability_payload.get('enabled', False):
                     preflight['errors'].append('loom capability is disabled')
                 if capability_payload.get('verification_status') != 'verified':

@@ -3,6 +3,7 @@ import importlib.util
 import json
 import os
 import sys
+import types
 import unittest
 from unittest import mock
 
@@ -12,6 +13,31 @@ COMPANY_DIR = os.path.join(WORKSPACE, 'company')
 for path in (COMPANY_DIR, os.path.join(COMPANY_DIR, 'meridian_platform')):
     if path not in sys.path:
         sys.path.insert(0, path)
+
+_fake_brief_quality = types.ModuleType('brief_quality')
+_fake_brief_quality.analyze_brief = lambda path: {'passed': True}
+sys.modules.setdefault('brief_quality', _fake_brief_quality)
+
+_fake_treasury = types.ModuleType('treasury')
+_fake_treasury.check_budget = lambda *args, **kwargs: (True, 'ok')
+_fake_treasury.treasury_snapshot = lambda *args, **kwargs: {
+    'balance_usd': 0.0,
+    'reserve_floor_usd': 0.0,
+    'runway_usd': 0.0,
+    'shortfall_usd': 0.0,
+    'above_reserve': True,
+}
+sys.modules.setdefault('treasury', _fake_treasury)
+
+_fake_authority = types.ModuleType('authority')
+_fake_authority.check_authority = lambda *args, **kwargs: True
+_fake_authority.is_kill_switch_engaged = lambda *args, **kwargs: False
+sys.modules.setdefault('authority', _fake_authority)
+
+_fake_organizations = types.ModuleType('organizations')
+_fake_organizations.load_orgs = lambda: {'organizations': {'org_founding': {'id': 'org_founding', 'slug': 'meridian', 'name': 'Meridian'}}}
+_fake_organizations.get_org = lambda org_id: _fake_organizations.load_orgs()['organizations'].get(org_id)
+sys.modules.setdefault('organizations', _fake_organizations)
 
 
 def _load_module(path, name):
@@ -218,6 +244,90 @@ class McpRuntimeAdapterTests(unittest.TestCase):
         self.assertTrue(result['route_cutover']['fallback']['used'])
         self.assertEqual(result['route_cutover']['fallback']['state'], 'preflight_failed')
         self.assertIn('missing capability', result['route_cutover']['fallback']['reason'])
+
+    def test_research_loom_plugin_skill_import_metadata_is_normalized(self):
+        service_status = mock.Mock(
+            returncode=0,
+            stdout=json.dumps({
+                'running': True,
+                'service_status': 'running',
+                'health': 'healthy',
+                'transport': 'socket+http',
+            }),
+            stderr='',
+        )
+        capability_show = mock.Mock(
+            returncode=0,
+            stdout=json.dumps({
+                'enabled': True,
+                'verification_status': 'verified',
+                'promotion_state': 'promoted',
+                'worker_kind': 'python',
+                'worker_entry': 'workers/python/imported-clawskill-safe-web-research-v0.py',
+                'payload_mode': 'json',
+                'adapter_kind': 'url_report_v0',
+                'runtime_lane': 'python_host_process/imported_workspace_skill',
+                'dependency_mode': 'workspace_host_python',
+                'import_provenance': 'clawfamily_skill_contract_v0/workspace_python_entrypoint',
+                'source_kind': 'openclaw_workspace_skill',
+                'source_manifest': '/home/ubuntu/.openclaw/workspace/skills/safe-web-research/SKILL.md',
+                'source_path': '/home/ubuntu/.openclaw/workspace/skills/safe-web-research',
+                'env_contract': 'host python3 + source skill root /home/ubuntu/.openclaw/workspace/skills/safe-web-research + wrapper workers/python/imported-clawskill-safe-web-research-v0.py',
+            }),
+            stderr='',
+        )
+        with mock.patch.object(mcp_server.subprocess, 'run', side_effect=[service_status, capability_show]):
+            with mock.patch.dict(os.environ, {'MERIDIAN_LOOM_RESEARCH_CAPABILITY': 'clawskill.safe-web-research.v0'}, clear=False):
+                preflight = mcp_server._loom_research_preflight('clawskill.safe-web-research.v0')
+
+        self.assertTrue(preflight['ok'])
+        normalized = preflight['normalized_import_metadata']
+        self.assertTrue(normalized['supported'])
+        self.assertEqual(normalized['subset'], 'openclaw_plugin_skill_subset')
+        self.assertEqual(normalized['skill_slug'], 'safe-web-research')
+        self.assertEqual(normalized['source_manifest'], '/home/ubuntu/.openclaw/workspace/skills/safe-web-research/SKILL.md')
+        self.assertEqual(normalized['source_path'], '/home/ubuntu/.openclaw/workspace/skills/safe-web-research')
+        self.assertEqual(normalized['worker_entry'], 'workers/python/imported-clawskill-safe-web-research-v0.py')
+
+    def test_research_loom_plugin_skill_import_metadata_reports_unsupported_reasons(self):
+        service_status = mock.Mock(
+            returncode=0,
+            stdout=json.dumps({
+                'running': True,
+                'service_status': 'running',
+                'health': 'healthy',
+                'transport': 'socket+http',
+            }),
+            stderr='',
+        )
+        capability_show = mock.Mock(
+            returncode=0,
+            stdout=json.dumps({
+                'enabled': True,
+                'verification_status': 'verified',
+                'promotion_state': 'promoted',
+                'worker_kind': 'python',
+                'worker_entry': 'workers/python/imported-clawskill-safe-web-research-v0-extra.py',
+                'payload_mode': 'json',
+                'adapter_kind': 'url_report_v0',
+                'runtime_lane': 'python_host_process/legacy_skill',
+                'dependency_mode': 'workspace_host_python',
+                'import_provenance': 'clawfamily_skill_contract_v0/workspace_python_entrypoint',
+                'source_kind': 'openclaw_workspace_skill',
+                'source_manifest': '/home/ubuntu/.openclaw/workspace/skills/safe-web-research/SKILL.md',
+                'source_path': '/home/ubuntu/.openclaw/workspace/skills/safe-web-research',
+                'env_contract': 'host python3 + source skill root /home/ubuntu/.openclaw/workspace/skills/safe-web-research + wrapper workers/python/imported-clawskill-safe-web-research-v0-extra.py',
+            }),
+            stderr='',
+        )
+        with mock.patch.object(mcp_server.subprocess, 'run', side_effect=[service_status, capability_show]):
+            preflight = mcp_server._loom_research_preflight('clawskill.safe-web-research.v0')
+
+        self.assertFalse(preflight['ok'])
+        normalized = preflight['normalized_import_metadata']
+        self.assertFalse(normalized['supported'])
+        self.assertIn('runtime_lane=python_host_process/legacy_skill', normalized['unsupported_reasons'])
+        self.assertIn('loom imported skill subset unsupported:', preflight['errors'][0])
 
     def test_qa_defaults_to_openclaw_when_only_research_runtime_is_loom(self):
         stdout = json.dumps({'response': 'openclaw qa result'})
