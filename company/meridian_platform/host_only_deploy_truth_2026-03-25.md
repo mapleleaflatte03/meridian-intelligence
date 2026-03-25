@@ -20,6 +20,7 @@ This note records the current host-facing deploy truth for Meridian Intelligence
 - `company/meridian_platform/bootstrap.py`
 - `company/meridian_platform/ci_vertical.py`
 - Live `/etc/default/meridian-mcp-runtime` on the host, because it is the active runtime selector and includes the non-redacted service-token slot.
+- OpenClaw remains the broader runtime; Loom is live only for `intelligence_on_demand_research` on this host.
 
 ## Runtime-audit / runtime-state artifacts
 - `company/meridian_platform/audit_log.jsonl` is gitignored runtime audit data and stays non-main.

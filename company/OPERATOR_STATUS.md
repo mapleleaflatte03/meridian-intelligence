@@ -1,6 +1,6 @@
 # Operator Status — Meridian
 
-Last updated: 2026-03-22
+Last updated: 2026-03-25
 Evidence base: direct commands and local file inspection (see Evidence column).
 
 This document records the current operational truth of the Meridian system.
@@ -12,7 +12,8 @@ It is not promotional copy. Every claim is tagged verified, inferred, or unknown
 
 | Component | Status | Source |
 |-----------|--------|--------|
-| Agent runtime | HEALTHY — `openclaw health` OK and 3/3 PONG verified at closeout; this host is still a single-host OpenClaw proof surface, not multi-host deployment proof | `openclaw health`, `openclaw agent --agent main --message "respond with PONG" --timeout 15000` |
+| Agent runtime | HEALTHY — `openclaw health` OK and 3/3 PONG verified at closeout; this host is still a single-host OpenClaw proof surface, and Loom is live only for `intelligence_on_demand_research` | `openclaw health`, `openclaw agent --agent main --message "respond with PONG" --timeout 15000` |
+| Live route cutover | VERIFIED — `intelligence_on_demand_research` is the only Loom-owned cutover on this host; fallback is disabled | `readiness.py --json`, live route checks |
 | Runtime proof receipt | VERIFIED — public `GET /api/runtime-proof` now turns the host's OpenClaw health, canonical `PONG`, runtime inventory, and governed-agent alignment into a structured proof receipt | localhost GET to `http://127.0.0.1:18901/api/runtime-proof` |
 | Night-shift pipeline | BLOCKED — treasury $48 below reserve floor | `ci_vertical.py preflight` |
 | Constitutional preflight | BLOCKED — treasury $48 below reserve floor | `treasury.py runway` |

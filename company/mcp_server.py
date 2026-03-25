@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-Meridian MCP Server — Paid intelligence tools via x402.
+Meridian MCP Server — x402-capable intelligence tools.
 
 Three tools:
   1. intelligence/latest-brief     — $0.50  — Today's intelligence brief
   2. intelligence/on-demand-research — $2.00 — On-demand research on any topic
   3. intelligence/qa-verify         — $1.00  — QA verification of any text
 
-Payment: USDC on Base L2 via x402 protocol.
+Payment: USDC on Base L2 via x402-capable settlement.
 
 Run:
   python3 mcp_server.py                    # MCP stdio mode (default)
@@ -1352,7 +1352,7 @@ def create_server(free_mode: bool = False) -> FastMCP:
             )
 
             @mcp.tool(name='intelligence_latest_brief',
-                       description='Get the latest AI intelligence brief. Produced daily by 7-agent pipeline with QA verification. Price: $0.50 USDC on Base L2.')
+                       description='Get the latest AI intelligence brief when the governed workflow is active. Price: $0.50 USDC on Base L2.')
             @brief_wrapper
             async def latest_brief(topic_filter: str = '') -> str:
                 _audit_tool_call('latest-brief', PRICES['latest-brief'],
@@ -1379,7 +1379,7 @@ def create_server(free_mode: bool = False) -> FastMCP:
             )
 
             @mcp.tool(name='intelligence_on_demand_research',
-                       description='Research any topic with sourced findings. Delegated to Atlas. Depth: quick/standard/deep. Price: $2.00 USDC on Base L2.')
+                       description='Research any topic with sourced findings. Delegated to Atlas. Live Loom cutover only for this route on this host. Depth: quick/standard/deep. Price: $2.00 USDC on Base L2.')
             @research_wrapper
             async def on_demand_research(topic: str, depth: str = 'standard') -> str:
                 _audit_tool_call('on-demand-research', PRICES['on-demand-research'],
