@@ -1,9 +1,10 @@
 # Meridian Cutover State 2026-03-25
 
 ## Repo Truth
-- meridian-loom: /root/meridian-loom clean on main...origin/main
-- meridian-kernel: /opt/meridian-kernel clean on main...origin/main with untracked runtime artifacts under economy/capsules and kernel/runtime_audit
-- meridian-intelligence: /home/ubuntu/.openclaw/workspace is main...origin/main [ahead 18] and dirty
+- meridian-intelligence: /home/ubuntu/.openclaw/workspace is main...origin/main [ahead 18] and dirty; cutover commits 7312491 and 736624b landed.
+- meridian-loom: cutover commits 5622c5651a6a98a2ca79edacf52d106f04926774 and 1eca5ea3e09381008cca4a190c2939f613dcfa7b landed.
+- meridian-kernel: cutover commit 598345d56a658b648edeff61a8da91718c9cb5df landed.
+- safety snapshot: /home/ubuntu/.openclaw/workspace/.openclaw/migration-safety/2026-03-25/vps-exit/meridian-intelligence-prep.
 
 ## Active Services
 - meridian-loom.service active
