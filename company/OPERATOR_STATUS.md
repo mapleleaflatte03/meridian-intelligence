@@ -168,11 +168,12 @@ These reminders go to owner-controlled accounts. Not funnel activity.
 ## What Can Be Done Without Owner Action
 
 - Run `python3 company/meridian_platform/readiness.py` for a one-command readiness verdict
+- Run `python3 company/meridian_platform/ci_vertical.py status` for the current constitutional status map
 - Read and inspect all state files
 - Run `--dry-run` on any delivery script to see what would be sent
 - Improve product surfaces (docs, site copy, architecture docs)
 - File court records, review economy ledger
-- Run `ci_vertical.py preflight` to get current gate status
+- Run `python3 company/meridian_platform/ci_vertical.py preflight` to get current gate status before a pipeline run
 
 ---
 
