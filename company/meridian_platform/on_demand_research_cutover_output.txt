@@ -370,3 +370,21 @@
     "stderr": ""
   }
 }
+
+
+== latest_readiness_refresh ==
+Meridian readiness — 2026-03-25T19:51:43Z
+Verdict: OWNER_BLOCKED_TREASURY
+
+Runtime: OK
+Treasury: BLOCKED runway $-48.00
+Treasury mix: customer $0.00 | support $0.00 | owner capital $2.00
+Phase: 0 — Founder-Backed Build
+Preflight: BLOCKED (PREFLIGHT: BLOCKED — pipeline should not run)
+On-demand research route: owner=loom source=route_override fallback=on
+On-demand research Loom preflight: OK
+On-demand research transcript: route=intelligence_on_demand_research | requested=loom | owner=loom | fallback=on | source=route_override | capability=clawskill.safe-web-research.v0 | preflight=ok | preflight_capability=clawskill.safe-web-research.v0
+Latest brief: none
+Deliverable targets today: 0
+Internal test targets today: 0
+Rehearsal passes: restart-check, stability-pass

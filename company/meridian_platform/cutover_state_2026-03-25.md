@@ -28,3 +28,6 @@
 - Rehearsal script covers off_path, loom_on_path, rollback_path, and --restart-check
 - loom_on_path now completes through Loom service boundary with clawskill.safe-web-research.v0
 - rollback_path falls back to OpenClaw with explicit route_cutover.fallback metadata
+
+- 2026-03-25T19:51Z: reran the cutover rehearsal with `--restart-check` plus a second stability pass; the live readiness surface still reports `owner=loom`, `fallback=on` (`fallback_enabled=true`), and `clawskill.safe-web-research.v0` with Loom preflight OK.
+- 2026-03-25T19:51Z: direct `readiness.py` output stayed consistent after the restart, so the checked-in transcript remains valid but now has a fresh canary evidence point.
