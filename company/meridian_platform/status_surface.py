@@ -13,6 +13,8 @@ from capsule import capsule_path
 import metering
 from metering import get_usage as metering_usage
 from metering import summary as metering_summary
+import organizations
+import organizations_store
 import observability_store
 import slo_policy
 
@@ -94,6 +96,13 @@ def _file_snapshot(path, *, kind, owner, append_only=False, role='canonical'):
 
 def persistence_snapshot(org_id=None):
     """Return the concrete file-backed persistence seams for the workspace."""
+    orgs_db = organizations_store.db_path_for_file(organizations.ORGS_FILE)
+    orgs_db_snapshot = _file_snapshot(
+        orgs_db,
+        kind='sqlite',
+        owner='organizations.py',
+        role='state_mirror',
+    )
     observability_db = observability_store.db_path_for_log(audit.AUDIT_FILE)
     observability_db_snapshot = _file_snapshot(
         observability_db,
@@ -177,10 +186,28 @@ def persistence_snapshot(org_id=None):
             kind='json',
             owner='federation_inbox.py',
         ),
+        orgs_db_snapshot,
         observability_db_snapshot,
     ]
-    db_status = observability_store.db_status_for_log(audit.AUDIT_FILE)
-    backend = 'sqlite+jsonl' if db_status.get('status') == 'present' else 'file-backed-jsonl'
+    orgs_db_status = organizations_store.db_status_for_file(organizations.ORGS_FILE)
+    observability_db_status = observability_store.db_status_for_log(audit.AUDIT_FILE)
+    db_status = {
+        'status': 'present' if orgs_db_status.get('status') == 'present' or observability_db_status.get('status') == 'present' else 'absent',
+        'reason': '',
+        'organizations': orgs_db_status,
+        'observability': observability_db_status,
+    }
+    if db_status['status'] != 'present':
+        db_status['reason'] = 'sqlite mirrors are not initialized yet'
+    backend = (
+        'sqlite-organizations+sqlite-observability+jsonl'
+        if orgs_db_status.get('status') == 'present' and observability_db_status.get('status') == 'present'
+        else 'sqlite-organizations+jsonl'
+        if orgs_db_status.get('status') == 'present'
+        else 'sqlite+jsonl'
+        if observability_db_status.get('status') == 'present'
+        else 'file-backed-jsonl'
+    )
     return {
         'backend': backend,
         'db': db_status,

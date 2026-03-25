@@ -21,6 +21,8 @@ SPEC.loader.exec_module(status_surface)
 
 import audit
 import metering
+import organizations
+import organizations_store
 import observability_store
 import slo_policy
 
@@ -34,6 +36,7 @@ class StatusSurfaceTests(unittest.TestCase):
         seam_owners = {seam['owner'] for seam in snapshot['seams']}
         self.assertIn('audit_log.jsonl', seam_names)
         self.assertIn('metering.jsonl', seam_names)
+        self.assertIn('organizations.db', seam_names)
         self.assertIn('accounting_service.py', seam_owners)
 
     def test_observability_snapshot_summarizes_file_backed_metrics(self):
@@ -118,6 +121,16 @@ class StatusSurfaceTests(unittest.TestCase):
         self.assertIn('meridian_audit_events_total{org_id="org_founding"} 1', metrics_text)
         self.assertIn('meridian_metering_cost_usd_total{org_id="org_founding"} 1.2500', metrics_text)
         self.assertIn('meridian_slo_overall_status{org_id="org_founding"} 1', metrics_text)
+
+    def test_organizations_sqlite_mirror_surfaces_in_persistence_snapshot(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            orgs_path = os.path.join(tmp, 'organizations.json')
+            with mock.patch.object(organizations, 'ORGS_FILE', orgs_path):
+                organizations.create_org('Acme Corp', 'user_123', plan='pro')
+                snapshot = status_surface.persistence_snapshot('org_founding')
+
+        self.assertEqual(snapshot['db']['organizations']['status'], 'present')
+        self.assertTrue(snapshot['backend'].startswith('sqlite-organizations'))
 
 
 if __name__ == '__main__':

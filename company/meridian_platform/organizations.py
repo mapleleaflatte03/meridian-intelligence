@@ -19,6 +19,8 @@ import json
 import os
 import uuid
 
+import organizations_store
+
 PLATFORM_DIR = os.path.dirname(os.path.abspath(__file__))
 ORGS_FILE = os.path.join(PLATFORM_DIR, 'organizations.json')
 
@@ -44,16 +46,15 @@ def _slug(name):
 
 
 def load_orgs():
-    if os.path.exists(ORGS_FILE):
-        with open(ORGS_FILE) as f:
-            return json.load(f)
-    return {'organizations': {}, 'updatedAt': _now()}
+    return organizations_store.load_orgs(ORGS_FILE)
 
 
 def save_orgs(data):
+    data = dict(data or {})
+    data.setdefault('organizations', {})
     data['updatedAt'] = _now()
-    with open(ORGS_FILE, 'w') as f:
-        json.dump(data, f, indent=2)
+    organizations_store.save_orgs(ORGS_FILE, data)
+    return data
 
 
 def create_org(name, owner_id, plan='free'):

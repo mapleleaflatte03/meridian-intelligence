@@ -6,6 +6,7 @@ import unittest
 from unittest import mock
 
 import organizations
+import organizations_store
 
 
 class TestOrganizations(unittest.TestCase):
@@ -175,6 +176,22 @@ class TestOrganizations(unittest.TestCase):
 
         with self.assertRaises(ValueError):
             organizations.transition_lifecycle('invalid_org', 'suspended')
+
+    @mock.patch('uuid.uuid4')
+    def test_sqlite_mirror_survives_missing_json_file(self, mock_uuid):
+        mock_uuid.return_value.hex = '1234567890abcdef'
+        org_id = organizations.create_org('Acme Corp', 'user_123', plan='pro')
+
+        db_path = organizations_store.db_path_for_file(organizations.ORGS_FILE)
+        self.assertTrue(os.path.exists(db_path))
+
+        os.remove(organizations.ORGS_FILE)
+        reloaded = organizations.get_org(org_id)
+
+        self.assertIsNotNone(reloaded)
+        self.assertEqual(reloaded['id'], org_id)
+        self.assertEqual(reloaded['name'], 'Acme Corp')
+        self.assertEqual(reloaded['plan'], 'pro')
 
 if __name__ == '__main__':
     unittest.main()
