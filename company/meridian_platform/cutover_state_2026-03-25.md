@@ -23,12 +23,12 @@
 ## Phase 1 Progress
 - Route seam implemented in company/mcp_server.py for intelligence_on_demand_research
 - Route env defaults set in /etc/default/meridian-mcp-runtime
-- Current host canary default: MERIDIAN_INTELLIGENCE_ON_DEMAND_RESEARCH_RUNTIME=loom with fallback=1 and capability=clawskill.safe-web-research.v0
+- Current host canary default: MERIDIAN_INTELLIGENCE_ON_DEMAND_RESEARCH_RUNTIME=loom with fallback=0 and capability=clawskill.safe-web-research.v0
 - Readiness now reports route ownership from deploy env truth
 - Rehearsal script covers off_path, loom_on_path, rollback_path, and --restart-check
-- loom_on_path now completes through Loom service boundary with clawskill.safe-web-research.v0
-- rollback_path falls back to OpenClaw with explicit route_cutover.fallback metadata
+- loom_on_path now completes through Loom service boundary with clawskill.safe-web-research.v0 for both plain-text topics and direct URLs
+- OpenClaw fallback remains disabled on this host; invalid Loom preflight fails closed
 
-- 2026-03-25T19:51Z: reran the cutover rehearsal with `--restart-check` plus a second stability pass; the live readiness surface still reports `owner=loom`, `fallback=on` (`fallback_enabled=true`), and `clawskill.safe-web-research.v0` with Loom preflight OK.
-- 2026-03-25T19:51Z: direct `readiness.py` output stayed consistent after the restart, so the checked-in transcript remains valid but now has a fresh canary evidence point.
-- 2026-03-25T19:58Z: reran `rehearse_on_demand_research_cutover.sh` cleanly; off-path, loom-on-path, and rollback-path all completed, and the final readiness refresh still reports `owner=loom`, `fallback=on`, `clawskill.safe-web-research.v0`, and Loom preflight OK while the overall verdict remains `OWNER_BLOCKED_TREASURY`.
+- 2026-03-25T20:17Z: reran seven clean live route executions with fallback disabled; plain-text topics and direct URLs both completed on Loom with `job_status=completed` and `worker_status=completed`.
+- 2026-03-25T20:17Z: direct `readiness.py` output still reports `owner=loom`, `fallback=off`, `clawskill.safe-web-research.v0`, and Loom preflight OK.
+- 2026-03-25T20:17Z: reran seven clean live route executions with fallback disabled; all seven completed on Loom and the transcript path remained `fallback=off`.
