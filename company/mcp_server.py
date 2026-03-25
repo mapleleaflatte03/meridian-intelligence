@@ -361,9 +361,11 @@ def _normalize_loom_import_metadata(capability_payload: dict) -> dict:
         'worker_kind': worker_kind or SUPPORTED_LOOM_IMPORT_WORKER_KIND,
         'worker_entry': normalized_worker_entry,
         'runtime_lane': runtime_lane,
+        'isolation_lane': runtime_lane,
         'payload_mode': payload_mode or SUPPORTED_LOOM_IMPORT_PAYLOAD_MODE,
         'adapter_kind': adapter_kind,
         'dependency_mode': dependency_mode,
+        'env_contract': env_contract,
         'import_provenance': import_provenance,
     }
 

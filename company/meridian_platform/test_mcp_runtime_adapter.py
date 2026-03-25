@@ -292,9 +292,18 @@ class McpRuntimeAdapterTests(unittest.TestCase):
         self.assertTrue(normalized['supported'])
         self.assertEqual(normalized['subset'], 'openclaw_plugin_skill_subset')
         self.assertEqual(normalized['skill_slug'], 'safe-web-research')
+        self.assertEqual(normalized['source_kind'], 'openclaw_workspace_skill')
         self.assertEqual(normalized['source_manifest'], '/home/ubuntu/.openclaw/workspace/skills/safe-web-research/SKILL.md')
         self.assertEqual(normalized['source_path'], '/home/ubuntu/.openclaw/workspace/skills/safe-web-research')
+        self.assertEqual(normalized['worker_kind'], 'python')
         self.assertEqual(normalized['worker_entry'], 'workers/python/imported-clawskill-safe-web-research-v0.py')
+        self.assertEqual(normalized['runtime_lane'], 'python_host_process/imported_workspace_skill')
+        self.assertEqual(normalized['isolation_lane'], 'python_host_process/imported_workspace_skill')
+        self.assertEqual(normalized['payload_mode'], 'json')
+        self.assertEqual(normalized['adapter_kind'], 'url_report_v0')
+        self.assertEqual(normalized['dependency_mode'], 'workspace_host_python')
+        self.assertEqual(normalized['import_provenance'], 'clawfamily_skill_contract_v0/workspace_python_entrypoint')
+        self.assertEqual(normalized['env_contract'], 'host python3 + source skill root /home/ubuntu/.openclaw/workspace/skills/safe-web-research + wrapper workers/python/imported-clawskill-safe-web-research-v0.py')
 
     def test_research_loom_plugin_skill_import_metadata_reports_unsupported_reasons(self):
         service_status = mock.Mock(
