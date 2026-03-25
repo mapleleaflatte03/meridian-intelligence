@@ -131,6 +131,65 @@ def _runtime_env_defaults():
     return env
 
 
+def _sudo_loom_research_preflight(capability_name: str, runtime_env: dict) -> dict:
+    preflight = {
+        'ok': False,
+        'runtime': 'loom',
+        'capability_name': capability_name,
+        'errors': [],
+    }
+    if not capability_name:
+        preflight['errors'].append('research capability is not configured')
+        return preflight
+
+    loom_bin = (runtime_env.get('MERIDIAN_LOOM_BIN') or '/root/.local/share/meridian-loom/current/bin/loom').strip()
+    loom_root = (runtime_env.get('MERIDIAN_LOOM_ROOT') or '/root/.local/share/meridian-loom/runtime/default').strip()
+
+    service_cmd = ['sudo', '-n', loom_bin, 'service', 'status', '--root', loom_root, '--format', 'json']
+    capability_cmd = ['sudo', '-n', loom_bin, 'capability', 'show', '--root', loom_root, '--name', capability_name, '--format', 'json']
+
+    service = _run(service_cmd, timeout=15)
+    if not service['ok']:
+        message = service['stderr'] or service['stdout'] or 'unknown error'
+        preflight['errors'].append(f'loom service status failed: {message[:500]}')
+    else:
+        try:
+            service_payload = json.loads(service['stdout'])
+        except json.JSONDecodeError:
+            preflight['errors'].append('loom service status returned non-JSON output')
+        else:
+            preflight['service'] = service_payload
+            if not service_payload.get('running'):
+                preflight['errors'].append('loom service is not running')
+            if service_payload.get('service_status') != 'running':
+                preflight['errors'].append(f"loom service_status={service_payload.get('service_status', '')}")
+            if service_payload.get('health') != 'healthy':
+                preflight['errors'].append(f"loom health={service_payload.get('health', '')}")
+            if service_payload.get('transport') not in {'http', 'socket+http'}:
+                preflight['errors'].append(f"loom transport={service_payload.get('transport', '')}")
+
+    capability = _run(capability_cmd, timeout=15)
+    if not capability['ok']:
+        message = capability['stderr'] or capability['stdout'] or 'unknown error'
+        preflight['errors'].append(f'loom capability show failed: {message[:500]}')
+    else:
+        try:
+            capability_payload = json.loads(capability['stdout'])
+        except json.JSONDecodeError:
+            preflight['errors'].append('loom capability show returned non-JSON output')
+        else:
+            preflight['capability'] = capability_payload
+            if not capability_payload.get('enabled', False):
+                preflight['errors'].append('loom capability is disabled')
+            if capability_payload.get('verification_status') != 'verified':
+                preflight['errors'].append(f"loom capability verification={capability_payload.get('verification_status', '')}")
+            if capability_payload.get('promotion_state') != 'promoted':
+                preflight['errors'].append(f"loom capability promotion={capability_payload.get('promotion_state', '')}")
+
+    preflight['ok'] = not preflight['errors']
+    return preflight
+
+
 def _route_cutovers():
     runtime_env = _runtime_env_defaults()
     route_override = runtime_env.get('MERIDIAN_INTELLIGENCE_ON_DEMAND_RESEARCH_RUNTIME')
@@ -148,19 +207,22 @@ def _route_cutovers():
         'loom_capability_name': capability_name,
     }
     if requested_runtime == 'loom':
-        original = {}
-        for key, value in runtime_env.items():
-            if key.startswith('MERIDIAN_') or key == 'LOOM_SERVICE_TOKEN':
-                original[key] = os.environ.get(key)
-                os.environ[key] = value
-        try:
-            route['loom_preflight'] = _mcp_mod._loom_research_preflight(capability_name)
-        finally:
-            for key, value in original.items():
-                if value is None:
-                    os.environ.pop(key, None)
-                else:
+        if os.geteuid() == 0:
+            original = {}
+            for key, value in runtime_env.items():
+                if key.startswith('MERIDIAN_') or key == 'LOOM_SERVICE_TOKEN':
+                    original[key] = os.environ.get(key)
                     os.environ[key] = value
+            try:
+                route['loom_preflight'] = _mcp_mod._loom_research_preflight(capability_name)
+            finally:
+                for key, value in original.items():
+                    if value is None:
+                        os.environ.pop(key, None)
+                    else:
+                        os.environ[key] = value
+        else:
+            route['loom_preflight'] = _sudo_loom_research_preflight(capability_name, runtime_env)
     return {'intelligence_on_demand_research': route}
 
 

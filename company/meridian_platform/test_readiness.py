@@ -46,6 +46,7 @@ class ReadinessVerdictTests(unittest.TestCase):
 
     def _collect(self, treasury, phase_num, phase_name, preflight_ok):
         with patch.object(readiness, "_run", side_effect=self._fake_run(preflight_ok=preflight_ok)), \
+             patch.object(readiness, "_runtime_env_defaults", return_value={'MERIDIAN_INTELLIGENCE_EXEC_RUNTIME': 'openclaw'}), \
              patch.object(readiness, "treasury_snapshot", return_value=treasury), \
              patch.object(readiness._phase_mod, "evaluate", return_value=(phase_num, {
                  "name": phase_name,

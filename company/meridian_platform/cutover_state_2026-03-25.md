@@ -21,6 +21,7 @@
 ## Phase 1 Progress
 - Route seam implemented in company/mcp_server.py for intelligence_on_demand_research
 - Route env defaults set in /etc/default/meridian-mcp-runtime
+- Current host canary default: MERIDIAN_INTELLIGENCE_ON_DEMAND_RESEARCH_RUNTIME=loom with fallback=1 and capability=clawskill.safe-web-research.v0
 - Readiness now reports route ownership from deploy env truth
 - Rehearsal script covers off_path, loom_on_path, rollback_path, and --restart-check
 - loom_on_path now completes through Loom service boundary with clawskill.safe-web-research.v0
