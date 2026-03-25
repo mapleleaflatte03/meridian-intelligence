@@ -86,7 +86,7 @@ class McpRuntimeAdapterTests(unittest.TestCase):
         self.assertEqual(result['capability_name'], 'company.research.v0')
         self.assertEqual(result['job_id'], 'job-123')
         self.assertEqual(result['research'], 'loom research result')
-        submit_cmd = run_mock.call_args_list[0].args[0]
+        submit_cmd = next(call.args[0] for call in run_mock.call_args_list if '--payload-json' in call.args[0])
         inspect_cmd = run_mock.call_args_list[1].args[0]
         self.assertEqual(submit_cmd[1:3], ['service', 'submit'])
         self.assertEqual(inspect_cmd[1:3], ['job', 'inspect'])
@@ -115,11 +115,66 @@ class McpRuntimeAdapterTests(unittest.TestCase):
 
         self.assertEqual(result['runtime'], 'loom')
         self.assertEqual(result['research'], 'example domain text')
-        submit_cmd = run_mock.call_args_list[0].args[0]
+        submit_cmd = next(call.args[0] for call in run_mock.call_args_list if '--payload-json' in call.args[0])
         payload = json.loads(submit_cmd[submit_cmd.index('--payload-json') + 1])
         self.assertEqual(payload['url'], 'https://example.com')
         self.assertEqual(payload['urls'], ['https://example.com'])
 
+
+    def test_research_loom_plain_text_topic_uses_search_url_payload(self):
+        service_status = mock.Mock(
+            returncode=0,
+            stdout=json.dumps({
+                'running': True,
+                'service_status': 'running',
+                'health': 'healthy',
+                'transport': 'socket+http',
+            }),
+            stderr='',
+        )
+        capability_show = mock.Mock(
+            returncode=0,
+            stdout=json.dumps({
+                'enabled': True,
+                'verification_status': 'verified',
+                'promotion_state': 'promoted',
+                'worker_kind': 'python',
+                'worker_entry': 'workers/python/imported-clawskill-safe-web-research-v0.py',
+                'payload_mode': 'json',
+                'adapter_kind': 'url_report_v0',
+                'runtime_lane': 'python_host_process/imported_workspace_skill',
+                'env_contract': 'host python3',
+            }),
+            stderr='',
+        )
+        submit = mock.Mock(returncode=0, stdout=json.dumps({'job_id': 'job-text'}), stderr='')
+        inspect = mock.Mock(returncode=0, stdout=json.dumps({'job_status': 'completed'}), stderr='')
+        worker_result = {
+            'summary': 'safe-web-research',
+            'skill_output': {
+                'results': [
+                    {'url': 'https://duckduckgo.com/html/?q=OpenAI+pricing', 'normalized_text': 'search result text'}
+                ]
+            },
+        }
+        env = {
+            'MERIDIAN_INTELLIGENCE_ON_DEMAND_RESEARCH_RUNTIME': 'loom',
+            'MERIDIAN_LOOM_RESEARCH_CAPABILITY': 'clawskill.safe-web-research.v0',
+            'MERIDIAN_LOOM_SERVICE_TOKEN': 'loom-local-token',
+        }
+        with mock.patch.dict(os.environ, env, clear=False):
+            with mock.patch.object(mcp_server.subprocess, 'run', side_effect=[service_status, capability_show, submit, inspect]) as run_mock:
+                with mock.patch.object(mcp_server, '_load_json_file', return_value=worker_result):
+                    with mock.patch.object(mcp_server.time, 'sleep', return_value=None):
+                        result = mcp_server.do_on_demand_research_route('OpenAI pricing', 'quick')
+
+        self.assertEqual(result['runtime'], 'loom')
+        self.assertEqual(result['research'], 'search result text')
+        submit_cmd = next(call.args[0] for call in run_mock.call_args_list if '--payload-json' in call.args[0])
+        payload = json.loads(submit_cmd[submit_cmd.index('--payload-json') + 1])
+        self.assertEqual(payload['topic'], 'OpenAI pricing')
+        self.assertEqual(payload['url'], 'https://duckduckgo.com/html/?q=OpenAI+pricing')
+        self.assertEqual(payload['urls'], ['https://duckduckgo.com/html/?q=OpenAI+pricing'])
 
     def test_on_demand_research_route_override_openclaw_beats_global_loom(self):
         stdout = json.dumps({'response': 'openclaw route result'})

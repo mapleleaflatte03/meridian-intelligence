@@ -40,6 +40,7 @@ import re
 import subprocess
 import sys
 import time
+from urllib.parse import quote_plus
 
 from mcp.server.fastmcp import FastMCP
 from brief_quality import analyze_brief
@@ -258,12 +259,21 @@ def _looks_like_http_url(value: str) -> bool:
     return raw.startswith('http://') or raw.startswith('https://')
 
 
+def _loom_research_url(topic: str) -> str:
+    topic = (topic or '').strip()
+    if _looks_like_http_url(topic):
+        return topic
+    if not topic:
+        return ''
+    return f'https://duckduckgo.com/html/?q={quote_plus(topic)}'
+
+
 def _loom_research_payload(topic: str, depth: str, prompt: str) -> dict:
     payload = {'topic': topic, 'depth': depth, 'prompt': prompt}
-    if _looks_like_http_url(topic):
-        topic = topic.strip()
-        payload['url'] = topic
-        payload['urls'] = [topic]
+    loom_url = _loom_research_url(topic)
+    if loom_url:
+        payload['url'] = loom_url
+        payload['urls'] = [loom_url]
     return payload
 
 
