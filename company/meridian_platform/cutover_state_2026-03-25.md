@@ -31,3 +31,4 @@
 
 - 2026-03-25T19:51Z: reran the cutover rehearsal with `--restart-check` plus a second stability pass; the live readiness surface still reports `owner=loom`, `fallback=on` (`fallback_enabled=true`), and `clawskill.safe-web-research.v0` with Loom preflight OK.
 - 2026-03-25T19:51Z: direct `readiness.py` output stayed consistent after the restart, so the checked-in transcript remains valid but now has a fresh canary evidence point.
+- 2026-03-25T19:58Z: reran `rehearse_on_demand_research_cutover.sh` cleanly; off-path, loom-on-path, and rollback-path all completed, and the final readiness refresh still reports `owner=loom`, `fallback=on`, `clawskill.safe-web-research.v0`, and Loom preflight OK while the overall verdict remains `OWNER_BLOCKED_TREASURY`.

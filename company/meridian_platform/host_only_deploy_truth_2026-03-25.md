@@ -20,3 +20,7 @@ This note records the current host-facing deploy truth for Meridian Intelligence
 - `company/meridian_platform/bootstrap.py`
 - `company/meridian_platform/ci_vertical.py`
 - Live `/etc/default/meridian-mcp-runtime` on the host, because it is the active runtime selector and includes the non-redacted service-token slot.
+
+## Runtime-audit / runtime-state artifacts
+- `company/meridian_platform/audit_log.jsonl` is gitignored runtime audit data and stays non-main.
+- `company/meridian_platform/metering.jsonl`, `company/meridian_platform/authority_queue.json`, and `company/meridian_platform/court_records.json` are also gitignored runtime state and should remain outside main unless they are explicitly snapshotted later.
