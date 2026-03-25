@@ -4,8 +4,6 @@ This note records the current host-facing deploy truth for Meridian Intelligence
 
 ## Live host-only deploy files
 - `/etc/default/meridian-mcp-runtime`
-- `company/meridian_platform/agent_registry.py`
-- `company/meridian_platform/workspace.py`
 
 ## Snapshot bundle path
 - `/home/ubuntu/.openclaw/workspace/.openclaw/migration-safety/2026-03-25/vps-exit/meridian-intelligence-prep`
@@ -13,9 +11,12 @@ This note records the current host-facing deploy truth for Meridian Intelligence
 ## Snapshot-only items
 - `README.md`
 - `manifest.sha256`
-- `company/meridian_platform/agent_registry.py`
-- `company/meridian_platform/workspace.py`
+- `company/meridian_platform/agent_registry.py` (captured in the existing safety bundle)
+- `company/meridian_platform/workspace.py` (captured in the existing safety bundle)
 - `etc/default/meridian-mcp-runtime.redacted`
 
-## Inert-confirm-needed items
+## Inert / non-main unless later proven otherwise
+- `company/lead_tracker.py`
+- `company/meridian_platform/bootstrap.py`
+- `company/meridian_platform/ci_vertical.py`
 - Live `/etc/default/meridian-mcp-runtime` on the host, because it is the active runtime selector and includes the non-redacted service-token slot.
