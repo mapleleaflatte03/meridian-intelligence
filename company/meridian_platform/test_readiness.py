@@ -201,6 +201,7 @@ class ReadinessVerdictTests(unittest.TestCase):
                     'owner': 'loom',
                     'runtime_source': 'route_override',
                     'fallback_enabled': False,
+                    'transcript': 'route=intelligence_on_demand_research | requested=loom | selected=loom | fallback=off | preflight=ok | capability=clawskill.safe-web-research.v0',
                     'loom_preflight': {
                         'ok': True,
                         'errors': [],
@@ -222,6 +223,7 @@ class ReadinessVerdictTests(unittest.TestCase):
 
         output = buffer.getvalue()
         self.assertIn('On-demand research Loom import metadata: OK skill=safe-web-research', output)
+        self.assertIn('On-demand research transcript: route=intelligence_on_demand_research', output)
 
 
 if __name__ == "__main__":

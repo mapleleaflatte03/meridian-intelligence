@@ -485,6 +485,45 @@ def _on_demand_research_cutover_state(
         state['fallback'] = fallback_state
     if isinstance(loom_preflight, dict):
         state['loom_preflight'] = loom_preflight
+    transcript_bits = [
+        'route=intelligence_on_demand_research',
+        f'requested={requested_runtime}',
+        f'selected={selected_runtime}',
+        f"fallback={'on' if fallback_enabled else 'off'}",
+    ]
+    if isinstance(loom_preflight, dict):
+        transcript_bits.append(f"preflight={'ok' if loom_preflight.get('ok') else 'blocked'}")
+        capability_name = (loom_preflight.get('capability_name') or '').strip()
+        if capability_name:
+            transcript_bits.append(f'capability={capability_name}')
+    if isinstance(fallback_state, dict):
+        fallback_used = fallback_state.get('used')
+        if fallback_used is not None:
+            transcript_bits.append(f"fallback_used={'true' if fallback_used else 'false'}")
+        fallback_state_name = (fallback_state.get('state') or '').strip()
+        if fallback_state_name:
+            transcript_bits.append(f'fallback_state={fallback_state_name}')
+        fallback_reason = (fallback_state.get('reason') or '').strip()
+        if fallback_reason:
+            transcript_bits.append(f'fallback_reason={fallback_reason}')
+    if isinstance(loom_result, dict):
+        job_id = (loom_result.get('job_id') or '').strip()
+        if job_id:
+            transcript_bits.append(f'job_id={job_id}')
+        submit = loom_result.get('submit')
+        if isinstance(submit, dict):
+            transport = (submit.get('transport') or '').strip()
+            if transport:
+                transcript_bits.append(f'transport={transport}')
+        snapshot = loom_result.get('snapshot')
+        if isinstance(snapshot, dict):
+            job_status = (snapshot.get('job_status') or '').strip()
+            worker_status = (snapshot.get('worker_status') or '').strip()
+            if job_status:
+                transcript_bits.append(f'job_status={job_status}')
+            if worker_status:
+                transcript_bits.append(f'worker_status={worker_status}')
+    state['transcript'] = ' | '.join(transcript_bits)
     if not isinstance(loom_result, dict):
         return state
     loom_meta = {}

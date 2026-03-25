@@ -206,6 +206,15 @@ def _route_cutovers():
         'fallback_enabled': fallback_enabled,
         'loom_capability_name': capability_name,
     }
+    transcript_bits = [
+        'route=intelligence_on_demand_research',
+        f'requested={requested_runtime}',
+        f"owner={'loom' if requested_runtime == 'loom' else 'openclaw'}",
+        f"fallback={'on' if fallback_enabled else 'off'}",
+        f"source={'route_override' if route_override else 'research_runtime_inherit'}",
+    ]
+    if capability_name:
+        transcript_bits.append(f'capability={capability_name}')
     if requested_runtime == 'loom':
         if os.geteuid() == 0:
             original = {}
@@ -223,6 +232,18 @@ def _route_cutovers():
                         os.environ[key] = value
         else:
             route['loom_preflight'] = _sudo_loom_research_preflight(capability_name, runtime_env)
+        preflight = route.get('loom_preflight')
+        if isinstance(preflight, dict):
+            transcript_bits.append(f"preflight={'ok' if preflight.get('ok') else 'blocked'}")
+            preflight_capability = (preflight.get('capability_name') or '').strip()
+            if preflight_capability:
+                transcript_bits.append(f'preflight_capability={preflight_capability}')
+            errors = preflight.get('errors') or []
+            if errors:
+                transcript_bits.append(f"preflight_errors={len(errors)}")
+    else:
+        transcript_bits.append('preflight=skipped')
+    route['transcript'] = ' | '.join(transcript_bits)
     return {'intelligence_on_demand_research': route}
 
 
@@ -343,6 +364,9 @@ def print_report(report):
                     "On-demand research Loom import metadata: "
                     f"{support_text} skill={skill_slug} worker={import_metadata.get('worker_entry', '')}"
                 )
+        transcript = route.get('transcript')
+        if transcript:
+            print(f"On-demand research transcript: {transcript}")
     if report["brief"]["exists"]:
         print(f"Latest brief: {report['brief']['date']} ({report['brief']['path']})")
     else:

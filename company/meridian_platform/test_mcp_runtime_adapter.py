@@ -136,6 +136,8 @@ class McpRuntimeAdapterTests(unittest.TestCase):
         self.assertEqual(result['route_cutover']['requested_runtime'], 'openclaw')
         self.assertEqual(result['route_cutover']['selected_runtime'], 'openclaw')
         self.assertFalse(result['route_cutover']['fallback_enabled'])
+        self.assertIn('requested=openclaw', result['route_cutover']['transcript'])
+        self.assertIn('selected=openclaw', result['route_cutover']['transcript'])
 
     def test_on_demand_research_route_uses_loom_with_cutover_metadata(self):
         service_status = mock.Mock(
@@ -211,6 +213,9 @@ class McpRuntimeAdapterTests(unittest.TestCase):
         self.assertEqual(result['route_cutover']['requested_runtime'], 'loom')
         self.assertEqual(result['route_cutover']['selected_runtime'], 'loom')
         self.assertTrue(result['route_cutover']['loom_preflight']['ok'])
+        self.assertIn('preflight=ok', result['route_cutover']['transcript'])
+        self.assertIn('requested=loom', result['route_cutover']['transcript'])
+        self.assertIn('selected=loom', result['route_cutover']['transcript'])
         self.assertEqual(result['route_cutover']['loom']['job_id'], 'job-route')
         self.assertEqual(result['route_cutover']['loom']['result_path_hint'], '/tmp/jobs/job-route/result.json')
 
@@ -242,6 +247,8 @@ class McpRuntimeAdapterTests(unittest.TestCase):
         self.assertEqual(result['route_cutover']['selected_runtime'], 'openclaw')
         self.assertTrue(result['route_cutover']['fallback_enabled'])
         self.assertTrue(result['route_cutover']['fallback']['used'])
+        self.assertIn('fallback_used=true', result['route_cutover']['transcript'])
+        self.assertIn('fallback_state=preflight_failed', result['route_cutover']['transcript'])
         self.assertEqual(result['route_cutover']['fallback']['state'], 'preflight_failed')
         self.assertIn('missing capability', result['route_cutover']['fallback']['reason'])
 
