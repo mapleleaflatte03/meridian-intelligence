@@ -363,6 +363,19 @@ class TreasuryCapsuleTests(unittest.TestCase):
         self.assertEqual(snap['clients'], 1)
         self.assertEqual(snap['paid_orders'], 1)
 
+    def test_treasury_snapshot_is_read_only(self):
+        capsule.ensure_treasury_aliases(self.org_id)
+        with mock.patch.object(treasury, "ensure_treasury_aliases", side_effect=AssertionError("snapshot should not sync aliases")), \
+             mock.patch.object(treasury, "load_treasury_accounts", side_effect=AssertionError("snapshot should not sync accounts")), \
+             mock.patch.object(treasury, "load_funding_sources", side_effect=AssertionError("snapshot should not sync funding sources")), \
+             mock.patch.object(treasury, "_save_account_store", side_effect=AssertionError("snapshot should not save accounts")), \
+             mock.patch.object(treasury, "_save_funding_source_store", side_effect=AssertionError("snapshot should not save funding sources")):
+            snap = treasury.treasury_snapshot(self.org_id)
+
+        self.assertEqual(snap["balance_usd"], 7.5)
+        self.assertIn("protocol", snap)
+        self.assertIn("settlement_adapter_summary", snap)
+
     def test_accounting_writes_through_capsule_alias(self):
         capsule.ensure_treasury_aliases(self.org_id)
         result = accounting.contribute_capital(1.0, 'test deposit', actor='owner', org_id=self.org_id)

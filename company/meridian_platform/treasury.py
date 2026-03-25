@@ -299,6 +299,35 @@ def _load_json(path):
         return json.load(f)
 
 
+def _read_only_json(path, default=None):
+    if not os.path.exists(path):
+        return dict(default or {}) if isinstance(default, dict) else (default if default is not None else {})
+    with open(path) as f:
+        payload = json.load(f)
+    if isinstance(payload, dict):
+        return payload
+    return dict(default or {}) if isinstance(default, dict) else (default if default is not None else {})
+
+
+def _read_only_ledger(org_id=None):
+    org_id = _resolve_org_id(org_id)
+    return _read_only_json(capsule_path(org_id, 'ledger.json'), {'treasury': {}})
+
+
+def _read_only_revenue(org_id=None):
+    org_id = _resolve_org_id(org_id)
+    return _read_only_json(capsule_path(org_id, 'revenue.json'), {
+        'clients': {},
+        'orders': {},
+        'receivables_usd': 0.0,
+    })
+
+
+def _read_only_registry_file(filename, org_id=None):
+    org_id = _resolve_org_id(org_id)
+    return _read_only_json(capsule_path(org_id, filename), _PROTOCOL_DEFAULTS[filename])
+
+
 def _load_ledger(org_id=None):
     _resolve_org_id(org_id)
     ensure_treasury_aliases(org_id)
@@ -330,10 +359,7 @@ def get_runway(org_id=None):
     return round(get_balance(org_id) - get_reserve_floor(org_id), 2)
 
 
-def get_revenue_summary(org_id=None):
-    """Read revenue state from economy/revenue.py."""
-    rev = _load_revenue(org_id)
-    ledger = _load_ledger(org_id)
+def _revenue_summary_from_payload(rev, ledger):
     t = ledger['treasury']
     orders = customer_orders(rev)
     paid = [o for o in orders.values() if o['status'] == 'paid']
@@ -347,6 +373,19 @@ def get_revenue_summary(org_id=None):
         'paid_orders': len(paid),
         'open_orders': len(open_orders),
     }
+
+
+def get_revenue_summary(org_id=None):
+    """Read revenue state from economy/revenue.py."""
+    rev = _load_revenue(org_id)
+    ledger = _load_ledger(org_id)
+    return _revenue_summary_from_payload(rev, ledger)
+
+
+def _read_only_revenue_summary(org_id=None):
+    rev = _read_only_revenue(org_id)
+    ledger = _read_only_ledger(org_id)
+    return _revenue_summary_from_payload(rev, ledger)
 
 
 def get_spend_summary(org_id, period_days=30):
@@ -480,8 +519,8 @@ def _save_funding_source_store(store, org_id=None):
     _save_registry_file('funding_sources.json', payload, org_id)
 
 
-def _sync_funding_sources(org_id=None):
-    store = dict(_load_registry_file('funding_sources.json', org_id))
+def _build_funding_source_store(org_id=None):
+    store = dict(_read_only_registry_file('funding_sources.json', org_id))
     original_sources = dict(store.get('sources', {}))
     sources = dict(original_sources)
     source_types = dict(
@@ -489,7 +528,7 @@ def _sync_funding_sources(org_id=None):
     )
     store['source_types'] = source_types
 
-    treasury = _load_ledger(org_id).get('treasury', {})
+    treasury = _read_only_ledger(org_id).get('treasury', {})
     owner_capital_total = round(
         float(treasury.get('owner_capital_contributed_usd', 0.0) or 0.0),
         4,
@@ -524,17 +563,25 @@ def _sync_funding_sources(org_id=None):
         sources.pop(derived_id, None)
 
     store['sources'] = sources
+    return store
+
+
+def _sync_funding_sources(org_id=None):
+    store = _build_funding_source_store(org_id)
+    original_sources = dict(_read_only_registry_file('funding_sources.json', org_id).get('sources', {}))
+    sources = dict(store.get('sources', {}))
+    source_types = dict(store.get('source_types') or _PROTOCOL_DEFAULTS['funding_sources.json']['source_types'])
     if store.get('source_types') != source_types or original_sources != sources:
         _save_funding_source_store(store, org_id)
     return store
 
 
-def _sync_treasury_accounts(org_id=None):
-    store = _account_store(org_id)
+def _build_treasury_accounts_store(org_id=None):
+    store = dict(_read_only_registry_file('treasury_accounts.json', org_id))
     accounts = dict(store.get('accounts', {}))
-    ledger = _load_ledger(org_id)
+    ledger = _read_only_ledger(org_id)
     treasury = ledger.get('treasury', {})
-    proposals = load_payout_proposals(org_id).get('proposals', {})
+    proposals = _read_only_registry_file('payout_proposals.json', org_id).get('proposals', {})
     pending_payouts = round(sum(
         float(item.get('amount_usd') or 0.0)
         for item in proposals.values()
@@ -596,6 +643,11 @@ def _sync_treasury_accounts(org_id=None):
         'source_of_truth': 'payout_proposals',
     }
     store['accounts'] = accounts
+    return store
+
+
+def _sync_treasury_accounts(org_id=None):
+    store = _build_treasury_accounts_store(org_id)
     _save_account_store(store, org_id)
     return store
 
@@ -1607,9 +1659,9 @@ def execute_payout_proposal(proposal_id, actor_id, *, org_id=None, warrant_id=''
 def treasury_snapshot(org_id=None):
     """Combined view: balance, revenue, spend, runway, reserve status."""
     org_id = _resolve_org_id(org_id)
-    ledger = _load_ledger(org_id)
+    ledger = _read_only_ledger(org_id)
     t = ledger['treasury']
-    rev_summary = get_revenue_summary(org_id)
+    rev_summary = _read_only_revenue_summary(org_id)
 
     # Try to get default org for spend
     spend_usd = 0.0
@@ -1642,6 +1694,15 @@ def treasury_snapshot(org_id=None):
             "Clearing the reserve gate is not the same as automation readiness; customer-backed phase progression and preflight still govern delivery."
         )
 
+    wallets = _read_only_registry_file('wallets.json', org_id)
+    contributors = _read_only_registry_file('contributors.json', org_id)
+    proposals = _read_only_registry_file('payout_proposals.json', org_id)
+    settlement_store = _read_only_registry_file('settlement_adapters.json', org_id)
+    accounts_store = _build_treasury_accounts_store(org_id)
+    funding_store = _build_funding_source_store(org_id)
+    adapters = dict(settlement_store.get('adapters', {}))
+    payout_enabled_adapters = [adapter for adapter in adapters.values() if adapter.get('payout_execution_enabled')]
+
     return {
         'balance_usd': balance,
         'reserve_floor_usd': floor,
@@ -1657,25 +1718,30 @@ def treasury_snapshot(org_id=None):
         'clients': rev_summary['clients'],
         'paid_orders': rev_summary['paid_orders'],
         'protocol': {
-            'wallet_count': len(load_wallets(org_id).get('wallets', {})),
+            'wallet_count': len(wallets.get('wallets', {})),
             'payout_eligible_wallets': len([
-                wallet_id for wallet_id in load_wallets(org_id).get('wallets', {})
+                wallet_id for wallet_id in wallets.get('wallets', {})
                 if can_receive_payout(wallet_id, org_id)[0]
             ]),
-            'contributor_count': len(load_contributors(org_id).get('contributors', {})),
+            'contributor_count': len(contributors.get('contributors', {})),
             'pending_proposals': len([
-                proposal for proposal in load_payout_proposals(org_id).get('proposals', {}).values()
+                proposal for proposal in proposals.get('proposals', {}).values()
                 if proposal.get('status') in ('submitted', 'under_review')
             ]),
-            'treasury_accounts': len(load_treasury_accounts(org_id).get('accounts', {})),
-            'settlement_adapter_count': len(list_settlement_adapters(org_id)),
-            'payout_enabled_settlement_adapters': len(
-                list_settlement_adapters(org_id, payout_enabled_only=True)
-            ),
-            'funding_sources': len(load_funding_sources(org_id).get('sources', {})),
+            'treasury_accounts': len(accounts_store.get('accounts', {})),
+            'settlement_adapter_count': len(adapters),
+            'payout_enabled_settlement_adapters': len(payout_enabled_adapters),
+            'funding_sources': len(funding_store.get('sources', {})),
         },
-        'settlement_adapter_summary': settlement_adapter_summary(org_id),
-        'settlement_adapters': list_settlement_adapters(org_id),
+        'settlement_adapter_summary': {
+            'default_payout_adapter': settlement_store.get('default_payout_adapter', 'internal_ledger'),
+            'total': len(adapters),
+            'active': len([adapter for adapter in adapters.values() if adapter.get('status') == 'active']),
+            'payout_enabled': len(payout_enabled_adapters),
+            'host_supported_adapters': [],
+            'host_supported_payout_adapters': [],
+        },
+        'settlement_adapters': list(adapters.values()),
         'remediation': remediation,
         'snapshot_at': _now(),
     }
