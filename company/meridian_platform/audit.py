@@ -19,6 +19,8 @@ import json
 import os
 import uuid
 
+import observability_store
+
 PLATFORM_DIR = os.path.dirname(os.path.abspath(__file__))
 AUDIT_FILE = os.path.join(PLATFORM_DIR, 'audit_log.jsonl')
 
@@ -61,63 +63,29 @@ def log_event(org_id, agent_id, action, resource='', outcome='success',
     with open(AUDIT_FILE, 'a') as f:
         f.write(json.dumps(event) + '\n')
 
+    observability_store.write_audit_event(AUDIT_FILE, event)
+
     return event['id']
 
 
 def query_events(org_id=None, agent_id=None, action=None, since=None,
                  outcome=None, limit=50):
     """Query audit events with filters."""
-    if not os.path.exists(AUDIT_FILE):
-        return []
-
-    results = []
-    with open(AUDIT_FILE) as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                event = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-
-            if org_id and event.get('org_id') != org_id:
-                continue
-            if agent_id and event.get('agent_id') != agent_id:
-                continue
-            if action and event.get('action') != action:
-                continue
-            if outcome and event.get('outcome') != outcome:
-                continue
-            if since and event.get('timestamp', '') < since:
-                continue
-
-            results.append(event)
-
-    # Return most recent first, limited
-    results.reverse()
-    return results[:limit]
+    return observability_store.query_audit_events(
+        AUDIT_FILE,
+        org_id=org_id,
+        agent_id=agent_id,
+        action=action,
+        since=since,
+        outcome=outcome,
+        limit=limit,
+    )
 
 
 def tail_events(limit=20, org_id=None):
     """Return the most recent N events, optionally filtered by org_id."""
-    if not os.path.exists(AUDIT_FILE):
-        return []
-
-    events = []
-    with open(AUDIT_FILE) as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                event = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if org_id and event.get('org_id') != org_id:
-                continue
-            events.append(event)
-
+    events = observability_store.query_audit_events(AUDIT_FILE, org_id=org_id, limit=limit)
+    events.reverse()
     return events[-limit:]
 
 

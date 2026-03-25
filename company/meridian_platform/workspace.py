@@ -4029,6 +4029,13 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(html.encode())
 
+    def _text(self, text, status=200, content_type='text/plain; charset=utf-8'):
+        self.send_response(status)
+        self.send_header('Content-Type', content_type)
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.end_headers()
+        self.wfile.write(text.encode())
+
     def _unauthorized(self, is_api=True):
         self.send_response(401)
         self.send_header('WWW-Authenticate', 'Basic realm="Meridian Workspace"')
@@ -4313,6 +4320,9 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
             events = query_events(org_id=org_id, limit=30)
             events.reverse()
             return self._json({'events': events})
+        elif path in ('/metrics', '/api/metrics'):
+            metrics_text = status_surface.observability_metrics_text(org_id)
+            return self._text(metrics_text)
         else:
             self.send_response(404)
             self.end_headers()

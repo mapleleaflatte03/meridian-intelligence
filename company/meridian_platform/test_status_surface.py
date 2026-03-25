@@ -2,6 +2,7 @@
 import importlib.util
 import json
 import os
+import sqlite3
 import sys
 import tempfile
 import unittest
@@ -19,12 +20,13 @@ SPEC.loader.exec_module(status_surface)
 
 import audit
 import metering
+import observability_store
 
 
 class StatusSurfaceTests(unittest.TestCase):
     def test_persistence_snapshot_exposes_concrete_file_backed_seams(self):
         snapshot = status_surface.persistence_snapshot('org_founding')
-        self.assertEqual(snapshot['backend'], 'file-backed-json-jsonl')
+        self.assertEqual(snapshot['backend'], 'file-backed-jsonl')
         self.assertEqual(snapshot['db']['status'], 'absent')
         seam_names = {os.path.basename(seam['path']) for seam in snapshot['seams']}
         seam_owners = {seam['owner'] for seam in snapshot['seams']}
@@ -62,6 +64,50 @@ class StatusSurfaceTests(unittest.TestCase):
         self.assertEqual(snapshot['metrics']['metering']['total_cost_usd'], 1.25)
         self.assertEqual(snapshot['slo']['status'], 'not_formalized')
         self.assertEqual(snapshot['metrics']['metering']['latest_metric'], 'mcp_tool_call')
+
+    def test_sqlite_observability_mirror_supports_queries_and_export(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            audit_path = os.path.join(tmp, 'audit_log.jsonl')
+            metering_path = os.path.join(tmp, 'metering.jsonl')
+            with mock.patch.object(audit, 'AUDIT_FILE', audit_path), \
+                 mock.patch.object(metering, 'METERING_FILE', metering_path):
+                audit.log_event(
+                    'org_founding',
+                    'agent_main',
+                    'status_check',
+                    resource='workspace',
+                    outcome='success',
+                    details={'surface': 'status'},
+                )
+                metering.record(
+                    'org_founding',
+                    'agent_main',
+                    'mcp_tool_call',
+                    quantity=2,
+                    unit='calls',
+                    cost_usd=1.25,
+                    run_id='run_1',
+                    details={'surface': 'status'},
+                )
+
+            db_path = observability_store.db_path_for_log(audit_path)
+            self.assertTrue(os.path.exists(db_path))
+            with sqlite3.connect(db_path) as conn:
+                audit_count = conn.execute('SELECT COUNT(*) FROM audit_events').fetchone()[0]
+                meter_count = conn.execute('SELECT COUNT(*) FROM metering_events').fetchone()[0]
+            self.assertEqual(audit_count, 1)
+            self.assertEqual(meter_count, 1)
+
+            with mock.patch.object(audit, 'AUDIT_FILE', audit_path), \
+                 mock.patch.object(metering, 'METERING_FILE', metering_path):
+                snapshot = status_surface.observability_snapshot('org_founding')
+                metrics_text = status_surface.observability_metrics_text('org_founding')
+
+        self.assertEqual(snapshot['backend'], 'sqlite+jsonl')
+        self.assertEqual(snapshot['db']['status'], 'present')
+        self.assertEqual(snapshot['export']['route'], '/metrics')
+        self.assertIn('meridian_audit_events_total{org_id="org_founding"} 1', metrics_text)
+        self.assertIn('meridian_metering_cost_usd_total{org_id="org_founding"} 1.2500', metrics_text)
 
 
 if __name__ == '__main__':

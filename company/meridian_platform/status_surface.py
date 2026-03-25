@@ -6,11 +6,14 @@ from __future__ import annotations
 import datetime
 import os
 
+import audit
 from audit import stats as audit_stats
 from audit import tail_events as audit_tail_events
 from capsule import capsule_path
+import metering
 from metering import get_usage as metering_usage
 from metering import summary as metering_summary
+import observability_store
 
 
 PLATFORM_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -90,6 +93,13 @@ def _file_snapshot(path, *, kind, owner, append_only=False, role='canonical'):
 
 def persistence_snapshot(org_id=None):
     """Return the concrete file-backed persistence seams for the workspace."""
+    observability_db = observability_store.db_path_for_log(audit.AUDIT_FILE)
+    observability_db_snapshot = _file_snapshot(
+        observability_db,
+        kind='sqlite',
+        owner='observability_store.py',
+        role='observability_mirror',
+    )
     seams = [
         _file_snapshot(
             os.path.join(PLATFORM_DIR, 'organizations.json'),
@@ -166,13 +176,13 @@ def persistence_snapshot(org_id=None):
             kind='json',
             owner='federation_inbox.py',
         ),
+        observability_db_snapshot,
     ]
+    db_status = observability_store.db_status_for_log(audit.AUDIT_FILE)
+    backend = 'sqlite+jsonl' if db_status.get('status') == 'present' else 'file-backed-jsonl'
     return {
-        'backend': 'file-backed-json-jsonl',
-        'db': {
-            'status': 'absent',
-            'reason': 'no relational database layer is deployed; workspace state is persisted through files',
-        },
+        'backend': backend,
+        'db': db_status,
         'seams': seams,
     }
 
@@ -186,9 +196,15 @@ def observability_snapshot(org_id):
     metering_month = metering_summary(org_id, period='month')
     metering_events = metering_usage(org_id)
     metering_latest = metering_events[-1] if metering_events else {}
+    persistence = persistence_snapshot(org_id)
 
     return {
-        'backend': 'file-backed-jsonl',
+        'backend': persistence.get('backend', 'file-backed-jsonl'),
+        'db': persistence.get('db', {}),
+        'export': {
+            'route': '/metrics',
+            'content_type': 'text/plain; charset=utf-8',
+        },
         'metrics': {
             'audit': {
                 **audit_summary,
@@ -215,3 +231,11 @@ def observability_snapshot(org_id):
             },
         },
     }
+
+
+def observability_metrics_text(org_id):
+    return observability_store.prometheus_text(
+        audit_log_path=audit.AUDIT_FILE,
+        metering_log_path=metering.METERING_FILE,
+        org_id=org_id,
+    )

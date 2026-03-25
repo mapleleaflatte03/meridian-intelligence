@@ -18,6 +18,8 @@ import json
 import os
 import uuid
 
+import observability_store
+
 PLATFORM_DIR = os.path.dirname(os.path.abspath(__file__))
 METERING_FILE = os.path.join(PLATFORM_DIR, 'metering.jsonl')
 ORGS_FILE = os.path.join(PLATFORM_DIR, 'organizations.json')
@@ -57,37 +59,20 @@ def record(org_id, agent_id, metric, quantity=1.0, unit='calls',
     with open(METERING_FILE, 'a') as f:
         f.write(json.dumps(event) + '\n')
 
+    observability_store.write_metering_event(METERING_FILE, event)
+
     return event['id']
 
 
 def get_usage(org_id, agent_id=None, since=None, metric=None):
     """Get usage events for an org, optionally filtered."""
-    if not os.path.exists(METERING_FILE):
-        return []
-
-    results = []
-    with open(METERING_FILE) as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                event = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-
-            if event.get('org_id') != org_id:
-                continue
-            if agent_id and event.get('agent_id') != agent_id:
-                continue
-            if metric and event.get('metric') != metric:
-                continue
-            if since and event.get('timestamp', '') < since:
-                continue
-
-            results.append(event)
-
-    return results
+    return observability_store.query_metering_events(
+        METERING_FILE,
+        org_id=org_id,
+        agent_id=agent_id,
+        since=since,
+        metric=metric,
+    )
 
 
 def get_spend(org_id, since=None, agent_id=None):
