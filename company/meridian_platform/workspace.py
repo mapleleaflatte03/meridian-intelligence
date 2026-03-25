@@ -192,6 +192,7 @@ import cases
 import accounting_service
 import openclaw_runtime_proof
 import service_state
+import status_surface
 import subscription_service
 from federation import (
     FederationAuthority,
@@ -3408,6 +3409,8 @@ def api_status(context_source='founding_default', institution_context=None):
             'subscriptions': service_state.subscription_snapshot(org_id),
             'accounting': service_state.accounting_snapshot(org_id),
         },
+        'persistence': status_surface.persistence_snapshot(org_id),
+        'observability': status_surface.observability_snapshot(org_id),
         'runtime_proof': {
             'route': '/api/runtime-proof',
             'runtime_id': 'openclaw_compatible',
@@ -3586,6 +3589,13 @@ function render(data) {
   sb += '<span class="item">Violations: <strong>' + data.court.open_violations.length + ' open</strong></span>';
   sb += '<span class="item">Approvals: <strong>' + data.authority.pending_approvals.length + ' pending</strong></span>';
   sb += '<span class="item">Lead: <strong>' + (data.authority.sprint_lead.agent_id || 'none') + '</strong></span>';
+  var persistence = data.persistence || {};
+  var observability = data.observability || {};
+  var dbStatus = (persistence.db && persistence.db.status) || 'unknown';
+  var auditTotal = observability.metrics && observability.metrics.audit ? observability.metrics.audit.total_events : 0;
+  var monthCost = observability.metrics && observability.metrics.metering ? observability.metrics.metering.total_cost_usd : 0;
+  sb += '<span class="item">DB: <strong>' + dbStatus + '</strong></span>';
+  sb += '<span class="item">Obs: <strong>audit ' + auditTotal + ' / $' + monthCost.toFixed(2) + '</strong></span>';
   if (data.context && data.context.auth && data.context.auth.actor_id) {
     sb += '<span class="item">Actor: <strong>' + data.context.auth.actor_id + '</strong> (' + (data.context.auth.role || 'unbound') + ')</span>';
   }

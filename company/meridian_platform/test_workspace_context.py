@@ -57,6 +57,8 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.orig_ensure_case_for_delivery_failure = self.workspace.cases.ensure_case_for_delivery_failure
         self.orig_subscription_snapshot = self.workspace.service_state.subscription_snapshot
         self.orig_accounting_snapshot = self.workspace.service_state.accounting_snapshot
+        self.orig_persistence_snapshot = self.workspace.status_surface.persistence_snapshot
+        self.orig_observability_snapshot = self.workspace.status_surface.observability_snapshot
         self.orig_summarize_inbox_entries = self.workspace.summarize_inbox_entries
         self.orig_get_execution_job = self.workspace.get_execution_job
         self.orig_get_execution_job_by_local_warrant = self.workspace.get_execution_job_by_local_warrant
@@ -64,6 +66,19 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.orig_execution_job_summary = self.workspace.execution_job_summary
         self.orig_sync_execution_job_for_local_warrant = self.workspace.sync_execution_job_for_local_warrant
         self.orig_upsert_execution_job = self.workspace.upsert_execution_job
+        self.workspace.status_surface.persistence_snapshot = lambda org_id=None: {
+            'backend': 'file-backed-json-jsonl',
+            'db': {'status': 'absent', 'reason': 'stubbed for unit tests'},
+            'seams': [],
+        }
+        self.workspace.status_surface.observability_snapshot = lambda org_id=None: {
+            'backend': 'file-backed-jsonl',
+            'metrics': {
+                'audit': {'total_events': 0},
+                'metering': {'total_cost_usd': 0.0},
+            },
+            'slo': {'status': 'not_formalized'},
+        }
 
     def tearDown(self):
         self.workspace.WORKSPACE_ORG_ID = self.orig_workspace_org_id
@@ -97,6 +112,8 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.workspace.cases.ensure_case_for_delivery_failure = self.orig_ensure_case_for_delivery_failure
         self.workspace.service_state.subscription_snapshot = self.orig_subscription_snapshot
         self.workspace.service_state.accounting_snapshot = self.orig_accounting_snapshot
+        self.workspace.status_surface.persistence_snapshot = self.orig_persistence_snapshot
+        self.workspace.status_surface.observability_snapshot = self.orig_observability_snapshot
         self.workspace.summarize_inbox_entries = self.orig_summarize_inbox_entries
         self.workspace.get_execution_job = self.orig_get_execution_job
         self.workspace.get_execution_job_by_local_warrant = self.orig_get_execution_job_by_local_warrant

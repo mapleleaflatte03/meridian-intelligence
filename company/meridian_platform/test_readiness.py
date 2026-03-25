@@ -114,6 +114,19 @@ class ReadinessVerdictTests(unittest.TestCase):
         with patch.object(readiness, "_run", side_effect=self._fake_run(preflight_ok=preflight_ok)), \
              patch.object(readiness, "_runtime_env_defaults", return_value={'MERIDIAN_INTELLIGENCE_EXEC_RUNTIME': 'openclaw'}), \
              patch.object(readiness, "treasury_snapshot", return_value=treasury), \
+             patch.object(readiness.status_surface, "persistence_snapshot", return_value={
+                 'backend': 'file-backed-json-jsonl',
+                 'db': {'status': 'absent'},
+                 'seams': [],
+             }), \
+             patch.object(readiness.status_surface, "observability_snapshot", return_value={
+                 'backend': 'file-backed-jsonl',
+                 'metrics': {
+                     'audit': {'total_events': 0},
+                     'metering': {'total_cost_usd': 0.0},
+                 },
+                 'slo': {'status': 'not_formalized'},
+             }), \
              patch.object(readiness._phase_mod, "evaluate", return_value=(phase_num, {
                  "name": phase_name,
                  "next_phase": phase_num + 1 if phase_num < 6 else None,

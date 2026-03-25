@@ -18,6 +18,7 @@ import sys
 
 from treasury import treasury_snapshot
 from organizations import load_orgs
+import status_surface
 
 
 PLATFORM_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -262,6 +263,8 @@ def collect():
     phase_num, phase_details = _phase_mod.evaluate(org_id)
     brief = _latest_brief()
     targets = _delivery_targets()
+    persistence = status_surface.persistence_snapshot(org_id)
+    observability = status_surface.observability_snapshot(org_id)
 
     pong_ok = _pong_ok(pong)
     runtime_ok = runtime_health["ok"] and pong_ok
@@ -316,6 +319,8 @@ def collect():
         "route_cutovers": _route_cutovers(),
         "brief": brief,
         "delivery_targets": targets,
+        "persistence": persistence,
+        "observability": observability,
     }
 
 
@@ -376,6 +381,21 @@ def print_report(report):
         print("Latest brief: none")
     print(f"Deliverable targets today: {report['delivery_targets']['count']}")
     print(f"Internal test targets today: {report['delivery_targets']['internal_test_count']}")
+    persistence = report.get('persistence', {})
+    db = persistence.get('db', {})
+    observability = report.get('observability', {})
+    metrics = observability.get('metrics', {})
+    slo = observability.get('slo', {})
+    print(
+        'Persistence: '
+        + f"{persistence.get('backend', 'unknown')} / DB {db.get('status', 'unknown')}"
+    )
+    print(
+        'Observability: '
+        + f"audit {metrics.get('audit', {}).get('total_events', 0)} events | "
+        + f"metering ${metrics.get('metering', {}).get('total_cost_usd', 0.0):.2f} month | "
+        + f"SLO {slo.get('status', 'unknown')}"
+    )
 
     if report["verdict"] == "ENGINEERING_BLOCKED_RUNTIME":
         print("Next action: stabilize runtime before attempting pipeline execution.")
