@@ -64,6 +64,7 @@ Endpoints:
   POST /api/treasury/settlement-adapters/preflight → Validate settlement-adapter execution requirements
   POST /api/subscriptions/add     → Create an institution-owned subscription record on the founding-locked host
   POST /api/subscriptions/convert → Convert a trial into a paid subscription
+  POST /api/subscriptions/checkout-capture → Customer-initiated preview checkout capture that validates payment evidence
   POST /api/subscriptions/activate-from-preview → Activate a captured subscription from preview truth and queue Loom delivery
   POST /api/subscriptions/loom-delivery-jobs/run → Run or advance queued Loom delivery jobs on the founding-locked host
   POST /api/subscriptions/verify-payment → Bind payment evidence to a subscription
@@ -4484,6 +4485,97 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                 }, 201)
             except RuntimeError as e:
                 return self._service_unavailable(str(e), is_api=True)
+            except ValueError as e:
+                return self._json({'error': str(e)}, 400)
+
+        if path == '/api/subscriptions/checkout-capture':
+            try:
+                inst_ctx = _resolve_workspace_context()
+                body = self._read_body()
+                draft_id = (body.get('draft_id') or '').strip()
+                draft = None
+                preview_id = (body.get('preview_id') or '').strip()
+                if draft_id:
+                    payload = subscription_service.load_subscriptions(inst_ctx.org_id)
+                    draft = payload.get('draft_subscriptions', {}).get(draft_id)
+                    if not draft:
+                        raise LookupError(f'Subscription draft not found: {draft_id}')
+                    draft_preview_id = (draft.get('preview_id') or '').strip()
+                    draft_plan = (draft.get('plan') or '').strip()
+                    draft_telegram_id = (draft.get('telegram_id') or '').strip()
+                    if preview_id and draft_preview_id and preview_id != draft_preview_id:
+                        raise ValueError(f'preview_id mismatch for draft {draft_id}')
+                    if body.get('plan') and draft_plan and (body.get('plan') or '').strip() != draft_plan:
+                        raise ValueError(f'plan mismatch for draft {draft_id}')
+                    if body.get('telegram_id') and draft_telegram_id and (body.get('telegram_id') or '').strip() != draft_telegram_id:
+                        raise ValueError(f'telegram_id mismatch for draft {draft_id}')
+                    if not preview_id:
+                        preview_id = draft_preview_id
+                if not preview_id:
+                    raise ValueError('preview_id or draft_id is required')
+                preview = subscription_preview_queue.get_subscription_preview(preview_id, org_id=inst_ctx.org_id)
+                payment_evidence = body.get('payment_evidence') or {}
+                payment_ref = (body.get('payment_ref') or '').strip()
+                if not payment_ref and isinstance(payment_evidence, dict):
+                    payment_ref = (payment_evidence.get('payment_ref') or '').strip()
+                result = subscription_service.capture_subscription_from_preview(
+                    preview,
+                    telegram_id=body.get('telegram_id') or (draft.get('telegram_id') if draft else None),
+                    plan=(body.get('plan') or (draft.get('plan') if draft else '') or '').strip(),
+                    payment_method=body.get('payment_method') or 'captured',
+                    payment_ref=payment_ref,
+                    payment_evidence=payment_evidence,
+                    org_id=inst_ctx.org_id,
+                    actor='public:checkout',
+                    timeout=int(body.get('timeout') or 120),
+                )
+                activated = result['subscription']
+                run = result.get('delivery_run', {})
+                if (run.get('state') or '') == 'executed' and result.get('delivery_job', {}).get('preview_id'):
+                    preview_result = subscription_preview_queue.mark_preview_delivered(
+                        preview_id,
+                        run.get('delivery_ref') or result.get('delivery_job', {}).get('delivery_ref') or result['delivery_job']['job_id'],
+                        org_id=inst_ctx.org_id,
+                        by='public:checkout',
+                        delivery_run_id=run.get('run_id', ''),
+                    )
+                else:
+                    preview_result = subscription_preview_queue.mark_preview_activated(
+                        preview_id,
+                        activated['id'],
+                        org_id=inst_ctx.org_id,
+                        by='public:checkout',
+                        checkout_claimed=bool(activated.get('payment_verified')),
+                        payment_capture_claimed=bool(activated.get('payment_verified')),
+                    )
+                log_event(
+                    inst_ctx.org_id,
+                    'public:checkout',
+                    'subscription_checkout_captured',
+                    resource=activated['id'],
+                    outcome='success',
+                    actor_type='external',
+                    details={
+                        'preview_id': preview_id,
+                        'draft_id': draft_id,
+                        'telegram_id': result['telegram_id'],
+                        'plan': activated.get('plan', ''),
+                        'payment_ref': activated.get('payment_ref', ''),
+                        'payment_verified': bool(activated.get('payment_verified')),
+                        'delivery_state': run.get('state', ''),
+                    },
+                )
+                return self._json({
+                    'message': 'Captured checkout activated from preview or draft record; Loom delivery advanced when possible without claiming fulfillment',
+                    'result': result,
+                    'preview': preview_result['preview'],
+                    'subscription_preview_summary': preview_result['summary'],
+                    'service_state': service_state.subscription_snapshot(inst_ctx.org_id),
+                }, 201)
+            except RuntimeError as e:
+                return self._service_unavailable(str(e), is_api=True)
+            except LookupError as e:
+                return self._json({'error': str(e)}, 404)
             except ValueError as e:
                 return self._json({'error': str(e)}, 400)
 

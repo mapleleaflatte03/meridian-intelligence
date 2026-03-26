@@ -292,24 +292,40 @@ def _payment_evidence_ok(sub, *, org_id=None):
     return True
 
 
-def _require_payment_evidence(payment_ref, amount_usd, *, org_id=None):
+def _require_payment_evidence(payment_ref, amount_usd, *, payment_evidence=None, org_id=None):
     payment_ref = (payment_ref or '').strip()
     if not payment_ref:
         raise ValueError('payment_ref is required for paid subscription verification')
+    evidence_hint = _coerce_payment_evidence(payment_evidence)
     evidence = _revenue_mod.find_customer_payment_evidence(
         payment_ref=payment_ref,
+        tx_hash=(evidence_hint.get('tx_hash') or '').strip(),
         min_amount_usd=float(amount_usd or 0.0),
     )
     if not evidence:
         raise ValueError(
             f'no customer_payment evidence found for payment_ref={payment_ref} amount>={float(amount_usd or 0.0):.2f}'
         )
+    if evidence_hint:
+        for field in ('order_id', 'payment_key', 'payment_ref', 'tx_hash'):
+            expected = (evidence_hint.get(field) or '').strip()
+            if expected and (evidence.get(field) or '') != expected:
+                raise ValueError(f'payment_evidence {field} mismatch for payment_ref={payment_ref}')
+        expected_amount = evidence_hint.get('amount_usd')
+        if expected_amount not in (None, ''):
+            if abs(float(evidence.get('amount', 0.0) or 0.0) - float(expected_amount)) > 1e-9:
+                raise ValueError(f'payment_evidence amount mismatch for payment_ref={payment_ref}')
     return evidence
 
 
-def _bind_payment_evidence(subscription, payment_ref=None, *, org_id=None):
+def _bind_payment_evidence(subscription, payment_ref=None, *, payment_evidence=None, org_id=None):
     ref = (payment_ref if payment_ref is not None else subscription.get('payment_ref', '')) or ''
-    evidence = _require_payment_evidence(ref, subscription.get('price_usd', 0.0), org_id=org_id)
+    evidence = _require_payment_evidence(
+        ref,
+        subscription.get('price_usd', 0.0),
+        payment_evidence=payment_evidence,
+        org_id=org_id,
+    )
     subscription['payment_ref'] = ref
     subscription['payment_verified'] = True
     subscription['payment_verified_at'] = now_ts()
@@ -355,6 +371,16 @@ def _load_json_file(path, default=None):
         return default
     with open(path) as f:
         return json.load(f)
+
+
+def _coerce_payment_evidence(payment_evidence):
+    if not isinstance(payment_evidence, dict):
+        return {}
+    return {
+        key: value
+        for key, value in payment_evidence.items()
+        if value not in (None, '')
+    }
 
 
 def _normalize_loom_delivery_run(run, org_id=None, existing=None):
@@ -909,7 +935,7 @@ def run_pending_loom_delivery_jobs(org_id=None, *, actor='', timeout=120, limit=
 
 def activate_subscription_from_preview(preview, *, telegram_id=None, plan=None,
                                        payment_method='captured', payment_ref=None,
-                                       org_id=None, actor='', timeout=120):
+                                       payment_evidence=None, org_id=None, actor='', timeout=120):
     preview = dict(preview or {})
     preview_id = (preview.get('preview_id') or '').strip()
     if not preview_id:
@@ -934,6 +960,7 @@ def activate_subscription_from_preview(preview, *, telegram_id=None, plan=None,
         plan=plan_name,
         payment_method=payment_method or ('trial' if plan_name == 'trial' else 'captured'),
         payment_ref=payment_ref,
+        payment_evidence=payment_evidence,
         confirm_payment=confirm_payment,
         trial=(plan_name == 'trial'),
         email=preview.get('email') or None,
@@ -981,6 +1008,28 @@ def activate_subscription_from_preview(preview, *, telegram_id=None, plan=None,
         'delivery_run': delivery_run['run'],
         'delivery_execution': delivery_run.get('execution', {}),
     }
+
+
+def capture_subscription_from_preview(preview, *, telegram_id=None, plan=None,
+                                      payment_method='captured', payment_ref=None,
+                                      payment_evidence=None, org_id=None, actor='', timeout=120):
+    payment_evidence = _coerce_payment_evidence(payment_evidence)
+    if not payment_evidence:
+        raise ValueError('payment_evidence is required for customer-initiated checkout capture')
+    payment_ref = (payment_ref or '').strip()
+    if not payment_ref:
+        raise ValueError('payment_ref is required for customer-initiated checkout capture')
+    return activate_subscription_from_preview(
+        preview,
+        telegram_id=telegram_id,
+        plan=plan,
+        payment_method=payment_method,
+        payment_ref=payment_ref,
+        payment_evidence=payment_evidence,
+        org_id=org_id,
+        actor=actor,
+        timeout=timeout,
+    )
 
 
 def create_draft_subscription_from_preview(preview, *, org_id=None, actor=''):
@@ -1063,6 +1112,7 @@ def start_trial(telegram_id, *, email='', org_id=None, actor=''):
 
 def add_subscription(telegram_id, plan='trial', *, duration_days=None,
                      payment_method=None, payment_ref=None,
+                     payment_evidence=None,
                      confirm_payment=False, trial=False, email=None,
                      org_id=None, actor=''):
     payload = load_subscriptions(org_id)
@@ -1092,7 +1142,12 @@ def add_subscription(telegram_id, plan='trial', *, duration_days=None,
     payment_verified_at = now_ts() if plan_name == 'trial' else ''
     payment_evidence = {'type': 'trial'} if plan_name == 'trial' else {}
     if plan_name != 'trial' and bool(confirm_payment):
-        evidence = _require_payment_evidence(payment_ref, plan_info['price_usd'], org_id=org_id)
+        evidence = _require_payment_evidence(
+            payment_ref,
+            plan_info['price_usd'],
+            payment_evidence=payment_evidence,
+            org_id=org_id,
+        )
         payment_verified = True
         payment_verified_at = now_ts()
         payment_evidence = {
@@ -1127,7 +1182,7 @@ def add_subscription(telegram_id, plan='trial', *, duration_days=None,
 
 
 def create_subscription(telegram_id, plan='trial', *, duration_days=None,
-                        payment_method=None, payment_ref=None,
+                        payment_method=None, payment_ref=None, payment_evidence=None,
                         confirm_payment=False, trial=False, email=None,
                         org_id=None, actor=''):
     return add_subscription(
@@ -1136,6 +1191,7 @@ def create_subscription(telegram_id, plan='trial', *, duration_days=None,
         duration_days=duration_days,
         payment_method=payment_method,
         payment_ref=payment_ref,
+        payment_evidence=payment_evidence,
         confirm_payment=confirm_payment,
         trial=trial,
         email=email,
@@ -1145,7 +1201,7 @@ def create_subscription(telegram_id, plan='trial', *, duration_days=None,
 
 
 def convert_trial_subscription(telegram_id, plan, *, payment_method=None,
-                               payment_ref=None, confirm_payment=False,
+                               payment_ref=None, payment_evidence=None, confirm_payment=False,
                                email=None, org_id=None, actor=''):
     tid = str(telegram_id or '').strip()
     if not tid:
@@ -1174,6 +1230,7 @@ def convert_trial_subscription(telegram_id, plan, *, payment_method=None,
         plan=plan,
         payment_method=payment_method,
         payment_ref=payment_ref,
+        payment_evidence=payment_evidence,
         confirm_payment=confirm_payment,
         email=email,
         org_id=org_id,
@@ -1216,7 +1273,7 @@ def check_subscription(telegram_id, *, org_id=None):
 
 
 def verify_subscription_payment(telegram_id, *, subscription_id=None,
-                                payment_ref=None, org_id=None, actor=''):
+                                payment_ref=None, payment_evidence=None, org_id=None, actor=''):
     payload = load_subscriptions(org_id)
     tid = str(telegram_id or '').strip()
     if not tid:
@@ -1236,7 +1293,12 @@ def verify_subscription_payment(telegram_id, *, subscription_id=None,
     target = candidates[-1]
     if payment_ref:
         target['payment_ref'] = payment_ref
-    _bind_payment_evidence(target, payment_ref=target.get('payment_ref'))
+    _bind_payment_evidence(
+        target,
+        payment_ref=target.get('payment_ref'),
+        payment_evidence=payment_evidence,
+        org_id=org_id,
+    )
     target['payment_verified_by'] = actor or ''
     save_subscriptions(payload, org_id)
     return {

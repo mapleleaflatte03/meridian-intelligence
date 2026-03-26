@@ -490,6 +490,7 @@ def subscription_preview_queue_snapshot(org_id=None, *, limit=50):
         'queue_paths': {
             'inspect': '/api/subscriptions/preview-queue',
             'source_review': '/api/pilot/intake/operator/review',
+            'checkout_capture': '/api/subscriptions/checkout-capture',
         },
         'summary': _queue_summary(previews, org_id),
         'subscription_previews': limited_previews,

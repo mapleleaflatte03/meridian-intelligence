@@ -222,6 +222,82 @@ class SubscriptionServiceTests(unittest.TestCase):
         self.assertEqual(queue_snapshot['summary']['queued_count'], 1)
         self.assertEqual(queue_snapshot['delivery_jobs'][0]['subscription_id'], subscription['id'])
 
+    def test_capture_subscription_from_preview_requires_explicit_payment_evidence(self):
+        preview = {
+            'preview_id': 'quote_pir_checkout',
+            'pilot_request_id': 'pir_checkout',
+            'name': 'Jane Doe',
+            'company': 'Acme',
+            'email': 'jane@example.com',
+            'telegram_handle': '800',
+            'requested_cadence': 'Weekly brief',
+            'requested_offer': 'manual_pilot',
+            'review_note': 'Customer-initiated checkout capture',
+            'preview_truth_source': 'pilot_intake_review_and_published_plan_table_only',
+            'state': 'reviewed',
+            'plan_options': [
+                {
+                    'plan': 'premium-brief-weekly',
+                    'price_usd': 2.99,
+                    'duration_days': 7,
+                    'billing_type': 'recurring',
+                },
+            ],
+        }
+
+        self._append_tx({
+            'type': 'customer_payment',
+            'order_id': 'ord-checkout',
+            'amount': 2.99,
+            'client': 'cust-checkout',
+            'product': 'pilot-weekly',
+            'payment_key': 'ref:ref-checkout',
+            'payment_ref': 'ref-checkout',
+            'tx_hash': '0xcheckout',
+            'ts': subscription_service.now_ts(),
+        })
+
+        with mock.patch.object(subscription_service, 'run_loom_delivery_job', return_value={
+            'job_id': 'loom_sub_checkout',
+            'delivery_job': {
+                'job_id': 'loom_sub_checkout',
+                'state': 'executed',
+                'delivery_status': 'delivered',
+            },
+            'run': {
+                'run_id': 'ldr_sub_checkout',
+                'job_id': 'loom_sub_checkout',
+                'state': 'executed',
+                'delivery_status': 'delivered',
+                'delivered': True,
+                'delivery_ref': 'loom_sub_checkout',
+            },
+            'execution': {'ok': True, 'job_id': 'loom_sub_checkout'},
+        }):
+            result = subscription_service.capture_subscription_from_preview(
+                preview,
+                telegram_id='800',
+                plan='premium-brief-weekly',
+                payment_ref='ref-checkout',
+                payment_evidence={
+                    'order_id': 'ord-checkout',
+                    'payment_key': 'ref:ref-checkout',
+                    'payment_ref': 'ref-checkout',
+                    'tx_hash': '0xcheckout',
+                    'amount_usd': 2.99,
+                },
+                org_id=self.org_id,
+                actor='customer:800',
+            )
+
+        subscription = result['subscription']
+        self.assertEqual(subscription['plan'], 'premium-brief-weekly')
+        self.assertTrue(subscription['payment_verified'])
+        self.assertEqual(subscription['payment_evidence']['tx_hash'], '0xcheckout')
+        self.assertEqual(result['delivery_run']['state'], 'executed')
+        self.assertEqual(result['delivery_execution']['ok'], True)
+        self.assertEqual(result['delivery_run']['delivery_ref'], 'loom_sub_checkout')
+
     def test_run_loom_delivery_job_records_executed_run(self):
         payload = subscription_service.load_subscriptions(self.org_id)
         payload['subscribers']['800'] = [{

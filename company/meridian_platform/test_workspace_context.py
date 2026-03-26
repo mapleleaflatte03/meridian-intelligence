@@ -886,6 +886,127 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.assertEqual(handler.response['data']['result']['run']['state'], 'executed')
         self.assertEqual(result, handler.response)
 
+    def test_public_subscription_checkout_capture_route_uses_explicit_payment_evidence(self):
+        calls = []
+        self.workspace._resolve_workspace_context = lambda: types.SimpleNamespace(org_id='org_founding', org={}, context_source='configured_org')
+
+        class PostHandler:
+            def __init__(self):
+                self.path = '/api/subscriptions/checkout-capture'
+                self.headers = _Headers({'Content-Type': 'application/json'})
+                self.response = None
+
+            def _require_auth(self, path):
+                calls.append(('require_auth', path))
+                return True
+
+            def _json(self, data, status=200):
+                self.response = {'data': data, 'status': status}
+                return self.response
+
+            def _service_unavailable(self, message, is_api=False):
+                raise AssertionError(message)
+
+            def _session_claims_from_request(self, expected_org_id=None):
+                return None
+
+            def _read_body(self):
+                return {
+                    'draft_id': 'draft_quote_pir_demo'
+                    , 'preview_id': 'quote_pir_demo',
+                    'telegram_id': '800',
+                    'plan': 'premium-brief-weekly',
+                    'payment_ref': 'ref-checkout',
+                    'payment_evidence': {
+                        'order_id': 'ord-checkout',
+                        'payment_key': 'ref:ref-checkout',
+                        'payment_ref': 'ref-checkout',
+                        'tx_hash': '0xcheckout',
+                        'amount_usd': 2.99,
+                    },
+                }
+
+        with mock.patch.object(self.workspace.subscription_service, 'load_subscriptions', return_value={
+            'draft_subscriptions': {
+                'draft_quote_pir_demo': {
+                    'draft_id': 'draft_quote_pir_demo',
+                    'preview_id': 'quote_pir_demo',
+                    'telegram_id': '800',
+                    'plan': 'premium-brief-weekly',
+                },
+            },
+        }), mock.patch.object(self.workspace.subscription_preview_queue, 'get_subscription_preview', return_value={
+            'preview_id': 'quote_pir_demo',
+            'pilot_request_id': 'pir_demo',
+            'state': 'reviewed',
+            'requested_offer': 'manual_pilot',
+            'preview_truth_source': 'pilot_intake_review_and_published_plan_table_only',
+            'telegram_handle': '800',
+        }), mock.patch.object(self.workspace.subscription_service, 'capture_subscription_from_preview', return_value={
+            'preview_id': 'quote_pir_demo',
+            'telegram_id': '800',
+            'subscription': {
+                'id': 'sub_checkout',
+                'plan': 'premium-brief-weekly',
+                'status': 'active',
+                'payment_verified': True,
+                'payment_ref': 'ref-checkout',
+            },
+            'delivery_job': {
+                'job_id': 'loom_sub_checkout',
+                'preview_id': 'quote_pir_demo',
+                'delivery_ref': 'loom-job-checkout',
+            },
+            'delivery_run': {
+                'run_id': 'ldr_sub_checkout',
+                'job_id': 'loom_sub_checkout',
+                'state': 'executed',
+                'delivery_status': 'delivered',
+                'delivered': True,
+                'delivery_ref': 'loom-job-checkout',
+            },
+            'delivery_execution': {'ok': True, 'job_id': 'loom-job-checkout'},
+        }), mock.patch.object(self.workspace.subscription_preview_queue, 'mark_preview_delivered', return_value={
+            'preview': {
+                'preview_id': 'quote_pir_demo',
+                'pilot_request_id': 'pir_demo',
+                'activated_subscription_id': 'sub_checkout',
+                'delivery_ref': 'loom-job-checkout',
+                'delivery_state': 'delivered',
+            },
+            'summary': {'total_previews': 1, 'activated_count': 1, 'delivered_count': 1},
+        }), mock.patch.object(self.workspace.subscription_preview_queue, 'mark_preview_activated', return_value={
+            'preview': {
+                'preview_id': 'quote_pir_demo',
+                'pilot_request_id': 'pir_demo',
+                'activated_subscription_id': 'sub_checkout',
+                'delivery_state': 'captured',
+            },
+            'summary': {'total_previews': 1, 'activated_count': 1, 'delivered_count': 0},
+        }), mock.patch.object(self.workspace.service_state, 'subscription_snapshot', return_value={
+            'bound_org_id': 'org_founding',
+            'summary': {'subscriber_count': 1, 'active_subscription_count': 1},
+            'loom_delivery_queue_summary': {'total_jobs': 1, 'queued_count': 0, 'blocked_count': 0, 'completed_count': 1},
+            'loom_delivery_run_summary': {'total_runs': 1, 'delivered_count': 1},
+        }), mock.patch.object(self.workspace, 'log_event', return_value='evt_demo'), mock.patch.object(self.workspace, '_resolve_auth_context', return_value={
+            'enabled': True,
+            'mode': 'credential_bound',
+            'org_id': 'org_founding',
+            'user_id': 'user_owner',
+            'role': 'owner',
+            'actor_id': 'user_owner',
+            'actor_source': 'test',
+            'session_id': 'sid_demo',
+        }):
+            handler = PostHandler()
+            result = self.workspace.WorkspaceHandler.do_POST(handler)
+        self.assertEqual(calls, [])
+        self.assertEqual(handler.response['status'], 201)
+        self.assertEqual(handler.response['data']['result']['subscription']['status'], 'active')
+        self.assertEqual(handler.response['data']['preview']['delivery_ref'], 'loom-job-checkout')
+        self.assertEqual(handler.response['data']['subscription_preview_summary']['delivered_count'], 1)
+        self.assertEqual(result, handler.response)
+
     def test_operator_pilot_intake_routes_expose_review_only_flow(self):
         calls = []
         self.workspace._resolve_workspace_context = lambda: types.SimpleNamespace(org_id='org_founding', org={}, context_source='configured_org')

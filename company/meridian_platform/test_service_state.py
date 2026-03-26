@@ -231,6 +231,7 @@ class ServiceStateTests(unittest.TestCase):
             'queue_paths': {
                 'inspect': '/api/subscriptions/preview-queue',
                 'source_review': '/api/pilot/intake/operator/review',
+                'checkout_capture': '/api/subscriptions/checkout-capture',
             },
             'summary': {
                 'bound_org_id': 'org_demo',
@@ -260,6 +261,7 @@ class ServiceStateTests(unittest.TestCase):
         self.assertEqual(snap['management_mode'], 'manual_subscription_preview_queue')
         self.assertEqual(snap['boundary_name'], 'subscription_preview_queue')
         self.assertEqual(snap['queue_paths']['inspect'], '/api/subscriptions/preview-queue')
+        self.assertEqual(snap['queue_paths']['checkout_capture'], '/api/subscriptions/checkout-capture')
         self.assertEqual(snap['summary']['total_previews'], 1)
         self.assertEqual(len(snap['preview_tail']), 1)
 

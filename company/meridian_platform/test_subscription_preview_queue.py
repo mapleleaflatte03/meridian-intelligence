@@ -73,6 +73,7 @@ class SubscriptionPreviewQueueTests(unittest.TestCase):
         self.assertEqual(before, after)
         self.assertEqual(snap['summary']['total_previews'], 1)
         self.assertEqual(snap['queue_paths']['inspect'], '/api/subscriptions/preview-queue')
+        self.assertEqual(snap['queue_paths']['checkout_capture'], '/api/subscriptions/checkout-capture')
         self.assertEqual(len(snap['subscription_previews']), 1)
         self.assertEqual(snap['subscription_previews'][0]['preview_id'], 'quote_pir_demo')
 
