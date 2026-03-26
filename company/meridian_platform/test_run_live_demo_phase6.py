@@ -38,7 +38,30 @@ class LiveDemoPhase6Tests(unittest.TestCase):
         self.assertEqual(runtime['capability_name'], '')
         self.assertFalse(runtime['preflight']['ok'])
         self.assertIn('No Loom delivery capability is configured', runtime['preflight']['errors'])
+        blockchain = live_demo_phase6.delivery_blockchain_artifact(result)
+        self.assertEqual(blockchain['artifact'], '')
+        self.assertEqual(blockchain['artifact_type'], '')
         self.assertFalse(os.path.exists(result['demo_state_dir']))
+
+    def test_delivery_blockchain_artifact_prefers_runtime_settlement_refs(self):
+        result = {
+            'capture_result': {
+                'delivery_run': {
+                    'execution_refs': {
+                        'settlement_adapter': 'segregated_hot_wallet',
+                        'proof_type': 'onchain_receipt',
+                        'proof': {'signed_raw_hex': '0xfeedbeef'},
+                    },
+                },
+            },
+        }
+
+        artifact = live_demo_phase6.delivery_blockchain_artifact(result)
+        self.assertEqual(artifact['artifact_type'], 'signed_raw_hex')
+        self.assertEqual(artifact['artifact'], '0xfeedbeef')
+        self.assertEqual(artifact['artifact_source'], 'delivery_run.execution_refs.proof')
+        self.assertEqual(artifact['settlement_adapter'], 'segregated_hot_wallet')
+        self.assertEqual(artifact['proof_type'], 'onchain_receipt')
 
 
 if __name__ == '__main__':

@@ -4,7 +4,8 @@
 This script is intentionally truthful:
 - it writes explicit local demo payment evidence into an isolated temp journal
 - it exercises the real subscription activation path used by checkout capture
-- it never claims any blockchain transfer happened
+- it only claims a blockchain transfer if the delivery/runtime path returns a real
+  tx hash or signed raw hex artifact
 - outbound delivery is disabled by default for demo safety
 - it only prints a generated brief if the configured Loom runtime actually returns one
 """
@@ -196,6 +197,78 @@ def runtime_snapshot():
     }
 
 
+def _delivery_blockchain_artifact(payload, *, source=''):
+    payload = dict(payload or {})
+    if not payload:
+        return {}
+
+    settlement_adapter = (payload.get('settlement_adapter') or '').strip()
+    proof_type = (payload.get('proof_type') or '').strip()
+    for field in ('signed_raw_hex', 'signed_tx_hex', 'raw_hex'):
+        value = (payload.get(field) or '').strip()
+        if value:
+            return {
+                'artifact_type': field,
+                'artifact': value,
+                'artifact_source': source,
+                'settlement_adapter': settlement_adapter,
+                'proof_type': proof_type,
+            }
+
+    tx_hash = (payload.get('tx_hash') or '').strip()
+    if tx_hash:
+        return {
+            'artifact_type': 'tx_hash',
+            'artifact': tx_hash,
+            'artifact_source': source,
+            'settlement_adapter': settlement_adapter,
+            'proof_type': proof_type,
+        }
+
+    for nested_key in ('proof', 'settlement_proof', 'execution_refs'):
+        nested = payload.get(nested_key)
+        if isinstance(nested, dict):
+            artifact = _delivery_blockchain_artifact(
+                nested,
+                source=f'{source}.{nested_key}' if source else nested_key,
+            )
+            if artifact:
+                if not artifact.get('settlement_adapter'):
+                    artifact['settlement_adapter'] = settlement_adapter
+                if not artifact.get('proof_type'):
+                    artifact['proof_type'] = proof_type
+                return artifact
+
+    return {}
+
+
+def delivery_blockchain_artifact(result):
+    capture_result = dict((result or {}).get('capture_result') or {})
+    delivery_execution = dict(capture_result.get('delivery_execution') or {})
+    delivery_run = dict(capture_result.get('delivery_run') or {})
+    delivery_job = dict(capture_result.get('delivery_job') or {})
+    delivery_artifact = dict(capture_result.get('delivery_artifact') or {})
+
+    candidates = [
+        ('delivery_execution.worker_result', delivery_execution.get('worker_result')),
+        ('delivery_execution.execution_refs', delivery_execution.get('execution_refs')),
+        ('delivery_run.execution_refs', delivery_run.get('execution_refs')),
+        ('delivery_job.execution_refs', delivery_job.get('execution_refs')),
+        ('delivery_artifact', delivery_artifact),
+    ]
+    for source, payload in candidates:
+        artifact = _delivery_blockchain_artifact(payload, source=source)
+        if artifact:
+            return artifact
+    return {
+        'artifact_type': '',
+        'artifact': '',
+        'artifact_source': '',
+        'settlement_adapter': '',
+        'proof_type': '',
+    }
+
+
 def run_demo(*, plan=DEFAULT_PLAN, telegram_id=DEFAULT_TELEGRAM_ID, email='', timeout=20,
              disable_outbound_dispatch=True, keep_state=False, capability_name=''):
     env_overrides = {}
@@ -260,12 +333,20 @@ def _print_result(result):
     run = capture_result.get('delivery_run', {})
     execution = capture_result.get('delivery_execution', {})
     artifact = capture_result.get('delivery_artifact', {})
+    blockchain = delivery_blockchain_artifact(result)
 
     print('Phase 6 Live Demo')
     print(f"workspace: {WORKSPACE}")
     print(f"demo_state_dir: {result['demo_state_dir']}")
     print(f"outbound_dispatch_disabled: {str(result['outbound_dispatch_disabled']).lower()}")
-    print('blockchain_transfer_claimed: false')
+    print(f"blockchain_transfer_claimed: {str(bool(blockchain.get('artifact'))).lower()}")
+    print(f"blockchain_artifact_type: {blockchain.get('artifact_type') or '<none>'}")
+    print(f"blockchain_artifact_source: {blockchain.get('artifact_source') or '<none>'}")
+    if blockchain.get('settlement_adapter'):
+        print(f"blockchain_settlement_adapter: {blockchain['settlement_adapter']}")
+    if blockchain.get('proof_type'):
+        print(f"blockchain_proof_type: {blockchain['proof_type']}")
+    print(f"blockchain_artifact: {blockchain.get('artifact') or '<none>'}")
     print(f"runtime_path: {runtime['runtime_path']}")
     print(f"wasm_io_available: {str(runtime['wasm_io_available']).lower()}")
     print(f"loom_bin: {runtime['loom_bin']}")
@@ -278,7 +359,7 @@ def _print_result(result):
             print(f'  - {error}')
     print(f"payment_ref: {result['payment_entry']['payment_ref']}")
     print(f"payment_order_id: {result['payment_entry']['order_id']}")
-    print(f"payment_tx_hash: {result['payment_entry']['tx_hash']}")
+    print(f"payment_evidence_tx_hash: {result['payment_entry']['tx_hash']}")
     print(f"subscription_id: {subscription.get('id', '')}")
     print(f"subscription_status: {subscription.get('status', '')}")
     print(f"payment_verified: {str(bool(subscription.get('payment_verified'))).lower()}")
