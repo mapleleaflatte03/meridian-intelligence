@@ -55,10 +55,12 @@ class StatusSurfaceTests(unittest.TestCase):
         self.assertIn('accounting.db', seam_names)
         self.assertIn('cases.db', seam_names)
         self.assertIn('pilot_intake.json', seam_names)
+        self.assertIn('subscription_preview_queue.json', seam_names)
         self.assertIn('accounting_service.py', seam_owners)
         self.assertIn('accounting_store.py', seam_owners)
         self.assertIn('cases_store.py', seam_owners)
         self.assertIn('pilot_intake.py', seam_owners)
+        self.assertIn('subscription_preview_queue.py', seam_owners)
 
     def test_observability_snapshot_summarizes_file_backed_metrics(self):
         with tempfile.TemporaryDirectory() as tmp:

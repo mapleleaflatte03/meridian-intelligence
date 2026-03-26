@@ -544,6 +544,16 @@ class LiveWorkspaceContextTests(unittest.TestCase):
             'identity_model': 'session',
             'summary': {'subscriber_count': 0, 'external_target_count': 0},
         }
+        self.workspace.service_state.subscription_preview_snapshot = lambda org_id=None: {
+            'bound_org_id': org_id,
+            'mutation_enabled': True,
+            'identity_model': 'operator_review',
+            'summary': {'total_previews': 1},
+            'queue_paths': {
+                'inspect': '/api/subscriptions/preview-queue',
+                'source_review': '/api/pilot/intake/operator/review',
+            },
+        }
         self.workspace.service_state.accounting_snapshot = lambda org_id=None: {
             'bound_org_id': org_id,
             'mutation_enabled': True,
@@ -582,9 +592,11 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         ctx = self.workspace._resolve_workspace_context()
         status = self.workspace.api_status(institution_context=ctx)
         self.assertIn('pilot_intake', status['service_state'])
+        self.assertIn('subscription_preview', status['service_state'])
         self.assertEqual(status['service_state']['pilot_intake']['summary']['total_requests'], 1)
         self.assertEqual(status['service_state']['pilot_intake']['request_paths']['submit'], '/api/pilot/intake')
         self.assertEqual(status['service_state']['pilot_intake']['request_paths']['operator_inspect'], '/api/pilot/intake/operator')
+        self.assertEqual(status['service_state']['subscription_preview']['summary']['total_previews'], 1)
 
     def test_public_pilot_intake_post_records_request_without_auth_gate(self):
         calls = []
@@ -717,6 +729,13 @@ class LiveWorkspaceContextTests(unittest.TestCase):
                 'reviewed_by': 'user_owner',
             },
             'summary': {'total_requests': 1, 'reviewed_count': 1, 'acknowledged_count': 1},
+        }), mock.patch.object(self.workspace.subscription_preview_queue, 'queue_subscription_preview', return_value={
+            'preview': {
+                'preview_id': 'quote_pir_demo',
+                'pilot_request_id': 'pir_demo',
+                'state': 'reviewed',
+            },
+            'summary': {'total_previews': 1, 'reviewed_count': 1},
         }), mock.patch.object(self.workspace.pilot_intake, 'operator_review_snapshot', return_value={
             'operator_review': {'review_mode': 'manual_ack_only', 'acknowledged_count': 1},
         }), mock.patch.object(self.workspace, 'log_event', return_value='evt_demo'), mock.patch.object(self.workspace, '_resolve_auth_context', return_value={
@@ -734,6 +753,7 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.assertEqual(post_calls, [('require_auth', '/api/pilot/intake/operator/review')])
         self.assertEqual(handler.response['status'], 200)
         self.assertEqual(handler.response['data']['request']['review_state'], 'acknowledged')
+        self.assertEqual(handler.response['data']['subscription_preview']['preview_id'], 'quote_pir_demo')
         self.assertEqual(result, handler.response)
 
     def test_api_status_reports_witness_read_only_host_management(self):

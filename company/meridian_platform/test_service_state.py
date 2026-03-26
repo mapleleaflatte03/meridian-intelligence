@@ -4,6 +4,7 @@ import os
 import shutil
 import tempfile
 import unittest
+from unittest import mock
 
 import service_state
 
@@ -200,6 +201,52 @@ class ServiceStateTests(unittest.TestCase):
         self.assertEqual(snap['summary']['draws_taken_usd'], 0.25)
         self.assertEqual(snap['summary']['unreimbursed_expenses_usd'], 0.75)
         self.assertEqual(snap['summary']['entry_count'], 1)
+
+
+    def test_subscription_preview_snapshot_reports_review_queue(self):
+        with mock.patch.object(service_state.subscription_preview_queue, 'subscription_preview_queue_snapshot', return_value={
+            'bound_org_id': 'org_demo',
+            'management_mode': 'manual_subscription_preview_queue',
+            'mutation_enabled': True,
+            'mutation_disabled_reason': '',
+            'service_scope': 'institution_owned_subscription_preview_queue',
+            'boundary_name': 'subscription_preview_queue',
+            'identity_model': 'operator_review',
+            'storage_model': 'capsule_canonical',
+            'queue_paths': {
+                'inspect': '/api/subscriptions/preview-queue',
+                'source_review': '/api/pilot/intake/operator/review',
+            },
+            'summary': {
+                'bound_org_id': 'org_demo',
+                'total_previews': 1,
+                'previewed_count': 0,
+                'reviewed_count': 1,
+                'dismissed_count': 0,
+                'superseded_count': 0,
+                'checkout_claimed_count': 0,
+                'latest_preview_at': '2026-03-25T00:00:00Z',
+                'state_counts': {'previewed': 0, 'reviewed': 1, 'dismissed': 0, 'superseded': 0},
+            },
+            'subscription_previews': [{
+                'preview_id': 'quote_pir_demo',
+                'pilot_request_id': 'pir_demo',
+                'state': 'reviewed',
+                'checkout_claimed': False,
+                'payment_capture_claimed': False,
+                'fulfillment_claimed': False,
+                'plan_options': [],
+            }],
+            'meta': {'boundary_name': 'subscription_preview_queue'},
+        }):
+            snap = service_state.subscription_preview_snapshot('org_demo')
+
+        self.assertEqual(snap['bound_org_id'], 'org_demo')
+        self.assertEqual(snap['management_mode'], 'manual_subscription_preview_queue')
+        self.assertEqual(snap['boundary_name'], 'subscription_preview_queue')
+        self.assertEqual(snap['queue_paths']['inspect'], '/api/subscriptions/preview-queue')
+        self.assertEqual(snap['summary']['total_previews'], 1)
+        self.assertEqual(len(snap['preview_tail']), 1)
 
     def test_pilot_intake_snapshot_reports_request_queue(self):
         service_state.pilot_intake_snapshot = lambda org_id=None: {

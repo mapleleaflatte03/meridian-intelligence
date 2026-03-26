@@ -13,6 +13,7 @@ from capsule import (
 )
 import accounting_store
 import pilot_intake
+import subscription_preview_queue
 import subscription_service
 
 
@@ -261,6 +262,25 @@ def accounting_snapshot(org_id=None):
     }
 
 
+
+
+
+def subscription_preview_snapshot(org_id=None, *, limit=50):
+    payload = subscription_preview_queue.subscription_preview_queue_snapshot(org_id, limit=limit)
+    return {
+        'bound_org_id': payload['bound_org_id'],
+        'management_mode': payload['management_mode'],
+        'mutation_enabled': payload['mutation_enabled'],
+        'mutation_disabled_reason': payload['mutation_disabled_reason'],
+        'service_scope': payload['service_scope'],
+        'boundary_name': payload['boundary_name'],
+        'identity_model': payload['identity_model'],
+        'storage_model': payload['storage_model'],
+        'queue_paths': payload['queue_paths'],
+        'summary': payload['summary'],
+        'preview_tail': payload['subscription_previews'][-20:],
+        'meta': payload['meta'],
+    }
 
 def pilot_intake_snapshot(org_id=None):
     payload = pilot_intake.queue_snapshot(org_id)

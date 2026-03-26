@@ -199,6 +199,7 @@ import openclaw_runtime_proof
 import service_state
 import status_surface
 import pilot_intake
+import subscription_preview_queue
 import subscription_service
 from federation import (
     FederationAuthority,
@@ -3414,6 +3415,7 @@ def api_status(context_source='founding_default', institution_context=None):
         'cases': _case_snapshot(org_id),
         'service_state': {
             'subscriptions': service_state.subscription_snapshot(org_id),
+            'subscription_preview': service_state.subscription_preview_snapshot(org_id),
             'accounting': service_state.accounting_snapshot(org_id),
             'pilot_intake': service_state.pilot_intake_snapshot(org_id),
         },
@@ -4237,6 +4239,9 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                     external_only=external_only,
                 ),
             })
+        elif path == '/api/subscriptions/preview-queue':
+            limit = parse_qs(parsed.query).get('limit', ['50'])[-1]
+            return self._json(service_state.subscription_preview_snapshot(org_id, limit=limit))
         elif path == '/api/accounting':
             return self._json(service_state.accounting_snapshot(org_id))
         elif path == '/api/pilot/intake':
@@ -4848,6 +4853,12 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                     org_id=org_id,
                     note=body.get('note') or body.get('review_note') or '',
                 )
+                preview_result = subscription_preview_queue.queue_subscription_preview(
+                    result['request'],
+                    org_id=org_id,
+                    by=by,
+                    note=body.get('note') or body.get('review_note') or '',
+                )
                 log_event(
                     org_id,
                     by,
@@ -4858,6 +4869,7 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                         'status': result['request'].get('status', ''),
                         'review_state': result['request'].get('review_state', ''),
                         'reviewed_by': result['request'].get('reviewed_by', ''),
+                        'preview_id': preview_result['preview'].get('preview_id', ''),
                     },
                     session_id=_sid,
                 )
@@ -4866,6 +4878,8 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                     'request': result['request'],
                     'summary': result['summary'],
                     'operator_review': pilot_intake.operator_review_snapshot(org_id).get('operator_review', {}),
+                    'subscription_preview': preview_result['preview'],
+                    'subscription_preview_summary': preview_result['summary'],
                 })
 
             elif path == '/api/payouts/propose':

@@ -195,6 +195,11 @@ def persistence_snapshot(org_id=None):
             owner='subscription_service.py',
         ),
         _file_snapshot(
+            _safe_capsule_path(org_id, 'subscription_preview_queue.json'),
+            kind='json',
+            owner='subscription_preview_queue.py',
+        ),
+        _file_snapshot(
             _safe_capsule_path(org_id, 'owner_ledger.json'),
             kind='json',
             owner='accounting_service.py',
