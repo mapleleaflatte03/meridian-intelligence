@@ -15,6 +15,8 @@ import uuid
 
 from capsule import capsule_path
 
+import cases_store
+
 
 CASE_STATES = (
     'open',
@@ -65,18 +67,13 @@ def _empty_store():
 
 def _load_store(org_id=None):
     path = _store_path(org_id)
-    if os.path.exists(path):
-        with open(path) as f:
-            return json.load(f)
-    return _empty_store()
+    return cases_store.load_case_store(path, org_id)
 
 
 def _save_store(data, org_id=None):
     data['updatedAt'] = _now()
     path = _store_path(org_id)
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, 'w') as f:
-        json.dump(data, f, indent=2, sort_keys=True)
+    cases_store.save_case_store(path, data, org_id=org_id)
 
 
 def open_case(org_id, claim_type, actor_id, *, target_host_id='',

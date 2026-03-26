@@ -38,6 +38,8 @@ from capsule import ensure_treasury_aliases, ledger_path as capsule_ledger_path
 from capsule import transactions_path as capsule_transactions_path
 from capsule import ensure_accounting_aliases, owner_ledger_path as capsule_owner_ledger_path
 
+import accounting_store
+
 def now_ts():
     return datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
 
@@ -139,14 +141,14 @@ def save_ledger(data, org_id=None):
     _write_json_atomic(os.path.realpath(capsule_ledger_path(org_id)), data)
 
 def append_tx(entry, org_id=None):
+    entry = dict(entry)
     entry['ts'] = now_ts()
     tx_path = os.path.realpath(capsule_transactions_path(org_id))
-    os.makedirs(os.path.dirname(tx_path), exist_ok=True)
-    with open(tx_path, 'a') as f:
-        f.write(json.dumps(entry) + '\n')
+    accounting_store.append_transaction(tx_path, entry, org_id=org_id)
 
 def load_owner(org_id=None):
-    return _normalize_owner(load_json(owner_ledger_path(org_id)), org_id)
+    path = owner_ledger_path(org_id)
+    return accounting_store.load_owner_ledger_state(path, org_id)
 
 # ── reusable helpers ─────────────────────────────────────────────────────────
 
@@ -168,7 +170,7 @@ def contribute_capital(amount_usd, note='', actor='owner', org_id=None):
             'by': actor,
             'at': now_ts(),
         })
-        _write_json_atomic(owner_ledger_path(org_id), owner)
+        accounting_store.save_owner_ledger_state(owner_ledger_path(org_id), owner, org_id=org_id)
 
         t = ledger['treasury']
         t['cash_usd'] += amount
@@ -206,7 +208,7 @@ def record_owner_expense(amount_usd, note='', actor='owner', org_id=None):
             'by': actor,
             'at': now_ts(),
         })
-        _write_json_atomic(owner_ledger_path(org_id), owner)
+        accounting_store.save_owner_ledger_state(owner_ledger_path(org_id), owner, org_id=org_id)
         append_tx({
             'type': 'owner_expense_recorded',
             'amount_usd': amount,
@@ -280,7 +282,7 @@ def reimburse_owner(amount_usd, note='', actor='owner', org_id=None):
             'by': actor,
             'at': now_ts(),
         })
-        _write_json_atomic(owner_ledger_path(org_id), owner)
+        accounting_store.save_owner_ledger_state(owner_ledger_path(org_id), owner, org_id=org_id)
         save_ledger(ledger, org_id)
         append_tx({
             'type': 'treasury_withdraw',
@@ -327,7 +329,7 @@ def take_owner_draw(amount_usd, note='', actor='owner', org_id=None):
             'by': actor,
             'at': now_ts(),
         })
-        _write_json_atomic(owner_ledger_path(org_id), owner)
+        accounting_store.save_owner_ledger_state(owner_ledger_path(org_id), owner, org_id=org_id)
         save_ledger(ledger, org_id)
         append_tx({
             'type': 'treasury_withdraw',

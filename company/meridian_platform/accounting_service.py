@@ -26,6 +26,8 @@ if PLATFORM_DIR not in sys.path:
 
 from capsule import capsule_path
 
+import accounting_store
+
 
 BOUNDARY_NAME = 'accounting'
 IDENTITY_MODEL = 'session'
@@ -99,12 +101,7 @@ def _append_transaction(org_id, entry):
     entry = dict(entry)
     entry['ts'] = _now()
     path = _transactions_path(org_id)
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, 'a') as f:
-        f.write(json.dumps(entry) + '\n')
-        f.flush()
-        os.fsync(f.fileno())
-    return entry
+    return accounting_store.append_transaction(path, entry, org_id=org_id)
 
 
 def _default_owner_ledger(org_id=None):
@@ -145,7 +142,7 @@ def _normalize_owner_ledger(payload, org_id=None):
 
 
 def _load_owner_ledger_state_unlocked(org_id=None):
-    payload = _normalize_owner_ledger(_load_json(_owner_ledger_path(org_id), {}), org_id)
+    payload = accounting_store.load_owner_ledger_state(_owner_ledger_path(org_id), org_id)
     treasury = _load_json(_ledger_path(org_id), {'treasury': {}}).get('treasury', {})
     treasury_owner_capital = round(float(treasury.get('owner_capital_contributed_usd', 0.0) or 0.0), 4)
     owner_capital = round(float(payload.get('capital_contributed_usd', 0.0) or 0.0), 4)
@@ -170,7 +167,7 @@ def _load_owner_ledger_state_unlocked(org_id=None):
                     'target_owner_capital_usd': treasury_owner_capital,
                 },
             })
-        _write_json_atomic(_owner_ledger_path(org_id), payload)
+        accounting_store.save_owner_ledger_state(_owner_ledger_path(org_id), payload, org_id=org_id)
     else:
         payload['_meta'].setdefault('capital_sync_backfilled', False)
         payload['_meta'].setdefault('capital_sync_source', 'owner_ledger')
@@ -195,6 +192,7 @@ def accounting_snapshot(org_id=None):
         'mutation_enabled': True,
         'mutation_disabled_reason': '',
         'storage_model': 'capsule_owned_owner_ledger',
+        'db': accounting_store.db_status_for_owner_ledger(_owner_ledger_path(org_id), org_id),
         'boundary_name': BOUNDARY_NAME,
         'identity_model': IDENTITY_MODEL,
         'canonical_path': os.path.relpath(_owner_ledger_path(org_id), WORKSPACE),
@@ -232,7 +230,7 @@ def contribute_capital(amount_usd, note='', by='owner', org_id=None):
             'by': by,
             'at': _now(),
         })
-        _write_json_atomic(_owner_ledger_path(org_id), owner)
+        accounting_store.save_owner_ledger_state(_owner_ledger_path(org_id), owner, org_id=org_id)
 
         treasury['cash_usd'] = round(float(treasury.get('cash_usd', 0.0)) + amount, 4)
         treasury['owner_capital_contributed_usd'] = round(float(treasury.get('owner_capital_contributed_usd', 0.0)) + amount, 4)
@@ -270,7 +268,7 @@ def record_owner_expense(amount_usd, note='', by='owner', org_id=None):
             'by': by,
             'at': _now(),
         })
-        _write_json_atomic(_owner_ledger_path(org_id), owner)
+        accounting_store.save_owner_ledger_state(_owner_ledger_path(org_id), owner, org_id=org_id)
         _append_transaction(org_id, {
             'type': 'owner_expense_recorded',
             'amount_usd': amount,
@@ -318,7 +316,7 @@ def reimburse_owner(amount_usd, note='', by='owner', org_id=None):
             'by': by,
             'at': _now(),
         })
-        _write_json_atomic(_owner_ledger_path(org_id), owner)
+        accounting_store.save_owner_ledger_state(_owner_ledger_path(org_id), owner, org_id=org_id)
         ledger['updatedAt'] = _now()
         _write_json_atomic(_ledger_path(org_id), ledger)
         _append_transaction(org_id, {
@@ -367,7 +365,7 @@ def take_owner_draw(amount_usd, note='', by='owner', org_id=None):
             'by': by,
             'at': _now(),
         })
-        _write_json_atomic(_owner_ledger_path(org_id), owner)
+        accounting_store.save_owner_ledger_state(_owner_ledger_path(org_id), owner, org_id=org_id)
         ledger['updatedAt'] = _now()
         _write_json_atomic(_ledger_path(org_id), ledger)
         _append_transaction(org_id, {

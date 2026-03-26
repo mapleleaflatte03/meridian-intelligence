@@ -3,6 +3,7 @@ import importlib.util
 import json
 import os
 import shutil
+import sqlite3
 import tempfile
 import unittest
 
@@ -103,6 +104,36 @@ class AccountingServiceTests(unittest.TestCase):
         self.assertEqual(owner_a['capital_contributed_usd'], 4.0)
         self.assertEqual(owner_b['expenses_paid_usd'], 1.5)
         self.assertNotEqual(owner_a['entries'], owner_b['entries'])
+
+    def test_sqlite_mirror_recovers_when_owner_ledger_json_is_missing(self):
+        org_id = 'org_sqlite'
+        self._write_ledger(org_id, {
+            'treasury': {
+                'cash_usd': 10.0,
+                'reserve_floor_usd': 5.0,
+                'owner_capital_contributed_usd': 0.0,
+                'owner_draws_usd': 0.0,
+            }
+        })
+
+        self.service.contribute_capital(5.0, note='sqlite seed', by='owner', org_id=org_id)
+
+        owner_path = self._capsule_path(org_id, 'owner_ledger.json')
+        db_path = self.service.accounting_store.db_path_for_owner_ledger(owner_path)
+        self.assertTrue(os.path.exists(db_path))
+
+        os.remove(owner_path)
+        snap = self.service.accounting_snapshot(org_id)
+
+        with sqlite3.connect(db_path) as conn:
+            owner_rows = conn.execute('SELECT COUNT(*) FROM owner_ledger').fetchone()[0]
+            tx_rows = conn.execute('SELECT COUNT(*) FROM accounting_transactions').fetchone()[0]
+
+        self.assertEqual(owner_rows, 1)
+        self.assertGreaterEqual(tx_rows, 1)
+        self.assertEqual(snap['db']['status'], 'present')
+        self.assertEqual(snap['summary']['capital_contributed_usd'], 5.0)
+        self.assertEqual(snap['entries_tail'][-1]['type'], 'capital_contribution')
 
     def test_journal_behavior_records_all_flows(self):
         org_id = 'org_journal'

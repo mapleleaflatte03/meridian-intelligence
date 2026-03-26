@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import importlib.util
 import os
+import sqlite3
 import tempfile
 import unittest
 
@@ -14,6 +15,9 @@ def _load_module(path, name):
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+import cases_store
 
 
 class CaseModuleTests(unittest.TestCase):
@@ -149,6 +153,31 @@ class CaseModuleTests(unittest.TestCase):
         self.assertTrue(created_first)
         self.assertFalse(created_second)
         self.assertEqual(first['case_id'], second['case_id'])
+
+
+    def test_sqlite_mirror_recovers_when_cases_json_is_missing(self):
+        record = self.cases.open_case(
+            self.org_id,
+            'misrouted_execution',
+            'user_owner',
+            target_host_id='host_peer',
+            target_institution_id='org_peer',
+            note='Wrong target received',
+        )
+        cases_path = self.cases._store_path(self.org_id)
+        db_path = cases_store.db_path_for_cases_file(cases_path)
+        self.assertTrue(os.path.exists(db_path))
+
+        os.remove(cases_path)
+        reloaded = self.cases._load_store(self.org_id)
+
+        with sqlite3.connect(db_path) as conn:
+            case_rows = conn.execute('SELECT COUNT(*) FROM cases').fetchone()[0]
+
+        self.assertEqual(case_rows, 1)
+        self.assertIn(record['case_id'], reloaded['cases'])
+        self.assertEqual(reloaded['cases'][record['case_id']]['status'], 'open')
+        self.assertEqual(cases_store.db_status_for_cases_file(cases_path, self.org_id)['status'], 'present')
 
 
 if __name__ == '__main__':

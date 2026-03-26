@@ -11,6 +11,7 @@ from capsule import (
     owner_ledger_path,
     subscriptions_path,
 )
+import accounting_store
 import subscription_service
 
 
@@ -134,7 +135,7 @@ def load_owner_ledger_state(org_id=None):
                     'target_owner_capital_usd': treasury_owner_capital,
                 },
             })
-        _save_json(owner_ledger_path(org_id), payload)
+        accounting_store.save_owner_ledger_state(owner_ledger_path(org_id), payload, org_id=org_id)
     return payload
 
 
@@ -224,6 +225,7 @@ def accounting_snapshot(org_id=None):
         'mutation_enabled': True,
         'mutation_disabled_reason': '',
         'storage_model': meta.get('storage_model', 'capsule_owned_owner_ledger'),
+        'db': accounting_store.db_status_for_owner_ledger(owner_ledger_path(org_id), org_id),
         'boundary_name': meta.get('boundary_name', 'accounting'),
         'identity_model': meta.get('identity_model', 'session'),
         'canonical_source': 'service_module',

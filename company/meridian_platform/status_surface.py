@@ -16,6 +16,8 @@ from metering import summary as metering_summary
 import organizations
 import organizations_store
 import observability_store
+import accounting_store
+import cases_store
 import slo_policy
 
 
@@ -110,6 +112,24 @@ def persistence_snapshot(org_id=None):
         owner='observability_store.py',
         role='observability_mirror',
     )
+    accounting_db = accounting_store.db_path_for_owner_ledger(
+        _safe_capsule_path(org_id, 'owner_ledger.json') or os.path.join(PLATFORM_DIR, 'owner_ledger.json')
+    )
+    accounting_db_snapshot = _file_snapshot(
+        accounting_db,
+        kind='sqlite',
+        owner='accounting_store.py',
+        role='state_mirror',
+    )
+    cases_db = cases_store.db_path_for_cases_file(
+        _safe_capsule_path(org_id, 'cases.json') or os.path.join(PLATFORM_DIR, 'cases.json')
+    )
+    cases_db_snapshot = _file_snapshot(
+        cases_db,
+        kind='sqlite',
+        owner='cases_store.py',
+        role='state_mirror',
+    )
     seams = [
         _file_snapshot(
             os.path.join(PLATFORM_DIR, 'organizations.json'),
@@ -171,11 +191,13 @@ def persistence_snapshot(org_id=None):
             kind='json',
             owner='accounting_service.py',
         ),
+        accounting_db_snapshot,
         _file_snapshot(
             _safe_capsule_path(org_id, 'cases.json'),
             kind='json',
             owner='cases.py',
         ),
+        cases_db_snapshot,
         _file_snapshot(
             _safe_capsule_path(org_id, 'commitments.json'),
             kind='json',
@@ -192,22 +214,25 @@ def persistence_snapshot(org_id=None):
     orgs_db_status = organizations_store.db_status_for_file(organizations.ORGS_FILE)
     observability_db_status = observability_store.db_status_for_log(audit.AUDIT_FILE)
     db_status = {
-        'status': 'present' if orgs_db_status.get('status') == 'present' or observability_db_status.get('status') == 'present' else 'absent',
+        'status': 'present' if orgs_db_status.get('status') == 'present' or observability_db_status.get('status') == 'present' or accounting_db_snapshot.get('status') == 'present' or cases_db_snapshot.get('status') == 'present' else 'absent',
         'reason': '',
         'organizations': orgs_db_status,
         'observability': observability_db_status,
+        'accounting': accounting_db_snapshot,
+        'cases': cases_db_snapshot,
     }
     if db_status['status'] != 'present':
         db_status['reason'] = 'sqlite mirrors are not initialized yet'
-    backend = (
-        'sqlite-organizations+sqlite-observability+jsonl'
-        if orgs_db_status.get('status') == 'present' and observability_db_status.get('status') == 'present'
-        else 'sqlite-organizations+jsonl'
-        if orgs_db_status.get('status') == 'present'
-        else 'sqlite+jsonl'
-        if observability_db_status.get('status') == 'present'
-        else 'file-backed-jsonl'
-    )
+    backend_parts = []
+    if orgs_db_status.get('status') == 'present':
+        backend_parts.append('sqlite-organizations')
+    if observability_db_status.get('status') == 'present':
+        backend_parts.append('sqlite-observability')
+    if accounting_db_snapshot.get('status') == 'present':
+        backend_parts.append('sqlite-accounting')
+    if cases_db_snapshot.get('status') == 'present':
+        backend_parts.append('sqlite-cases')
+    backend = '+'.join(backend_parts + ['jsonl']) if backend_parts else 'file-backed-jsonl'
     return {
         'backend': backend,
         'db': db_status,

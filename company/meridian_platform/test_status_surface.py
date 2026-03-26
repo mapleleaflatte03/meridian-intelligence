@@ -24,6 +24,8 @@ import metering
 import organizations
 import organizations_store
 import observability_store
+import accounting_store
+import cases_store
 import slo_policy
 
 
@@ -37,7 +39,11 @@ class StatusSurfaceTests(unittest.TestCase):
         self.assertIn('audit_log.jsonl', seam_names)
         self.assertIn('metering.jsonl', seam_names)
         self.assertIn('organizations.db', seam_names)
+        self.assertIn('accounting.db', seam_names)
+        self.assertIn('cases.db', seam_names)
         self.assertIn('accounting_service.py', seam_owners)
+        self.assertIn('accounting_store.py', seam_owners)
+        self.assertIn('cases_store.py', seam_owners)
 
     def test_observability_snapshot_summarizes_file_backed_metrics(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -114,13 +120,74 @@ class StatusSurfaceTests(unittest.TestCase):
                 snapshot = status_surface.observability_snapshot('org_founding')
                 metrics_text = status_surface.observability_metrics_text('org_founding')
 
-        self.assertEqual(snapshot['backend'], 'sqlite+jsonl')
+        self.assertIn('sqlite-observability', snapshot['backend'])
         self.assertEqual(snapshot['db']['status'], 'present')
         self.assertEqual(snapshot['export']['route'], '/metrics')
         self.assertEqual(snapshot['slo']['status'], 'healthy')
         self.assertIn('meridian_audit_events_total{org_id="org_founding"} 1', metrics_text)
         self.assertIn('meridian_metering_cost_usd_total{org_id="org_founding"} 1.2500', metrics_text)
         self.assertIn('meridian_slo_overall_status{org_id="org_founding"} 1', metrics_text)
+
+    def test_accounting_sqlite_mirror_surfaces_in_persistence_snapshot(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            owner_path = os.path.join(tmp, 'owner_ledger.json')
+            accounting_store.save_owner_ledger_state(
+                owner_path,
+                {
+                    'owner': 'Son Nguyen The',
+                    'capital_contributed_usd': 3.0,
+                    'expenses_paid_usd': 1.0,
+                    'reimbursements_received_usd': 0.25,
+                    'draws_taken_usd': 0.0,
+                    'entries': [],
+                    '_meta': {'bound_org_id': 'org_founding'},
+                },
+                org_id='org_founding',
+            )
+            with mock.patch.object(status_surface, '_safe_capsule_path', side_effect=lambda org_id, filename: owner_path if filename == 'owner_ledger.json' else ''):
+                snapshot = status_surface.persistence_snapshot('org_founding')
+
+        self.assertEqual(snapshot['db']['accounting']['status'], 'present')
+        self.assertIn('sqlite-accounting', snapshot['backend'])
+
+    def test_cases_sqlite_mirror_surfaces_in_persistence_snapshot(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cases_path = os.path.join(tmp, 'cases.json')
+            cases_store.save_case_store(
+                cases_path,
+                {
+                    'cases': {
+                        'case_demo': {
+                            'case_id': 'case_demo',
+                            'institution_id': 'org_founding',
+                            'source_institution_id': 'org_founding',
+                            'target_host_id': 'host_peer',
+                            'target_institution_id': 'org_peer',
+                            'claim_type': 'misrouted_execution',
+                            'linked_commitment_id': 'cmt_demo',
+                            'linked_warrant_id': 'war_demo',
+                            'evidence_refs': [],
+                            'status': 'open',
+                            'opened_by': 'user_owner',
+                            'opened_at': '2026-03-25T00:00:00Z',
+                            'updated_at': '2026-03-25T00:00:00Z',
+                            'reviewed_by': '',
+                            'reviewed_at': '',
+                            'review_note': '',
+                            'resolution': '',
+                            'note': 'demo',
+                            'metadata': {},
+                        }
+                    },
+                    'updatedAt': '2026-03-25T00:00:00Z',
+                },
+                org_id='org_founding',
+            )
+            with mock.patch.object(status_surface, '_safe_capsule_path', side_effect=lambda org_id, filename: cases_path if filename == 'cases.json' else ''):
+                snapshot = status_surface.persistence_snapshot('org_founding')
+
+        self.assertEqual(snapshot['db']['cases']['status'], 'present')
+        self.assertIn('sqlite-cases', snapshot['backend'])
 
     def test_organizations_sqlite_mirror_surfaces_in_persistence_snapshot(self):
         with tempfile.TemporaryDirectory() as tmp:
