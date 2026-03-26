@@ -47,7 +47,7 @@ DIRECT_X402_PROOF_TYPE = 'signed_raw_transaction_broadcast_attempt'
 DIRECT_X402_TOKEN_CONTRACT = '0x036CbD53842c5426634e7929541eC2318f3dCF7e'
 DIRECT_X402_RECIPIENT = '0x2222222222222222222222222222222222222222'
 DIRECT_X402_AMOUNT_USDC = '1.00'
-DIRECT_X402_RPC_URL = 'https://sepolia.base.org'
+DIRECT_X402_RPC_URL = 'https://base-sepolia-rpc.publicnode.com'
 KERNEL_TREASURY_PATH = '/tmp/meridian-kernel/kernel/treasury.py'
 KERNEL_CAPSULE_PATH = '/tmp/meridian-kernel/kernel/capsule.py'
 HOT_WALLET_SECRET_PATH = '/tmp/meridian-kernel/.hot-wallet-secrets/automated_loom_settlement_v1.json'
@@ -254,20 +254,69 @@ def _load_worker_result(path):
         return json.load(f)
 
 
-def _host_response_brief_text(worker_result):
+def _normalized_host_response(worker_result):
     host_response = (worker_result or {}).get('host_response_json')
     if isinstance(host_response, str):
         try:
             host_response = json.loads(host_response)
         except Exception:
             host_response = {}
-    if not isinstance(host_response, dict):
-        return ''
+    return host_response if isinstance(host_response, dict) else {}
+
+
+def _host_response_brief(worker_result, *, execute_payload=None, execution_error=''):
+    worker_result = dict(worker_result or {})
+    execute_payload = dict(execute_payload or {})
+    host_response = _normalized_host_response(worker_result)
+
     title = str(host_response.get('title') or '').strip()
     excerpt = str(host_response.get('body_excerpt_utf8') or '').strip()
-    parts = [part for part in (title, excerpt) if part]
-    return '\n\n'.join(parts).strip()
+    if title or excerpt:
+        return {
+            'text': '\n\n'.join([part for part in (title, excerpt) if part]).strip(),
+            'source_key': 'host_response_json.title+body_excerpt_utf8',
+        }
 
+    note = str(host_response.get('note') or '').strip()
+    final_url = str(host_response.get('final_url') or '').strip()
+    http_status = host_response.get('http_status')
+    host_parts = []
+    if final_url:
+        host_parts.append(f'final_url: {final_url}')
+    if http_status not in (None, ''):
+        host_parts.append(f'http_status: {http_status}')
+    if note:
+        host_parts.append(f'note: {note}')
+    if host_parts:
+        return {
+            'text': '\n'.join(host_parts).strip(),
+            'source_key': 'host_response_json.final_url+http_status+note',
+        }
+
+    worker_parts = []
+    host_calls = [str(item).strip() for item in (worker_result.get('host_calls') or []) if str(item).strip()]
+    if host_calls:
+        worker_parts.append(f'host_calls: {", ".join(host_calls)}')
+    if worker_result.get('entrypoint_result') not in (None, ''):
+        worker_parts.append(f"entrypoint_result: {worker_result.get('entrypoint_result')}")
+    status = str(worker_result.get('status') or '').strip()
+    if status:
+        worker_parts.append(f'worker_status: {status}')
+    worker_note = str(execute_payload.get('worker_note') or '').strip()
+    if worker_note:
+        worker_parts.append(f'worker_note: {worker_note}')
+    submit_note = str(execute_payload.get('note') or '').strip()
+    if submit_note and submit_note != worker_note:
+        worker_parts.append(f'submit_note: {submit_note}')
+    if execution_error:
+        worker_parts.append(f'execution_error: {execution_error}')
+    if worker_parts:
+        return {
+            'text': '\n'.join(worker_parts).strip(),
+            'source_key': 'worker_result.host_calls+entrypoint_result+status',
+        }
+
+    return {'text': '', 'source_key': ''}
 
 def _load_kernel_treasury_module():
     global _KERNEL_TREASURY_MODULE
@@ -649,7 +698,6 @@ def _direct_browser_fallback_capture(result, *, timeout, target_url):
     payload = dict(execute_result.get('payload') or {})
     result_path = (payload.get('worker_result_path') or payload.get('result_path') or '').strip()
     worker_result = _load_worker_result(result_path)
-    brief_text = _host_response_brief_text(worker_result)
 
     fallback_execution = {
         'ok': (
@@ -674,6 +722,13 @@ def _direct_browser_fallback_capture(result, *, timeout, target_url):
             or 'direct loom action execute failed'
         )
 
+    brief = _host_response_brief(
+        worker_result,
+        execute_payload=payload,
+        execution_error=fallback_execution['error'],
+    )
+    brief_text = brief['text']
+
     capture_result['delivery_execution'] = fallback_execution
     if brief_text:
         capture_result['delivery_run'] = {
@@ -693,7 +748,7 @@ def _direct_browser_fallback_capture(result, *, timeout, target_url):
             'brief_date': subscription_service.now_dt().date().isoformat(),
             'topic': target_url,
             'result_path': result_path,
-            'source_key': 'host_response_json.title+body_excerpt_utf8',
+            'source_key': brief['source_key'] or 'host_response_json.title+body_excerpt_utf8',
             'brief_text': brief_text,
             'brief_preview': brief_text[: subscription_service.BRIEF_PREVIEW_LIMIT].strip(),
             'raw_worker_result': worker_result,
