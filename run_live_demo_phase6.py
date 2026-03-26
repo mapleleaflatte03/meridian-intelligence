@@ -52,6 +52,7 @@ DIRECT_X402_NONCE = 0
 DIRECT_X402_GAS_LIMIT = 65000
 DIRECT_X402_GAS_PRICE_WEI = 1_000_000_000
 KERNEL_TREASURY_PATH = '/tmp/meridian-kernel/kernel/treasury.py'
+KERNEL_CAPSULE_PATH = '/tmp/meridian-kernel/kernel/capsule.py'
 HOT_WALLET_SECRET_PATH = '/tmp/meridian-kernel/.hot-wallet-secrets/automated_loom_settlement_v1.json'
 _KERNEL_TREASURY_MODULE = None
 
@@ -268,14 +269,32 @@ def _load_kernel_treasury_module():
     if not os.path.exists(KERNEL_TREASURY_PATH):
         return None
     kernel_dir = os.path.dirname(KERNEL_TREASURY_PATH)
-    if kernel_dir not in sys.path:
-        sys.path.insert(0, kernel_dir)
+    if kernel_dir in sys.path:
+        sys.path.remove(kernel_dir)
+    sys.path.insert(0, kernel_dir)
+    if os.path.exists(KERNEL_CAPSULE_PATH):
+        capsule_spec = importlib.util.spec_from_file_location('capsule', KERNEL_CAPSULE_PATH)
+        capsule_module = importlib.util.module_from_spec(capsule_spec)
+        sys.modules['capsule'] = capsule_module
+        capsule_spec.loader.exec_module(capsule_module)
     spec = importlib.util.spec_from_file_location('meridian_kernel_treasury_phase6', KERNEL_TREASURY_PATH)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     _KERNEL_TREASURY_MODULE = module
     return module
 
+
+
+
+def _kernel_signer_org_id(treasury=None):
+    treasury = treasury or _load_kernel_treasury_module()
+    if treasury is not None:
+        resolver = getattr(treasury, '_default_org_id', None)
+        if callable(resolver):
+            resolved = str(resolver() or '').strip()
+            if resolved:
+                return resolved
+    return DIRECT_LOOM_ORG_ID
 
 
 def _load_hot_wallet_secret():
@@ -305,7 +324,7 @@ def _offline_x402_signature(timeout):
     try:
         signing = treasury.sign_x402_transfer_from_wallet(
             SCRIPT_ACTOR,
-            org_id=DIRECT_LOOM_ORG_ID,
+            org_id=_kernel_signer_org_id(treasury),
             source_account_id=DIRECT_X402_SOURCE_ACCOUNT_ID,
             sender_wallet_id=DIRECT_X402_WALLET_ID,
             recipient_address=DIRECT_X402_RECIPIENT,
