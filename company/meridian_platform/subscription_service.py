@@ -47,6 +47,7 @@ def _default_subscriptions(org_id=None):
     return {
         'subscribers': {},
         'draft_subscriptions': {},
+        'loom_delivery_jobs': {},
         'delivery_log': [],
         'updatedAt': now_ts(),
         '_meta': {
@@ -117,6 +118,7 @@ def _normalize_subscriptions(data, org_id=None):
     payload = dict(data)
     payload.setdefault('subscribers', {})
     payload.setdefault('draft_subscriptions', {})
+    payload.setdefault('loom_delivery_jobs', {})
     payload.setdefault('delivery_log', [])
     payload.setdefault('updatedAt', now_ts())
     payload.setdefault('_meta', {})
@@ -143,6 +145,25 @@ def _normalize_subscriptions(data, org_id=None):
     for draft_id, record in list(drafts.items()):
         drafts[draft_id] = _normalize_draft_subscription(record, org_id, existing=record)
     payload['draft_subscriptions'] = drafts
+
+    raw_jobs = payload.get('loom_delivery_jobs', {})
+    jobs = {}
+    if isinstance(raw_jobs, list):
+        for item in raw_jobs:
+            if isinstance(item, dict):
+                job_id = (item.get('job_id') or '').strip()
+                if job_id:
+                    jobs[job_id] = dict(item)
+    elif isinstance(raw_jobs, dict):
+        for job_id, item in raw_jobs.items():
+            if isinstance(item, dict):
+                record = dict(item)
+                record['job_id'] = record.get('job_id') or job_id
+                jobs[record['job_id']] = record
+    payload['loom_delivery_jobs'] = {
+        job_id: _normalize_loom_delivery_job(record, org_id, existing=record)
+        for job_id, record in jobs.items()
+    }
     return payload
 
 
@@ -274,6 +295,149 @@ def _bind_payment_evidence(subscription, payment_ref=None, *, org_id=None):
         'amount_usd': float(evidence.get('amount', 0.0) or 0.0),
     }
     return evidence
+
+
+def _normalize_loom_delivery_job(job, org_id=None, existing=None):
+    job = dict(job or {})
+    existing = dict(existing or {})
+    subscription_id = (job.get('subscription_id') or existing.get('subscription_id') or '').strip()
+    preview_id = (job.get('preview_id') or existing.get('preview_id') or '').strip()
+    telegram_id = (job.get('telegram_id') or existing.get('telegram_id') or '').strip()
+    job_id = (job.get('job_id') or existing.get('job_id') or '').strip()
+    if not job_id:
+        if subscription_id:
+            job_id = f'loom_{subscription_id}'
+        elif preview_id:
+            job_id = f'loom_{preview_id}'
+        else:
+            job_id = f'loom_{uuid.uuid4().hex[:12]}'
+
+    record = dict(existing)
+    record['job_id'] = job_id
+    record['subscription_id'] = subscription_id
+    record['preview_id'] = preview_id
+    record['telegram_id'] = telegram_id
+    record['plan'] = (job.get('plan') or existing.get('plan') or '').strip()
+    record['delivery_runtime'] = (job.get('delivery_runtime') or existing.get('delivery_runtime') or 'loom').strip() or 'loom'
+    record['delivery_channel'] = (job.get('delivery_channel') or existing.get('delivery_channel') or 'loom').strip() or 'loom'
+    record['job_type'] = (job.get('job_type') or existing.get('job_type') or 'subscription_loom_delivery').strip() or 'subscription_loom_delivery'
+    record['state'] = (job.get('state') or existing.get('state') or 'queued').strip() or 'queued'
+    record['queued_at'] = (job.get('queued_at') or existing.get('queued_at') or now_ts()).strip()
+    record['queued_by'] = (job.get('queued_by') or existing.get('queued_by') or '').strip()
+    record['claimed_at'] = (job.get('claimed_at') or existing.get('claimed_at') or '').strip()
+    record['claimed_by'] = (job.get('claimed_by') or existing.get('claimed_by') or '').strip()
+    record['completed_at'] = (job.get('completed_at') or existing.get('completed_at') or '').strip()
+    record['completed_by'] = (job.get('completed_by') or existing.get('completed_by') or '').strip()
+    record['delivery_ref'] = (job.get('delivery_ref') or existing.get('delivery_ref') or '').strip()
+    record['notes'] = (job.get('notes') or existing.get('notes') or '').strip()
+    record['subscription_status'] = (job.get('subscription_status') or existing.get('subscription_status') or '').strip()
+    record['payment_verified'] = bool(job.get('payment_verified', existing.get('payment_verified', False)))
+    record['payment_ref'] = (job.get('payment_ref') or existing.get('payment_ref') or '').strip()
+    record['created_at'] = (job.get('created_at') or existing.get('created_at') or now_ts()).strip()
+    record['updated_at'] = now_ts()
+    return record
+
+
+def queue_loom_delivery(subscription, *, preview=None, org_id=None, actor=''):
+    subscription = dict(subscription or {})
+    preview = dict(preview or {})
+    subscription_id = (subscription.get('id') or '').strip()
+    if not subscription_id:
+        raise ValueError('subscription_id is required')
+
+    payload = load_subscriptions(org_id)
+    jobs = payload.setdefault('loom_delivery_jobs', {})
+    job_id = f'loom_{subscription_id}'
+    existing = jobs.get(job_id)
+    job = _normalize_loom_delivery_job({
+        'job_id': job_id,
+        'subscription_id': subscription_id,
+        'preview_id': (preview.get('preview_id') or subscription.get('activated_from_preview_id') or '').strip(),
+        'telegram_id': (subscription.get('telegram_id') or subscription.get('subscriber_id') or subscription.get('created_for') or '').strip(),
+        'plan': subscription.get('plan', ''),
+        'delivery_runtime': 'loom',
+        'delivery_channel': 'loom',
+        'job_type': 'subscription_loom_delivery',
+        'state': 'queued',
+        'queued_at': now_ts(),
+        'queued_by': actor or '',
+        'payment_verified': bool(subscription.get('payment_verified', False)),
+        'payment_ref': subscription.get('payment_ref', ''),
+        'subscription_status': subscription.get('status', ''),
+        'notes': 'Queued for Loom delivery after subscription activation',
+    }, org_id, existing=existing)
+    jobs[job_id] = job
+    save_subscriptions(payload, org_id)
+    return {
+        'job_id': job_id,
+        'delivery_job': job,
+    }
+
+
+def activate_subscription_from_preview(preview, *, telegram_id=None, plan=None,
+                                       payment_method='captured', payment_ref=None,
+                                       org_id=None, actor=''):
+    preview = dict(preview or {})
+    preview_id = (preview.get('preview_id') or '').strip()
+    if not preview_id:
+        raise ValueError('preview_id is required')
+    plan_name = (plan or '').strip()
+    if not plan_name:
+        raise ValueError('plan is required to activate a subscription from preview')
+    if plan_name not in PLANS:
+        raise ValueError(f"unknown plan '{plan_name}'. Available: {', '.join(sorted(PLANS.keys()))}")
+
+    subscriber_key = (telegram_id or preview.get('telegram_id') or preview.get('telegram_handle') or '').strip()
+    if not subscriber_key:
+        raise ValueError('telegram_id is required to activate a subscription from preview')
+
+    payment_ref = (payment_ref or '').strip()
+    confirm_payment = plan_name != 'trial'
+    if confirm_payment and not payment_ref:
+        raise ValueError('payment_ref is required to activate a paid subscription from preview')
+
+    result = create_subscription(
+        subscriber_key,
+        plan=plan_name,
+        payment_method=payment_method or ('trial' if plan_name == 'trial' else 'captured'),
+        payment_ref=payment_ref,
+        confirm_payment=confirm_payment,
+        trial=(plan_name == 'trial'),
+        email=preview.get('email') or None,
+        org_id=org_id,
+        actor=actor,
+    )
+
+    payload = load_subscriptions(org_id)
+    subscription = result['subscription']
+    records = payload.get('subscribers', {}).get(subscriber_key, [])
+    for index, record in enumerate(records):
+        if record.get('id') == subscription['id']:
+            record['activated_from_preview_id'] = preview_id
+            record['activation_state'] = 'captured'
+            record['activation_source'] = 'subscription_preview_queue'
+            record['subscription_source'] = 'subscription_preview_queue'
+            record['telegram_id'] = subscriber_key
+            record['subscriber_id'] = subscriber_key
+            record['created_for'] = subscriber_key
+            record['preview_id'] = preview_id
+            record['created_from_preview'] = True
+            record['activated_at'] = now_ts()
+            record['activated_by'] = actor or ''
+            records[index] = record
+            subscription = record
+            result['subscription'] = record
+            break
+    payload['subscribers'][subscriber_key] = records
+    save_subscriptions(payload, org_id)
+
+    delivery_job = queue_loom_delivery(subscription, preview=preview, org_id=org_id, actor=actor)
+    return {
+        'preview_id': preview_id,
+        'telegram_id': subscriber_key,
+        'subscription': subscription,
+        'delivery_job': delivery_job['delivery_job'],
+    }
 
 
 def create_draft_subscription_from_preview(preview, *, org_id=None, actor=''):
@@ -591,12 +755,63 @@ def record_delivery(telegram_id, product, *, brief_date='', org_id=None, actor='
     return entry
 
 
+def loom_delivery_queue_snapshot(org_id=None, *, limit=50):
+    payload = load_subscriptions(org_id)
+    jobs = list(payload.get('loom_delivery_jobs', {}).values())
+    jobs = sorted(
+        [
+            _normalize_loom_delivery_job(job, org_id, existing=job)
+            for job in jobs
+        ],
+        key=lambda job: (
+            job.get('queued_at', ''),
+            job.get('updated_at', ''),
+            job.get('job_id', ''),
+        ),
+        reverse=True,
+    )
+    try:
+        limit = max(int(limit), 0)
+    except (TypeError, ValueError):
+        limit = 50
+    limited_jobs = jobs[:limit] if limit else []
+    state_counts = {
+        'queued': 0,
+        'claimed': 0,
+        'completed': 0,
+        'blocked': 0,
+    }
+    for job in jobs:
+        state = job.get('state', 'queued')
+        state_counts[state] = state_counts.get(state, 0) + 1
+    return {
+        'bound_org_id': (org_id or '').strip(),
+        'management_mode': 'institution_owned_service',
+        'service_scope': 'institution_owned_subscription_service',
+        'boundary_name': 'subscriptions',
+        'queue_paths': {
+            'inspect': '/api/subscriptions/loom-delivery-jobs',
+            'activation': '/api/subscriptions/activate-from-preview',
+        },
+        'summary': {
+            'total_jobs': len(jobs),
+            'queued_count': state_counts.get('queued', 0),
+            'claimed_count': state_counts.get('claimed', 0),
+            'completed_count': state_counts.get('completed', 0),
+            'blocked_count': state_counts.get('blocked', 0),
+        },
+        'delivery_jobs': limited_jobs,
+        'meta': payload.get('_meta', {}),
+    }
+
+
 def subscription_summary(org_id=None):
     payload = load_subscriptions(org_id)
     rows = list(payload.get('subscribers', {}).values())
     all_subs = [sub for records in rows for sub in records]
     active = [sub for sub in all_subs if sub.get('status') == 'active']
     draft_subscriptions = list(payload.get('draft_subscriptions', {}).values())
+    loom_delivery_jobs = list(payload.get('loom_delivery_jobs', {}).values())
     verified = [
         sub for sub in active
         if sub.get('plan') != 'trial' and sub.get('payment_verified')
@@ -608,6 +823,10 @@ def subscription_summary(org_id=None):
         'draft_subscription_count': len(draft_subscriptions),
         'verified_paid_subscription_count': len(verified),
         'delivery_log_count': len(payload.get('delivery_log', [])),
+        'loom_delivery_job_count': len(loom_delivery_jobs),
+        'queued_loom_delivery_job_count': sum(
+            1 for job in loom_delivery_jobs if (job.get('state') or 'queued') == 'queued'
+        ),
         'internal_test_id_count': len(payload.get('_meta', {}).get('internal_test_ids', [])),
         'external_target_count': len(active_delivery_targets(org_id, external_only=True)),
     }

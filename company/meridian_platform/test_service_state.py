@@ -113,7 +113,12 @@ class ServiceStateTests(unittest.TestCase):
             'internal_test_id_count': 1,
             'external_target_count': 1,
         }
-        snap = service_state.subscription_snapshot('org_demo')
+        with mock.patch.object(service_state.subscription_service, 'loom_delivery_queue_snapshot', return_value={
+            'summary': {'total_jobs': 0, 'queued_count': 0, 'claimed_count': 0, 'completed_count': 0, 'blocked_count': 0},
+            'queue_paths': {'inspect': '/api/subscriptions/loom-delivery-jobs', 'activation': '/api/subscriptions/activate-from-preview'},
+            'delivery_jobs': [],
+        }):
+            snap = service_state.subscription_snapshot('org_demo')
         self.assertEqual(snap['bound_org_id'], 'org_demo')
         self.assertEqual(snap['storage_model'], 'capsule_canonical_with_legacy_symlink')
         self.assertEqual(snap['management_mode'], 'institution_owned_service')
@@ -143,6 +148,7 @@ class ServiceStateTests(unittest.TestCase):
         self.assertEqual(snap['alias_registry']['compatibility_mode'], 'legacy_symlink')
         self.assertIn('/api/subscriptions/add', snap['mutation_paths'])
         self.assertIn('/api/subscriptions/draft-from-preview', snap['mutation_paths'])
+        self.assertIn('/api/subscriptions/activate-from-preview', snap['mutation_paths'])
         self.assertIn('/api/subscriptions/convert', snap['mutation_paths'])
         self.assertIn('/api/subscriptions/verify-payment', snap['mutation_paths'])
         self.assertIn('/api/subscriptions/remove', snap['mutation_paths'])
@@ -154,6 +160,8 @@ class ServiceStateTests(unittest.TestCase):
         self.assertEqual(snap['summary']['delivery_log_count'], 2)
         self.assertEqual(snap['summary']['internal_test_id_count'], 1)
         self.assertEqual(snap['summary']['external_target_count'], 1)
+        self.assertEqual(snap['loom_delivery_queue_summary']['total_jobs'], 0)
+        self.assertEqual(snap['loom_delivery_queue_paths']['inspect'], '/api/subscriptions/loom-delivery-jobs')
 
     def test_accounting_snapshot_reports_owner_summary(self):
         with open(self._owner, 'w') as f:

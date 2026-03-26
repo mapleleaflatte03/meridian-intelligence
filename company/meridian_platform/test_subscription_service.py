@@ -66,6 +66,7 @@ class SubscriptionServiceTests(unittest.TestCase):
         self.assertEqual(default_payload['_meta']['identity_model'], 'session')
         self.assertEqual(default_payload['_meta']['storage_model'], 'capsule_canonical_with_legacy_symlink')
         self.assertEqual(default_payload['_meta']['bound_org_id'], self.org_id)
+        self.assertEqual(default_payload['loom_delivery_jobs'], {})
 
         normalized = subscription_service._normalize_subscriptions(
             {
@@ -79,6 +80,7 @@ class SubscriptionServiceTests(unittest.TestCase):
         self.assertEqual(normalized['_meta']['identity_model'], 'session')
         self.assertEqual(normalized['_meta']['storage_model'], 'capsule_canonical_with_legacy_symlink')
         self.assertEqual(normalized['_meta']['bound_org_id'], self.org_id)
+        self.assertEqual(normalized['loom_delivery_jobs'], {})
 
     def test_create_trial_subscription_returns_active_record(self):
         result = subscription_service.create_subscription(
@@ -138,6 +140,66 @@ class SubscriptionServiceTests(unittest.TestCase):
         self.assertEqual(summary['draft_subscription_count'], 1)
         self.assertEqual(summary['subscriber_count'], 0)
         self.assertEqual(summary['active_subscription_count'], 0)
+
+    def test_activate_subscription_from_preview_queues_loom_delivery(self):
+        preview = {
+            'preview_id': 'quote_pir_activate',
+            'pilot_request_id': 'pir_activate',
+            'name': 'Jane Doe',
+            'company': 'Acme',
+            'email': 'jane@example.com',
+            'telegram_handle': '800',
+            'requested_cadence': 'Weekly brief',
+            'requested_offer': 'manual_pilot',
+            'review_note': 'Activate after captured payment',
+            'preview_truth_source': 'pilot_intake_review_and_published_plan_table_only',
+            'state': 'reviewed',
+            'plan_options': [
+                {
+                    'plan': 'premium-brief-weekly',
+                    'price_usd': 2.99,
+                    'duration_days': 7,
+                    'billing_type': 'recurring',
+                },
+            ],
+        }
+
+        self._append_tx({
+            'type': 'customer_payment',
+            'order_id': 'ord-activate',
+            'amount': 2.99,
+            'client': 'cust-activate',
+            'product': 'pilot-weekly',
+            'payment_key': 'ref:ref-activate',
+            'payment_ref': 'ref-activate',
+            'tx_hash': '0xactivate',
+            'ts': subscription_service.now_ts(),
+        })
+
+        result = subscription_service.activate_subscription_from_preview(
+            preview,
+            telegram_id='800',
+            plan='premium-brief-weekly',
+            payment_ref='ref-activate',
+            org_id=self.org_id,
+            actor='user:admin',
+        )
+
+        subscription = result['subscription']
+        payload = subscription_service.load_subscriptions(self.org_id)
+        queue_snapshot = subscription_service.loom_delivery_queue_snapshot(self.org_id)
+
+        self.assertEqual(result['preview_id'], 'quote_pir_activate')
+        self.assertEqual(result['telegram_id'], '800')
+        self.assertEqual(subscription['plan'], 'premium-brief-weekly')
+        self.assertEqual(subscription['status'], 'active')
+        self.assertTrue(subscription['payment_verified'])
+        self.assertEqual(subscription['activated_from_preview_id'], 'quote_pir_activate')
+        self.assertEqual(payload['loom_delivery_jobs']['loom_%s' % subscription['id']]['state'], 'queued')
+        self.assertEqual(subscription_service.active_delivery_targets(self.org_id), ['800'])
+        self.assertEqual(queue_snapshot['summary']['total_jobs'], 1)
+        self.assertEqual(queue_snapshot['summary']['queued_count'], 1)
+        self.assertEqual(queue_snapshot['delivery_jobs'][0]['subscription_id'], subscription['id'])
 
     def test_convert_trial_subscription_binds_payment_evidence(self):
         subscription_service.create_subscription('200', plan='trial', org_id=self.org_id)

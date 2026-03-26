@@ -17,6 +17,7 @@ Endpoints:
   GET  /api/treasury/settlement-adapters → Settlement adapter registry
   GET  /api/subscriptions         → Institution-owned subscription service state on the founding-locked host
   GET  /api/subscriptions/delivery-targets → Institution-owned delivery-target calculation on the founding-locked host
+  GET  /api/subscriptions/loom-delivery-jobs → Inspect queued Loom delivery jobs on the founding-locked host
   GET  /api/accounting            → Institution-owned accounting owner-ledger state on the founding-locked host
   GET  /api/pilot/intake          → Manual pilot intake queue snapshot on the founding-locked host
   GET  /api/payouts              → Payout proposals and summary
@@ -62,6 +63,7 @@ Endpoints:
   POST /api/treasury/settlement-adapters/preflight → Validate settlement-adapter execution requirements
   POST /api/subscriptions/add     → Create an institution-owned subscription record on the founding-locked host
   POST /api/subscriptions/convert → Convert a trial into a paid subscription
+  POST /api/subscriptions/activate-from-preview → Activate a captured subscription from preview truth and queue Loom delivery
   POST /api/subscriptions/verify-payment → Bind payment evidence to a subscription
   POST /api/subscriptions/remove  → Cancel active subscriptions for a Telegram user
   POST /api/subscriptions/set-email → Update subscription email metadata
@@ -288,6 +290,7 @@ MUTATION_ROLE_REQUIREMENTS = {
     '/api/treasury/settlement-adapters/preflight': 'member',
     '/api/subscriptions/add': 'admin',
     '/api/subscriptions/draft-from-preview': 'admin',
+    '/api/subscriptions/activate-from-preview': 'admin',
     '/api/subscriptions/convert': 'admin',
     '/api/subscriptions/verify-payment': 'admin',
     '/api/subscriptions/remove': 'admin',
@@ -4240,6 +4243,9 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                     external_only=external_only,
                 ),
             })
+        elif path == '/api/subscriptions/loom-delivery-jobs':
+            limit = parse_qs(parsed.query).get('limit', ['50'])[-1]
+            return self._json(subscription_service.loom_delivery_queue_snapshot(org_id, limit=limit))
         elif path == '/api/subscriptions/preview-queue':
             limit = parse_qs(parsed.query).get('limit', ['50'])[-1]
             return self._json(service_state.subscription_preview_snapshot(org_id, limit=limit))
@@ -4723,6 +4729,49 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                 )
                 return self._json({
                     'message': 'Draft subscription created from preview record; no checkout or payment capture claimed',
+                    'result': result,
+                    'preview': preview_result['preview'],
+                    'subscription_preview_summary': preview_result['summary'],
+                    'service_state': service_state.subscription_snapshot(org_id),
+                })
+
+            elif path == '/api/subscriptions/activate-from-preview':
+                preview_id = (body.get('preview_id') or '').strip()
+                preview = subscription_preview_queue.get_subscription_preview(preview_id, org_id=org_id)
+                result = subscription_service.activate_subscription_from_preview(
+                    preview,
+                    telegram_id=body.get('telegram_id'),
+                    plan=(body.get('plan') or '').strip(),
+                    payment_method=body.get('payment_method') or 'captured',
+                    payment_ref=body.get('payment_ref'),
+                    org_id=org_id,
+                    actor=by,
+                )
+                activated = result['subscription']
+                preview_result = subscription_preview_queue.mark_preview_activated(
+                    preview_id,
+                    activated['id'],
+                    org_id=org_id,
+                    by=by,
+                    checkout_claimed=bool(activated.get('payment_verified')),
+                    payment_capture_claimed=bool(activated.get('payment_verified')),
+                )
+                log_event(
+                    org_id,
+                    by,
+                    'subscription_activated',
+                    outcome='success',
+                    resource=activated['id'],
+                    details={
+                        'preview_id': preview_id,
+                        'telegram_id': result['telegram_id'],
+                        'plan': activated.get('plan', ''),
+                        'payment_verified': bool(activated.get('payment_verified')),
+                    },
+                    session_id=_sid,
+                )
+                return self._json({
+                    'message': 'Captured subscription activated from preview record; Loom delivery queued without claiming fulfillment',
                     'result': result,
                     'preview': preview_result['preview'],
                     'subscription_preview_summary': preview_result['summary'],
