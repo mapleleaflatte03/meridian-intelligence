@@ -146,8 +146,8 @@ def _sudo_loom_research_preflight(capability_name: str, runtime_env: dict) -> di
         preflight['errors'].append('research capability is not configured')
         return preflight
 
-    loom_bin = (runtime_env.get('MERIDIAN_LOOM_BIN') or '/root/.local/share/meridian-loom/current/bin/loom').strip()
-    loom_root = (runtime_env.get('MERIDIAN_LOOM_ROOT') or '/root/.local/share/meridian-loom/runtime/default').strip()
+    loom_bin = (runtime_env.get('MERIDIAN_LOOM_BIN') or '/home/ubuntu/.local/share/meridian-loom/current/bin/loom').strip()
+    loom_root = (runtime_env.get('MERIDIAN_LOOM_ROOT') or '/home/ubuntu/.local/share/meridian-loom/runtime/default').strip()
 
     service_cmd = ['sudo', '-n', loom_bin, 'service', 'status', '--root', loom_root, '--format', 'json']
     capability_cmd = ['sudo', '-n', loom_bin, 'capability', 'show', '--root', loom_root, '--name', capability_name, '--format', 'json']

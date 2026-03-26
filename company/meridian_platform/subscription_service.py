@@ -350,12 +350,12 @@ def _bind_payment_evidence(subscription, payment_ref=None, *, payment_evidence=N
 def _loom_bin():
     return (
         os.environ.get('MERIDIAN_LOOM_BIN')
-        or '/root/.local/share/meridian-loom/current/bin/loom'
+        or '/home/ubuntu/.local/share/meridian-loom/current/bin/loom'
     ).strip()
 
 
 def _loom_root():
-    return (os.environ.get('MERIDIAN_LOOM_ROOT') or '/root/.local/share/meridian-loom/runtime/default').strip()
+    return (os.environ.get('MERIDIAN_LOOM_ROOT') or '/home/ubuntu/.local/share/meridian-loom/runtime/default').strip()
 
 
 def _loom_service_token():
