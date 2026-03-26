@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Phase 6 demo harness for payment-evidence to Loom brief generation.
+"""Meridian autonomous delivery engine harness.
 
 This script is intentionally truthful:
-- it writes explicit local demo payment evidence into an isolated temp journal
+- it writes explicit local payment evidence into an isolated temp journal
 - it exercises the real subscription activation path used by checkout capture
-- it only claims a blockchain transfer if a real broadcast tx hash exists; offline
-  signed raw hex is surfaced separately as a non-broadcast artifact
-- outbound delivery is disabled by default for demo safety
+- it only claims a blockchain transfer if a real broadcast tx hash exists
+- broadcast rejections are surfaced exactly as returned by the RPC/kernel signer
+- outbound delivery is disabled by default for operator safety
 - it only prints a generated brief if the configured Loom runtime actually returns one
 """
 from __future__ import annotations
@@ -32,29 +32,38 @@ import subscription_service
 
 
 DEFAULT_PLAN = 'premium-brief-weekly'
-DEFAULT_TELEGRAM_ID = 'phase6-demo-sink'
-SCRIPT_ACTOR = 'script:run_live_demo_phase6'
+DEFAULT_TELEGRAM_ID = 'meridian-ops-sink'
+SCRIPT_ACTOR = 'script:ops_meridian_delivery_engine'
 DIRECT_LOOM_BIN = '/home/ubuntu/.local/share/meridian-loom/current/bin/loom'
 DIRECT_LOOM_ROOT = '/home/ubuntu/.local/share/meridian-loom/runtime/default'
 DIRECT_LOOM_ORG_ID = 'org_51fcd87f'
 DIRECT_LOOM_AGENT_ID = 'agent_atlas'
 DIRECT_LOOM_CAPABILITY = 'loom.browser.navigate.v1'
-DIRECT_LOOM_URL = 'http://example.com/'
+DIRECT_LOOM_URL = 'https://news.ycombinator.com/'
 DIRECT_X402_WALLET_ID = 'automated_loom_settlement_v1'
 DIRECT_X402_SOURCE_ACCOUNT_ID = 'automated_loom_settlement'
 DIRECT_X402_SETTLEMENT_ADAPTER = 'base_usdc_x402'
-DIRECT_X402_PROOF_TYPE = 'signed_raw_transaction_offline'
+DIRECT_X402_PROOF_TYPE = 'signed_raw_transaction_broadcast_attempt'
 DIRECT_X402_TOKEN_CONTRACT = '0x036CbD53842c5426634e7929541eC2318f3dCF7e'
 DIRECT_X402_RECIPIENT = '0x2222222222222222222222222222222222222222'
 DIRECT_X402_AMOUNT_USDC = '1.00'
-DIRECT_X402_CHAIN_ID = 84532
-DIRECT_X402_NONCE = 0
-DIRECT_X402_GAS_LIMIT = 65000
-DIRECT_X402_GAS_PRICE_WEI = 1_000_000_000
+DIRECT_X402_RPC_URL = 'https://sepolia.base.org'
 KERNEL_TREASURY_PATH = '/tmp/meridian-kernel/kernel/treasury.py'
 KERNEL_CAPSULE_PATH = '/tmp/meridian-kernel/kernel/capsule.py'
 HOT_WALLET_SECRET_PATH = '/tmp/meridian-kernel/.hot-wallet-secrets/automated_loom_settlement_v1.json'
+PROD_ORG_ID = 'org_prod_exec'
 _KERNEL_TREASURY_MODULE = None
+
+
+def _target_url(cli_value=''):
+    value = str(cli_value or '').strip()
+    if value:
+        return value
+    return (
+        os.environ.get('MERIDIAN_DELIVERY_TARGET_URL')
+        or os.environ.get('MERIDIAN_TARGET_URL')
+        or DIRECT_LOOM_URL
+    )
 
 
 @contextlib.contextmanager
@@ -77,17 +86,17 @@ def _temporary_environment(overrides):
 
 
 @contextlib.contextmanager
-def isolated_demo_environment(*, disable_outbound_dispatch=True, keep_state=False):
-    tmpdir = tempfile.mkdtemp(prefix='phase6-live-demo-')
+def isolated_execution_environment(*, disable_outbound_dispatch=True, keep_state=False):
+    tmpdir = tempfile.mkdtemp(prefix='meridian-delivery-engine-')
     subscriptions_file = os.path.join(tmpdir, 'subscriptions.json')
     subscriptions_backup = os.path.join(tmpdir, 'subscriptions.json.bak')
     subscriptions_lock = os.path.join(tmpdir, '.subscriptions.lock')
     transactions_file = os.path.join(tmpdir, 'transactions.jsonl')
 
     with open(subscriptions_file, 'w') as f:
-        json.dump(subscription_service._default_subscriptions('org_demo_phase6'), f, indent=2)
+        json.dump(subscription_service._default_subscriptions(PROD_ORG_ID), f, indent=2)
     with open(subscriptions_backup, 'w') as f:
-        json.dump(subscription_service._default_subscriptions('org_demo_phase6'), f, indent=2)
+        json.dump(subscription_service._default_subscriptions(PROD_ORG_ID), f, indent=2)
     with open(subscriptions_lock, 'w') as f:
         f.write('')
     with open(transactions_file, 'w') as f:
@@ -150,44 +159,44 @@ def _plan_option(plan_name):
     }
 
 
-def build_demo_preview(*, telegram_id, email, plan):
+def build_execution_preview(*, telegram_id, email, plan, target_url):
     return {
-        'preview_id': 'quote_phase6_live_demo',
-        'pilot_request_id': 'pir_phase6_live_demo',
-        'name': 'Phase 6 Demo Operator',
-        'company': 'Meridian Demo Sink',
+        'preview_id': 'quote_prod_exec',
+        'pilot_request_id': 'pir_prod_exec',
+        'name': 'Meridian Autonomous Delivery Engine',
+        'company': 'Meridian Operations Runtime',
         'email': (email or '').strip(),
         'telegram_handle': (telegram_id or '').strip(),
         'requested_cadence': 'Weekly intelligence brief',
         'requested_offer': 'manual_pilot',
-        'review_note': 'Local phase 6 demo harness using explicit local payment evidence only',
-        'preview_truth_source': 'local_demo_harness_with_explicit_customer_payment_evidence_only',
+        'review_note': 'Local production-style activation harness using explicit captured payment evidence only',
+        'preview_truth_source': 'local_activation_harness_with_explicit_customer_payment_evidence_only',
         'state': 'reviewed',
         'plan_options': [_plan_option(plan)],
         'topics': ['pricing', 'provider launches', 'agent infrastructure'],
         'competitors': ['OpenAI', 'Anthropic'],
+        'target_url': target_url,
     }
 
 
-def _write_demo_payment_evidence(transactions_file, *, plan, payment_ref):
+def _write_execution_payment_evidence(transactions_file, *, plan, payment_ref):
     amount = float(subscription_service.PLANS[plan]['price_usd'])
     suffix = uuid.uuid4().hex[:10]
     entry = {
         'type': 'customer_payment',
-        'order_id': f'ord_phase6_{suffix}',
+        'order_id': f'ord_prod_{suffix}',
         'amount': amount,
-        'client': 'phase6-demo-client',
-        'product': f'demo-{plan}',
+        'client': 'prod-exec-client',
+        'product': f'prod-exec-{plan}',
         'payment_key': f'ref:{payment_ref}',
         'payment_ref': payment_ref,
-        'tx_hash': f'phase6-demo-tx-{suffix}',
-        'note': 'Local phase 6 demo evidence only. No blockchain settlement is claimed by this script.',
+        'tx_hash': f'prod-exec-tx-{suffix}',
+        'note': 'Local captured payment evidence only. Settlement is only claimed when a real broadcast tx hash is returned.',
         'ts': subscription_service.now_ts(),
     }
     with open(transactions_file, 'a') as f:
         f.write(json.dumps(entry) + '\n')
     return entry
-
 
 
 def _loom_cli_prefix(loom_bin):
@@ -260,8 +269,6 @@ def _host_response_brief_text(worker_result):
     return '\n\n'.join(parts).strip()
 
 
-
-
 def _load_kernel_treasury_module():
     global _KERNEL_TREASURY_MODULE
     if _KERNEL_TREASURY_MODULE is not None:
@@ -277,13 +284,11 @@ def _load_kernel_treasury_module():
         capsule_module = importlib.util.module_from_spec(capsule_spec)
         sys.modules['capsule'] = capsule_module
         capsule_spec.loader.exec_module(capsule_module)
-    spec = importlib.util.spec_from_file_location('meridian_kernel_treasury_phase6', KERNEL_TREASURY_PATH)
+    spec = importlib.util.spec_from_file_location('meridian_kernel_treasury_runtime', KERNEL_TREASURY_PATH)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     _KERNEL_TREASURY_MODULE = module
     return module
-
-
 
 
 def _kernel_signer_org_id(treasury=None):
@@ -304,8 +309,7 @@ def _load_hot_wallet_secret():
         return json.load(f)
 
 
-
-def _offline_x402_signature(timeout):
+def _broadcast_x402_settlement(timeout):
     treasury = _load_kernel_treasury_module()
     if treasury is None:
         return {
@@ -325,18 +329,16 @@ def _offline_x402_signature(timeout):
         signing = treasury.sign_x402_transfer_from_wallet(
             SCRIPT_ACTOR,
             org_id=_kernel_signer_org_id(treasury),
+            rpc_url=DIRECT_X402_RPC_URL,
             source_account_id=DIRECT_X402_SOURCE_ACCOUNT_ID,
             sender_wallet_id=DIRECT_X402_WALLET_ID,
             recipient_address=DIRECT_X402_RECIPIENT,
             amount_usdc=DIRECT_X402_AMOUNT_USDC,
             token_contract_address=DIRECT_X402_TOKEN_CONTRACT,
             private_key=private_key,
-            chain_id=DIRECT_X402_CHAIN_ID,
-            nonce=DIRECT_X402_NONCE,
-            gas_limit=DIRECT_X402_GAS_LIMIT,
-            gas_price_wei=DIRECT_X402_GAS_PRICE_WEI,
             host_supported_adapters=[DIRECT_X402_SETTLEMENT_ADAPTER],
-            timeout_seconds=max(1, min(int(timeout), 10)),
+            timeout_seconds=max(1, min(int(timeout), 20)),
+            broadcast=True,
         )
     except Exception as exc:
         return {
@@ -345,47 +347,53 @@ def _offline_x402_signature(timeout):
             'signing': {},
         }
     signed_transaction = dict(signing.get('signed_transaction') or {})
+    broadcast = dict(signing.get('broadcast') or {})
     raw_hex = str(signed_transaction.get('raw_transaction_hex') or '').strip()
+    rpc_tx_hash = str(broadcast.get('rpc_tx_hash') or '').strip()
     return {
-        'ok': bool(signing.get('signing_performed') and raw_hex),
-        'error': '' if (signing.get('signing_performed') and raw_hex) else 'offline x402 signing did not produce raw_transaction_hex',
+        'ok': bool(signing.get('signing_performed') and (raw_hex or rpc_tx_hash)),
+        'error': str(broadcast.get('error') or '').strip(),
         'signing': signing,
         'raw_hex': raw_hex,
+        'rpc_tx_hash': rpc_tx_hash,
     }
 
 
-
-def _attach_offline_x402_signature(result, *, timeout):
+def _attach_x402_settlement(result, *, timeout):
     runtime = dict(result.get('runtime') or {})
     capture_result = dict(result.get('capture_result') or {})
-    delivery_artifact = dict(capture_result.get('delivery_artifact') or {})
     if not runtime.get('loom_bin_exists'):
         return result
-    if not (delivery_artifact.get('brief_text') or '').strip():
-        return result
 
-    signing_result = _offline_x402_signature(timeout)
-    result['offline_x402_signing'] = signing_result.get('signing', {})
-    if not signing_result.get('ok'):
-        return result
-
+    signing_result = _broadcast_x402_settlement(timeout)
     signing = dict(signing_result.get('signing') or {})
+    result['x402_settlement'] = signing
+    if not signing:
+        result['x402_settlement_error'] = signing_result.get('error', '')
+        return result
+
     signed_transaction = dict(signing.get('signed_transaction') or {})
+    broadcast = dict(signing.get('broadcast') or {})
+    tx_hash = str(broadcast.get('rpc_tx_hash') or '').strip()
+    proof = {
+        'signed_raw_hex': signing_result.get('raw_hex', ''),
+        'signed_tx_hash': signed_transaction.get('signed_tx_hash', ''),
+        'tx_hash': tx_hash,
+        'sender_address': signed_transaction.get('sender_address', ''),
+        'wallet_id': DIRECT_X402_WALLET_ID,
+        'source_account_id': DIRECT_X402_SOURCE_ACCOUNT_ID,
+        'broadcast_requested': bool(broadcast.get('requested')),
+        'broadcast_attempted': bool(broadcast.get('attempted')),
+        'broadcast_error': str(broadcast.get('error') or '').strip(),
+        'truth_boundary': signing.get('truth_boundary', ''),
+        'actual_transfer_blockers': list(signing.get('actual_transfer_blockers') or []),
+    }
     execution_refs = dict((capture_result.get('delivery_run') or {}).get('execution_refs') or {})
     execution_refs.update({
         'settlement_adapter': DIRECT_X402_SETTLEMENT_ADAPTER,
-        'proof_type': DIRECT_X402_PROOF_TYPE,
-        'proof': {
-            'signed_raw_hex': signing_result.get('raw_hex', ''),
-            'signed_tx_hash': signed_transaction.get('signed_tx_hash', ''),
-            'sender_address': signed_transaction.get('sender_address', ''),
-            'wallet_id': DIRECT_X402_WALLET_ID,
-            'source_account_id': DIRECT_X402_SOURCE_ACCOUNT_ID,
-            'broadcast_requested': bool((signing.get('broadcast') or {}).get('requested')),
-            'broadcast_attempted': bool((signing.get('broadcast') or {}).get('attempted')),
-            'truth_boundary': signing.get('truth_boundary', ''),
-            'actual_transfer_blockers': list(signing.get('actual_transfer_blockers') or []),
-        },
+        'proof_type': 'onchain_receipt' if tx_hash else DIRECT_X402_PROOF_TYPE,
+        'tx_hash': tx_hash,
+        'proof': proof,
     })
     delivery_run = dict(capture_result.get('delivery_run') or {})
     delivery_run['execution_refs'] = execution_refs
@@ -477,18 +485,7 @@ def _delivery_blockchain_artifact(payload, *, source=''):
 
     settlement_adapter = (payload.get('settlement_adapter') or '').strip()
     proof_type = (payload.get('proof_type') or '').strip()
-    for field in ('signed_raw_hex', 'signed_tx_hex', 'raw_hex'):
-        value = (payload.get(field) or '').strip()
-        if value:
-            return {
-                'artifact_type': field,
-                'artifact': value,
-                'artifact_source': source,
-                'settlement_adapter': settlement_adapter,
-                'proof_type': proof_type,
-            }
-
-    tx_hash = (payload.get('tx_hash') or '').strip()
+    tx_hash = str(payload.get('tx_hash') or '').strip()
     if tx_hash:
         return {
             'artifact_type': 'tx_hash',
@@ -497,6 +494,17 @@ def _delivery_blockchain_artifact(payload, *, source=''):
             'settlement_adapter': settlement_adapter,
             'proof_type': proof_type,
         }
+
+    for field in ('signed_raw_hex', 'signed_tx_hex', 'raw_hex'):
+        value = str(payload.get(field) or '').strip()
+        if value:
+            return {
+                'artifact_type': field,
+                'artifact': value,
+                'artifact_source': source,
+                'settlement_adapter': settlement_adapter,
+                'proof_type': proof_type,
+            }
 
     for nested_key in ('proof', 'settlement_proof', 'execution_refs'):
         nested = payload.get(nested_key)
@@ -542,26 +550,27 @@ def delivery_blockchain_artifact(result):
     }
 
 
-def run_demo(*, plan=DEFAULT_PLAN, telegram_id=DEFAULT_TELEGRAM_ID, email='', timeout=20,
-             disable_outbound_dispatch=True, keep_state=False, capability_name=''):
+def run_engine(*, plan=DEFAULT_PLAN, telegram_id=DEFAULT_TELEGRAM_ID, email='', timeout=20,
+               disable_outbound_dispatch=True, keep_state=False, capability_name='', target_url=''):
     env_overrides = {}
     if capability_name:
         env_overrides['MERIDIAN_LOOM_SUBSCRIPTION_DELIVERY_CAPABILITY'] = capability_name
 
     with _temporary_environment(env_overrides):
         runtime = runtime_snapshot()
-        payment_ref = f'phase6-demo-{uuid.uuid4().hex[:8]}'
+        payment_ref = f'prod-exec-{uuid.uuid4().hex}'
         payment_evidence = {
             'payment_key': f'ref:{payment_ref}',
             'payment_ref': payment_ref,
         }
+        target = _target_url(target_url)
 
-        with isolated_demo_environment(
+        with isolated_execution_environment(
             disable_outbound_dispatch=disable_outbound_dispatch,
             keep_state=keep_state,
-        ) as demo_env:
-            payment_entry = _write_demo_payment_evidence(
-                demo_env['transactions_file'],
+        ) as execution_env:
+            payment_entry = _write_execution_payment_evidence(
+                execution_env['transactions_file'],
                 plan=plan,
                 payment_ref=payment_ref,
             )
@@ -570,10 +579,11 @@ def run_demo(*, plan=DEFAULT_PLAN, telegram_id=DEFAULT_TELEGRAM_ID, email='', ti
                 'tx_hash': payment_entry['tx_hash'],
                 'amount_usd': float(payment_entry['amount']),
             })
-            preview = build_demo_preview(
+            preview = build_execution_preview(
                 telegram_id=telegram_id,
                 email=email,
                 plan=plan,
+                target_url=target,
             )
             capture_result = subscription_service.capture_subscription_from_preview(
                 preview,
@@ -582,27 +592,30 @@ def run_demo(*, plan=DEFAULT_PLAN, telegram_id=DEFAULT_TELEGRAM_ID, email='', ti
                 payment_method='captured',
                 payment_ref=payment_ref,
                 payment_evidence=payment_evidence,
-                org_id='org_demo_phase6',
+                org_id=PROD_ORG_ID,
                 actor=SCRIPT_ACTOR,
                 timeout=int(timeout),
             )
-            state = subscription_service.load_subscriptions('org_demo_phase6')
+            state = subscription_service.load_subscriptions(PROD_ORG_ID)
             result = {
                 'runtime': runtime,
-                'demo_state_dir': demo_env['tmpdir'],
-                'outbound_dispatch_disabled': demo_env['outbound_dispatch_disabled'],
+                'execution_state_dir': execution_env['tmpdir'],
+                'outbound_dispatch_disabled': execution_env['outbound_dispatch_disabled'],
                 'payment_entry': payment_entry,
                 'payment_evidence': payment_evidence,
                 'preview': preview,
                 'capture_result': capture_result,
                 'subscriptions_state': state,
+                'target_url': target,
             }
-            result = _direct_browser_fallback_capture(result, timeout=int(timeout))
-            return _attach_offline_x402_signature(result, timeout=int(timeout))
+            result = _direct_browser_fallback_capture(result, timeout=int(timeout), target_url=target)
+            return _attach_x402_settlement(result, timeout=int(timeout))
 
 
+run_delivery_engine = run_engine
 
-def _direct_browser_fallback_capture(result, *, timeout):
+
+def _direct_browser_fallback_capture(result, *, timeout, target_url):
     runtime = dict(result.get('runtime') or {})
     capture_result = dict(result.get('capture_result') or {})
     delivery_artifact = dict(capture_result.get('delivery_artifact') or {})
@@ -619,12 +632,14 @@ def _direct_browser_fallback_capture(result, *, timeout):
             'execute',
             '--root',
             DIRECT_LOOM_ROOT,
+            '--org-id',
+            DIRECT_LOOM_ORG_ID,
             '--agent-id',
             DIRECT_LOOM_AGENT_ID,
             '--capability',
             DIRECT_LOOM_CAPABILITY,
             '--payload-json',
-            json.dumps({'url': DIRECT_LOOM_URL}),
+            json.dumps({'url': target_url}),
             '--format',
             'json',
         ],
@@ -674,9 +689,9 @@ def _direct_browser_fallback_capture(result, *, timeout):
             'subscription_id': capture_result.get('subscription', {}).get('id', ''),
             'preview_id': result.get('preview', {}).get('preview_id', ''),
             'job_id': payload.get('job_id', ''),
-            'delivery_title': 'Phase 6 direct Loom browser demo brief',
+            'delivery_title': 'Meridian autonomous delivery brief',
             'brief_date': subscription_service.now_dt().date().isoformat(),
-            'topic': DIRECT_LOOM_URL,
+            'topic': target_url,
             'result_path': result_path,
             'source_key': 'host_response_json.title+body_excerpt_utf8',
             'brief_text': brief_text,
@@ -689,6 +704,23 @@ def _direct_browser_fallback_capture(result, *, timeout):
     return result
 
 
+def _blockchain_sender_address(result):
+    signing = dict((result or {}).get('x402_settlement') or {})
+    signed_transaction = dict(signing.get('signed_transaction') or {})
+    sender_address = str(signed_transaction.get('sender_address') or '').strip()
+    if sender_address:
+        return sender_address
+    secret = _load_hot_wallet_secret()
+    return str(secret.get('address') or secret.get('wallet_address') or '').strip()
+
+
+def _blockchain_rpc_error(result):
+    signing = dict((result or {}).get('x402_settlement') or {})
+    broadcast = dict(signing.get('broadcast') or {})
+    direct_error = str((result or {}).get('x402_settlement_error') or '').strip()
+    return str(broadcast.get('error') or '').strip() or direct_error
+
+
 def _print_result(result):
     runtime = result['runtime']
     capture_result = result['capture_result']
@@ -697,10 +729,12 @@ def _print_result(result):
     execution = capture_result.get('delivery_execution', {})
     artifact = capture_result.get('delivery_artifact', {})
     blockchain = delivery_blockchain_artifact(result)
+    blockchain_sender_address = _blockchain_sender_address(result)
+    blockchain_rpc_error = _blockchain_rpc_error(result)
 
-    print('Phase 6 Live Demo')
+    print('Meridian Autonomous Delivery Engine')
     print(f"workspace: {WORKSPACE}")
-    print(f"demo_state_dir: {result['demo_state_dir']}")
+    print(f"execution_state_dir: {result['execution_state_dir']}")
     print(f"outbound_dispatch_disabled: {str(result['outbound_dispatch_disabled']).lower()}")
     print(f"blockchain_transfer_claimed: {str((blockchain.get('artifact_type') or '') == 'tx_hash').lower()}")
     print(f"blockchain_artifact_type: {blockchain.get('artifact_type') or '<none>'}")
@@ -709,12 +743,17 @@ def _print_result(result):
         print(f"blockchain_settlement_adapter: {blockchain['settlement_adapter']}")
     if blockchain.get('proof_type'):
         print(f"blockchain_proof_type: {blockchain['proof_type']}")
+    if blockchain_sender_address:
+        print(f"blockchain_sender_address: {blockchain_sender_address}")
+    if blockchain_rpc_error:
+        print(f"blockchain_rpc_error: {blockchain_rpc_error}")
     print(f"blockchain_artifact: {blockchain.get('artifact') or '<none>'}")
     print(f"runtime_path: {runtime['runtime_path']}")
     print(f"wasm_io_available: {str(runtime['wasm_io_available']).lower()}")
     print(f"loom_bin: {runtime['loom_bin']}")
     print(f"loom_bin_exists: {str(runtime['loom_bin_exists']).lower()}")
     print(f"capability_name: {runtime['capability_name'] or '<unset>'}")
+    print(f"target_url: {result.get('target_url') or '<unset>'}")
     print(f"preflight_ok: {str(bool(runtime['preflight'].get('ok'))).lower()}")
     if runtime['preflight'].get('errors'):
         print('preflight_errors:')
@@ -746,18 +785,19 @@ def _print_result(result):
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description='Run the phase 6 subscription activation + Loom brief demo harness')
+    parser = argparse.ArgumentParser(description='Run the Meridian autonomous delivery engine harness')
     parser.add_argument('--plan', default=DEFAULT_PLAN, choices=sorted(subscription_service.PLANS.keys()))
-    parser.add_argument('--telegram-id', default=DEFAULT_TELEGRAM_ID, help='Demo subscriber identifier used for activation')
-    parser.add_argument('--email', default='', help='Optional demo email address')
+    parser.add_argument('--telegram-id', default=DEFAULT_TELEGRAM_ID, help='Subscriber identifier used for activation')
+    parser.add_argument('--email', default='', help='Optional email address')
     parser.add_argument('--timeout', type=int, default=20, help='Loom execution timeout in seconds')
     parser.add_argument('--capability-name', default='', help='Optional Loom delivery capability override')
+    parser.add_argument('--url', default='', help='Target URL for the browser capability')
     parser.add_argument('--enable-outbound-dispatch', action='store_true', help='Allow real outbound dispatch to configured channels')
     parser.add_argument('--keep-state', action='store_true', help='Keep isolated temp state for inspection after the run')
     args = parser.parse_args(argv)
 
     try:
-        result = run_demo(
+        result = run_engine(
             plan=args.plan,
             telegram_id=args.telegram_id,
             email=args.email,
@@ -765,6 +805,7 @@ def main(argv=None):
             disable_outbound_dispatch=not args.enable_outbound_dispatch,
             keep_state=args.keep_state,
             capability_name=args.capability_name,
+            target_url=args.url,
         )
     except Exception as exc:
         print(f'ERROR: {exc}', file=sys.stderr)
