@@ -177,6 +177,20 @@ def _normalize_request(request, org_id, existing=None):
     return record
 
 
+def _request_view(request):
+    request = dict(request or {})
+    review_state = 'acknowledged' if request.get('reviewed_at') else 'pending_review'
+    request['review_state'] = review_state
+    request['review_metadata'] = {
+        'review_state': review_state,
+        'reviewed_by': request.get('reviewed_by', ''),
+        'reviewed_at': request.get('reviewed_at', ''),
+        'review_note': request.get('review_note', ''),
+    }
+    request['operator_acknowledged'] = review_state == 'acknowledged'
+    return request
+
+
 def _normalize_store(data, org_id):
     store = _empty_store(org_id)
     if not isinstance(data, dict):
@@ -265,9 +279,12 @@ def _sorted_requests(requests):
 
 def _queue_summary(requests, org_id):
     status_counts = {state: 0 for state in REQUEST_STATES}
+    acknowledged_count = 0
     for request in requests:
         status = request.get('status', 'requested')
         status_counts[status] = status_counts.get(status, 0) + 1
+        if request.get('reviewed_at'):
+            acknowledged_count += 1
     return {
         'bound_org_id': resolve_org_id(org_id) or '',
         'total_requests': len(requests),
@@ -275,6 +292,8 @@ def _queue_summary(requests, org_id):
         'reviewed_count': status_counts.get('reviewed', 0),
         'contacted_count': status_counts.get('contacted', 0),
         'closed_count': status_counts.get('closed', 0),
+        'reviewable_count': status_counts.get('requested', 0),
+        'acknowledged_count': acknowledged_count,
         'contactable_count': len([
             request for request in requests
             if request.get('email') or request.get('telegram_handle')
@@ -338,7 +357,7 @@ def submit_pilot_request(
 
 
 def queue_snapshot(org_id=None, *, limit=50):
-    requests = load_pilot_requests(org_id)
+    requests = [_request_view(request) for request in load_pilot_requests(org_id)]
     try:
         limit = max(int(limit), 0)
     except (TypeError, ValueError):
@@ -356,8 +375,58 @@ def queue_snapshot(org_id=None, *, limit=50):
         'request_paths': {
             'submit': '/api/pilot/intake',
             'inspect': '/api/pilot/intake',
+            'operator_inspect': '/api/pilot/intake/operator',
+            'operator_review': '/api/pilot/intake/operator/review',
         },
         'summary': _queue_summary(requests, org_id),
         'requests': limited_requests,
         'meta': _empty_store(org_id)['_meta'],
+    }
+
+
+def operator_review_snapshot(org_id=None, *, limit=50):
+    snapshot = queue_snapshot(org_id, limit=limit)
+    snapshot['management_mode'] = 'manual_operator_review'
+    snapshot['operator_review'] = {
+        'review_mode': 'manual_ack_only',
+        'inspect_path': '/api/pilot/intake/operator',
+        'review_path': '/api/pilot/intake/operator/review',
+        'fulfillment_claimed': False,
+        'fulfillment_note': 'review only; no automated fulfillment',
+        'acknowledged_count': snapshot['summary'].get('acknowledged_count', 0),
+        'reviewed_count': snapshot['summary'].get('reviewed_count', 0),
+        'reviewable_count': snapshot['summary'].get('reviewable_count', 0),
+    }
+    return snapshot
+
+
+def acknowledge_pilot_request(request_id, by, *, org_id=None, note=''):
+    request_id = (request_id or '').strip()
+    by = (by or '').strip()
+    if not request_id:
+        raise ValueError('request_id is required')
+    if not by:
+        raise ValueError('by is required')
+    with _store_lock(org_id):
+        store = _load_store(org_id)
+        record = store.get('requests', {}).get(request_id)
+        if not record:
+            raise ValueError(f'Pilot intake request not found: {request_id}')
+        updated = dict(record)
+        if (updated.get('status') or '').strip() == 'requested':
+            updated['status'] = 'reviewed'
+        timestamp = _now()
+        updated['reviewed_by'] = by
+        updated['review_note'] = (note or '').strip()
+        updated['reviewed_at'] = timestamp
+        updated['updated_at'] = timestamp
+        store['requests'][request_id] = _normalize_request(updated, org_id, existing=updated)
+        payload = _save_store(store, org_id)
+    requests = _sorted_requests([
+        _normalize_request(item, org_id, existing=item)
+        for item in payload.get('requests', {}).values()
+    ])
+    return {
+        'request': _request_view(store['requests'][request_id]),
+        'summary': _queue_summary(requests, org_id),
     }

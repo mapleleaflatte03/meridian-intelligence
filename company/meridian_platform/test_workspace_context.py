@@ -423,7 +423,19 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         )
         ctx = self.workspace._resolve_workspace_context()
         with mock.patch.object(self.workspace, 'commitments', fake_commitments), \
-             mock.patch.object(self.workspace, 'cases', fake_cases):
+             mock.patch.object(self.workspace, 'cases', fake_cases), \
+             mock.patch.object(self.workspace.service_state, 'pilot_intake_snapshot', return_value={
+                 'bound_org_id': 'org_founding',
+                 'management_mode': 'manual_pilot_intake',
+                 'mutation_enabled': True,
+                 'identity_model': 'public_submission',
+                 'summary': {'total_requests': 0},
+                 'request_paths': {
+                     'submit': '/api/pilot/intake',
+                     'inspect': '/api/pilot/intake',
+                     'operator_inspect': '/api/pilot/intake/operator',
+                 },
+             }):
             status = self.workspace.api_status(institution_context=ctx)
         self.assertEqual(status['runtime_core']['institution_context']['org_id'], 'org_founding')
         self.assertFalse(status['runtime_core']['admission']['additional_institutions_allowed'])
@@ -544,7 +556,12 @@ class LiveWorkspaceContextTests(unittest.TestCase):
             'mutation_enabled': True,
             'identity_model': 'public_submission',
             'summary': {'total_requests': 1, 'requested_count': 1},
-            'request_paths': {'submit': '/api/pilot/intake', 'inspect': '/api/pilot/intake'},
+            'request_paths': {
+                'submit': '/api/pilot/intake',
+                'inspect': '/api/pilot/intake',
+                'operator_inspect': '/api/pilot/intake/operator',
+                'operator_review': '/api/pilot/intake/operator/review',
+            },
         }
         self.workspace.get_sprint_lead = lambda org_id: ('', 0)
         self.workspace.get_pending_approvals = lambda org_id=None: []
@@ -567,10 +584,11 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.assertIn('pilot_intake', status['service_state'])
         self.assertEqual(status['service_state']['pilot_intake']['summary']['total_requests'], 1)
         self.assertEqual(status['service_state']['pilot_intake']['request_paths']['submit'], '/api/pilot/intake')
+        self.assertEqual(status['service_state']['pilot_intake']['request_paths']['operator_inspect'], '/api/pilot/intake/operator')
 
     def test_public_pilot_intake_post_records_request_without_auth_gate(self):
         calls = []
-        self.workspace._resolve_workspace_context = lambda: types.SimpleNamespace(org_id='org_founding')
+        self.workspace._resolve_workspace_context = lambda: types.SimpleNamespace(org_id='org_founding', org={}, context_source='configured_org')
 
         class FakeHandler:
             def __init__(self):
@@ -619,6 +637,103 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.assertEqual(handler.response['status'], 201)
         self.assertEqual(handler.response['data']['request']['request_id'], 'pir_demo')
         self.assertEqual(handler.response['data']['summary']['total_requests'], 1)
+        self.assertEqual(result, handler.response)
+
+    def test_operator_pilot_intake_routes_expose_review_only_flow(self):
+        calls = []
+        self.workspace._resolve_workspace_context = lambda: types.SimpleNamespace(org_id='org_founding', org={}, context_source='configured_org')
+
+        class GetHandler:
+            def __init__(self):
+                self.path = '/api/pilot/intake/operator'
+                self.headers = _Headers({'Content-Type': 'application/json'})
+                self.response = None
+
+            def _require_auth(self, path):
+                calls.append(('require_auth', path))
+                return True
+
+            def _json(self, data, status=200):
+                self.response = {'data': data, 'status': status}
+                return self.response
+
+            def _service_unavailable(self, message, is_api=False):
+                raise AssertionError(message)
+
+            def _session_claims_from_request(self, expected_org_id=None):
+                return None
+
+        with mock.patch.object(self.workspace.pilot_intake, 'operator_review_snapshot', return_value={
+            'management_mode': 'manual_operator_review',
+            'operator_review': {'review_mode': 'manual_ack_only'},
+            'summary': {'total_requests': 1},
+        }), mock.patch.object(self.workspace, '_resolve_auth_context', return_value={
+            'enabled': True,
+            'mode': 'credential_bound',
+            'org_id': 'org_founding',
+            'user_id': 'user_owner',
+            'role': 'owner',
+            'actor_id': 'user_owner',
+            'actor_source': 'test',
+            'session_id': 'sid_demo',
+        }):
+            handler = GetHandler()
+            result = self.workspace.WorkspaceHandler.do_GET(handler)
+        self.assertEqual(calls, [('require_auth', '/api/pilot/intake/operator')])
+        self.assertEqual(handler.response['status'], 200)
+        self.assertEqual(handler.response['data']['management_mode'], 'manual_operator_review')
+        self.assertEqual(result, handler.response)
+
+        post_calls = []
+
+        class PostHandler:
+            def __init__(self):
+                self.path = '/api/pilot/intake/operator/review'
+                self.headers = _Headers({'Content-Type': 'application/json'})
+                self.response = None
+
+            def _require_auth(self, path):
+                post_calls.append(('require_auth', path))
+                return True
+
+            def _json(self, data, status=200):
+                self.response = {'data': data, 'status': status}
+                return self.response
+
+            def _service_unavailable(self, message, is_api=False):
+                raise AssertionError(message)
+
+            def _session_claims_from_request(self, expected_org_id=None):
+                return None
+
+            def _read_body(self):
+                return {'request_id': 'pir_demo', 'note': 'Reviewed'}
+
+        with mock.patch.object(self.workspace.pilot_intake, 'acknowledge_pilot_request', return_value={
+            'request': {
+                'request_id': 'pir_demo',
+                'status': 'reviewed',
+                'review_state': 'acknowledged',
+                'reviewed_by': 'user_owner',
+            },
+            'summary': {'total_requests': 1, 'reviewed_count': 1, 'acknowledged_count': 1},
+        }), mock.patch.object(self.workspace.pilot_intake, 'operator_review_snapshot', return_value={
+            'operator_review': {'review_mode': 'manual_ack_only', 'acknowledged_count': 1},
+        }), mock.patch.object(self.workspace, 'log_event', return_value='evt_demo'), mock.patch.object(self.workspace, '_resolve_auth_context', return_value={
+            'enabled': True,
+            'mode': 'credential_bound',
+            'org_id': 'org_founding',
+            'user_id': 'user_owner',
+            'role': 'owner',
+            'actor_id': 'user_owner',
+            'actor_source': 'test',
+            'session_id': 'sid_demo',
+        }):
+            handler = PostHandler()
+            result = self.workspace.WorkspaceHandler.do_POST(handler)
+        self.assertEqual(post_calls, [('require_auth', '/api/pilot/intake/operator/review')])
+        self.assertEqual(handler.response['status'], 200)
+        self.assertEqual(handler.response['data']['request']['review_state'], 'acknowledged')
         self.assertEqual(result, handler.response)
 
     def test_api_status_reports_witness_read_only_host_management(self):
@@ -683,7 +798,19 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         }
 
         ctx = self.workspace._resolve_workspace_context()
-        status = self.workspace.api_status(institution_context=ctx)
+        with mock.patch.object(self.workspace.service_state, 'pilot_intake_snapshot', return_value={
+            'bound_org_id': 'org_founding',
+            'management_mode': 'manual_pilot_intake',
+            'mutation_enabled': True,
+            'identity_model': 'public_submission',
+            'summary': {'total_requests': 0},
+            'request_paths': {
+                'submit': '/api/pilot/intake',
+                'inspect': '/api/pilot/intake',
+                'operator_inspect': '/api/pilot/intake/operator',
+            },
+        }):
+            status = self.workspace.api_status(institution_context=ctx)
 
         self.assertEqual(status['runtime_core']['host_identity']['role'], 'witness_host')
         self.assertEqual(status['runtime_core']['admission']['management_mode'], 'witness_read_only')

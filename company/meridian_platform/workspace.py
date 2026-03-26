@@ -4241,6 +4241,8 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
             return self._json(service_state.accounting_snapshot(org_id))
         elif path == '/api/pilot/intake':
             return self._json(pilot_intake.queue_snapshot(org_id))
+        elif path == '/api/pilot/intake/operator':
+            return self._json(pilot_intake.operator_review_snapshot(org_id))
         elif path == '/api/payouts':
             host_identity, _admission_registry = _runtime_host_state(org_id)
             return self._json(_payout_snapshot(
@@ -4836,6 +4838,34 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                 return self._json({
                     'message': 'Alert queue acknowledged without claiming external delivery',
                     'result': result,
+                })
+
+            elif path == '/api/pilot/intake/operator/review':
+                request_id = (body.get('request_id') or body.get('requestId') or '').strip()
+                result = pilot_intake.acknowledge_pilot_request(
+                    request_id,
+                    by,
+                    org_id=org_id,
+                    note=body.get('note') or body.get('review_note') or '',
+                )
+                log_event(
+                    org_id,
+                    by,
+                    'pilot_intake_reviewed',
+                    outcome='success',
+                    resource=result['request'].get('request_id', ''),
+                    details={
+                        'status': result['request'].get('status', ''),
+                        'review_state': result['request'].get('review_state', ''),
+                        'reviewed_by': result['request'].get('reviewed_by', ''),
+                    },
+                    session_id=_sid,
+                )
+                return self._json({
+                    'message': 'Pilot intake request acknowledged by operator; no fulfillment claimed',
+                    'request': result['request'],
+                    'summary': result['summary'],
+                    'operator_review': pilot_intake.operator_review_snapshot(org_id).get('operator_review', {}),
                 })
 
             elif path == '/api/payouts/propose':

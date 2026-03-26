@@ -214,6 +214,8 @@ class ServiceStateTests(unittest.TestCase):
             'request_paths': {
                 'submit': '/api/pilot/intake',
                 'inspect': '/api/pilot/intake',
+                'operator_inspect': '/api/pilot/intake/operator',
+                'operator_review': '/api/pilot/intake/operator/review',
             },
             'summary': {
                 'bound_org_id': org_id,
@@ -240,6 +242,7 @@ class ServiceStateTests(unittest.TestCase):
         self.assertTrue(snap['mutation_enabled'])
         self.assertEqual(snap['identity_model'], 'public_submission')
         self.assertEqual(snap['request_paths']['submit'], '/api/pilot/intake')
+        self.assertEqual(snap['request_paths']['operator_inspect'], '/api/pilot/intake/operator')
         self.assertEqual(snap['summary']['total_requests'], 1)
         self.assertEqual(snap['requests_tail'][0]['request_id'], 'pir_demo')
 
