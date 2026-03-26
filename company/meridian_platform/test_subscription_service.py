@@ -323,6 +323,9 @@ class SubscriptionServiceTests(unittest.TestCase):
                 'subscription_id': 'sub_activated',
                 'preview_id': 'quote_pir_activate',
                 'telegram_id': '800',
+                'company': 'Acme',
+                'topics': ['pricing', 'launches'],
+                'competitors': ['OpenAI'],
                 'plan': 'premium-brief-weekly',
                 'state': 'queued',
                 'queued_at': '2026-03-25T00:00:00Z',
@@ -331,27 +334,48 @@ class SubscriptionServiceTests(unittest.TestCase):
         }
         subscription_service.save_subscriptions(payload, self.org_id)
 
-        def _run(cmd, capture_output, text, timeout, cwd, env):
+        submitted_payloads = []
+
+        def _run(cmd, capture_output, text, timeout, cwd, env=None):
             if cmd[1:3] == ['service', 'status']:
                 return mock.Mock(returncode=0, stdout=json.dumps({'running': True, 'service_status': 'running', 'health': 'healthy', 'transport': 'http'}), stderr='')
             if cmd[1:3] == ['capability', 'show']:
                 return mock.Mock(returncode=0, stdout=json.dumps({'enabled': True, 'verification_status': 'verified', 'promotion_state': 'promoted'}), stderr='')
             if cmd[1:3] == ['service', 'submit']:
+                submitted_payloads.append(json.loads(cmd[cmd.index('--payload-json') + 1]))
                 return mock.Mock(returncode=0, stdout=json.dumps({'job_id': 'loom-job-1'}), stderr='')
             if cmd[1:3] == ['job', 'inspect']:
                 return mock.Mock(returncode=0, stdout=json.dumps({'job_status': 'completed', 'job_path': '/tmp/jobs/loom-job-1/job.json', 'worker_status': 'completed'}), stderr='')
+            if cmd[:3] == ['openclaw', 'message', 'send']:
+                return mock.Mock(returncode=0, stdout='telegram delivered', stderr='')
+            if len(cmd) > 1 and cmd[1].endswith('send_email.py'):
+                return mock.Mock(returncode=0, stdout='email delivered', stderr='')
             raise AssertionError(cmd)
 
-        with mock.patch.dict(subscription_service.os.environ, {'MERIDIAN_LOOM_SUBSCRIPTION_DELIVERY_CAPABILITY': 'company.subscription.delivery.v0'}, clear=False), mock.patch.object(subscription_service.subprocess, 'run', side_effect=_run), mock.patch.object(subscription_service, '_load_json_file', return_value={'delivery_ref': 'loom-job-1'}):
+        worker_result = {
+            'summary': 'fallback summary',
+            'skill_output': {'research': 'loom research result'},
+        }
+        with mock.patch.dict(subscription_service.os.environ, {'MERIDIAN_LOOM_RESEARCH_CAPABILITY': 'clawskill.safe-web-research.v0'}, clear=False), mock.patch.object(subscription_service.subprocess, 'run', side_effect=_run), mock.patch.object(subscription_service, '_load_json_file', return_value=worker_result):
             result = subscription_service.run_loom_delivery_job('loom_sub_activated', org_id=self.org_id, actor='user:admin', timeout=5)
 
         payload = subscription_service.load_subscriptions(self.org_id)
         self.assertEqual(result['run']['state'], 'executed')
         self.assertTrue(result['run']['delivered'])
+        self.assertEqual(result['run']['delivery_artifact']['brief_text'], 'loom research result')
+        self.assertEqual(result['run']['dispatch_channel'], 'telegram')
+        self.assertEqual(len(result['run']['dispatches']), 2)
         self.assertEqual(payload['loom_delivery_jobs']['loom_sub_activated']['state'], 'executed')
+        self.assertEqual(payload['loom_delivery_jobs']['loom_sub_activated']['brief_preview'], 'loom research result')
         self.assertEqual(payload['loom_delivery_runs'][0]['state'], 'executed')
         self.assertEqual(payload['loom_delivery_runs'][0]['delivery_ref'], 'loom-job-1')
         self.assertEqual(payload['delivery_log'][-1]['delivery_ref'], 'loom-job-1')
+        self.assertEqual(payload['delivery_log'][-1]['dispatch_channel'], 'telegram')
+        self.assertEqual(payload['subscribers']['800'][0]['latest_delivery_status'], 'delivered')
+        self.assertEqual(payload['subscribers']['800'][0]['latest_delivery_preview'], 'loom research result')
+        self.assertEqual(submitted_payloads[0]['topic'], 'Acme pricing launches OpenAI AI market intelligence')
+        self.assertEqual(submitted_payloads[0]['url'], 'https://duckduckgo.com/html/?q=Acme+pricing+launches+OpenAI+AI+market+intelligence')
+        self.assertIn('Requested cadence', submitted_payloads[0]['prompt'])
 
     def test_convert_trial_subscription_binds_payment_evidence(self):
         subscription_service.create_subscription('200', plan='trial', org_id=self.org_id)

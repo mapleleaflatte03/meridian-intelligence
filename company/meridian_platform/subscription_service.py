@@ -7,9 +7,11 @@ import importlib.util
 import json
 import os
 import subprocess
+import sys
 import tempfile
 import time
 import uuid
+from urllib.parse import quote_plus
 
 from capsule import (
     ensure_subscription_aliases,
@@ -40,6 +42,12 @@ LOOM_DELIVERY_CAPABILITY_ENV_VARS = (
     'MERIDIAN_LOOM_SUBSCRIPTION_DELIVERY_CAPABILITY',
     'MERIDIAN_LOOM_DELIVERY_CAPABILITY',
 )
+LOOM_DELIVERY_CAPABILITY_FALLBACK_ENV_VARS = (
+    'MERIDIAN_LOOM_RESEARCH_CAPABILITY',
+)
+SEND_EMAIL_PY = os.path.join(WORKSPACE, 'company', 'send_email.py')
+DEFAULT_LOOM_DELIVERY_TIMEOUT = 30
+BRIEF_PREVIEW_LIMIT = 280
 
 
 def now_ts():
@@ -359,7 +367,7 @@ def _loom_service_token():
 
 
 def _loom_delivery_capability():
-    for name in LOOM_DELIVERY_CAPABILITY_ENV_VARS:
+    for name in LOOM_DELIVERY_CAPABILITY_ENV_VARS + LOOM_DELIVERY_CAPABILITY_FALLBACK_ENV_VARS:
         capability = (os.environ.get(name) or '').strip()
         if capability:
             return capability
@@ -383,6 +391,362 @@ def _coerce_payment_evidence(payment_evidence):
     }
 
 
+def _normalize_text_list(values):
+    if values in (None, ''):
+        return []
+    if isinstance(values, list):
+        raw_items = values
+    else:
+        raw_items = str(values).split(',')
+    return [str(item).strip() for item in raw_items if str(item).strip()]
+
+
+def _trim_text(value, limit=BRIEF_PREVIEW_LIMIT):
+    text = str(value or '').strip()
+    if len(text) <= limit:
+        return text
+    return text[: max(limit - 3, 0)].rstrip() + '...'
+
+
+def _looks_like_http_url(value):
+    raw = (value or '').strip().lower()
+    return raw.startswith('http://') or raw.startswith('https://')
+
+
+def _loom_research_url(topic):
+    topic = (topic or '').strip()
+    if _looks_like_http_url(topic):
+        return topic
+    if not topic:
+        return ''
+    return f"https://duckduckgo.com/html/?q={quote_plus(topic)}"
+
+
+def _subscription_delivery_title(job, subscription=None):
+    subscription = dict(subscription or {})
+    company = (job.get('company') or subscription.get('company') or job.get('name') or '').strip()
+    if company:
+        return f"Meridian Intelligence brief for {company}"
+    return 'Meridian Intelligence subscription brief'
+
+
+def _subscription_delivery_topic(job):
+    parts = []
+    company = (job.get('company') or job.get('name') or '').strip()
+    if company:
+        parts.append(company)
+    parts.extend(_normalize_text_list(job.get('topics'))[:3])
+    parts.extend(_normalize_text_list(job.get('competitors'))[:2])
+    parts.append('AI market intelligence')
+    topic = ' '.join(part for part in parts if part).strip()
+    return topic or f"{(job.get('plan') or 'subscription').strip()} intelligence brief"
+
+
+def _subscription_delivery_prompt(job, subscription=None):
+    subscription = dict(subscription or {})
+    company = (job.get('company') or subscription.get('company') or job.get('name') or '').strip() or 'the subscriber'
+    cadence = (job.get('requested_cadence') or '').strip() or 'recurring intelligence brief'
+    plan = (job.get('plan') or subscription.get('plan') or '').strip() or 'subscription'
+    offer = (job.get('requested_offer') or '').strip() or 'subscription_delivery'
+    topics = ', '.join(_normalize_text_list(job.get('topics'))) or 'not specified'
+    competitors = ', '.join(_normalize_text_list(job.get('competitors'))) or 'not specified'
+    return (
+        f"Create the Meridian subscriber intelligence brief for {company}. "
+        f"Requested cadence: {cadence}. Subscription plan: {plan}. Offer context: {offer}. "
+        f"Focus topics: {topics}. Competitors: {competitors}. "
+        "Return a concise, publication-ready brief in plain text with short headings, specific current signals, and concrete follow-up actions. "
+        "Do not mention internal tooling or implementation details."
+    )
+
+
+def _subscription_delivery_payload(job, *, subscription=None, actor=''):
+    topic = _subscription_delivery_topic(job)
+    payload = {
+        'job_id': job.get('job_id', ''),
+        'subscription_id': job.get('subscription_id', ''),
+        'preview_id': job.get('preview_id', ''),
+        'telegram_id': job.get('telegram_id', ''),
+        'email': job.get('email', ''),
+        'plan': job.get('plan', ''),
+        'queued_at': job.get('queued_at', ''),
+        'actor': actor or '',
+        'job_type': job.get('job_type', 'subscription_loom_delivery'),
+        'delivery_kind': 'subscription_activation_brief',
+        'delivery_title': _subscription_delivery_title(job, subscription=subscription),
+        'requested_cadence': job.get('requested_cadence', ''),
+        'requested_offer': job.get('requested_offer', ''),
+        'topics': _normalize_text_list(job.get('topics')),
+        'competitors': _normalize_text_list(job.get('competitors')),
+        'topic': topic,
+        'depth': 'standard',
+        'prompt': _subscription_delivery_prompt(job, subscription=subscription),
+    }
+    loom_url = _loom_research_url(topic)
+    if loom_url:
+        payload['url'] = loom_url
+        payload['urls'] = [loom_url]
+    return payload
+
+
+def _extract_loom_delivery_artifact(worker_result, *, job, execution=None):
+    execution = dict(execution or {})
+    payload = worker_result.get('skill_output')
+    brief_text = ''
+    source_key = ''
+    if isinstance(payload, dict):
+        for key in ('research', 'response', 'message', 'text'):
+            value = payload.get(key)
+            if isinstance(value, str) and value.strip():
+                brief_text = value.strip()
+                source_key = key
+                break
+        if not brief_text:
+            results = payload.get('results')
+            if isinstance(results, list):
+                normalized = []
+                for item in results:
+                    if not isinstance(item, dict):
+                        continue
+                    text = item.get('normalized_text')
+                    if isinstance(text, str) and text.strip():
+                        normalized.append(text.strip())
+                if normalized:
+                    brief_text = '\n\n'.join(normalized)
+                    source_key = 'results.normalized_text'
+    if not brief_text:
+        summary = worker_result.get('summary')
+        if isinstance(summary, str) and summary.strip():
+            brief_text = summary.strip()
+            source_key = 'summary'
+
+    artifact = {
+        'artifact_type': 'subscription_brief_v1',
+        'content_type': 'text/plain',
+        'subscription_id': job.get('subscription_id', ''),
+        'preview_id': job.get('preview_id', ''),
+        'job_id': job.get('job_id', ''),
+        'delivery_title': _subscription_delivery_title(job),
+        'brief_date': now_dt().date().isoformat(),
+        'topic': _subscription_delivery_topic(job),
+        'result_path': execution.get('result_path', ''),
+        'source_key': source_key,
+    }
+    if brief_text:
+        artifact['brief_text'] = brief_text
+        artifact['brief_preview'] = _trim_text(brief_text)
+        return {
+            'ok': True,
+            'artifact': artifact,
+        }
+
+    artifact['raw_worker_result'] = dict(worker_result or {})
+    artifact['brief_preview'] = ''
+    return {
+        'ok': False,
+        'error': 'Loom execution completed without a deliverable brief body',
+        'artifact': artifact,
+    }
+
+
+def _dispatch_telegram_delivery(telegram_id, message, *, timeout):
+    target = str(telegram_id or '').strip()
+    if not target:
+        return None
+    sent_at = now_ts()
+    try:
+        result = subprocess.run(
+            [
+                'openclaw',
+                'message',
+                'send',
+                '--channel',
+                'telegram',
+                '--target',
+                target,
+                '--message',
+                message,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=min(int(timeout or DEFAULT_LOOM_DELIVERY_TIMEOUT), DEFAULT_LOOM_DELIVERY_TIMEOUT),
+            cwd=WORKSPACE,
+        )
+    except subprocess.TimeoutExpired:
+        return {
+            'channel': 'telegram',
+            'target': target,
+            'ok': False,
+            'sent_at': sent_at,
+            'error': 'telegram delivery timed out',
+        }
+    except Exception as exc:
+        return {
+            'channel': 'telegram',
+            'target': target,
+            'ok': False,
+            'sent_at': sent_at,
+            'error': str(exc),
+        }
+    if result.returncode == 0:
+        return {
+            'channel': 'telegram',
+            'target': target,
+            'ok': True,
+            'sent_at': sent_at,
+            'receipt': (result.stdout or '').strip(),
+        }
+    return {
+        'channel': 'telegram',
+        'target': target,
+        'ok': False,
+        'sent_at': sent_at,
+        'error': ((result.stderr or result.stdout or '').strip()[:500] or 'telegram delivery failed'),
+    }
+
+
+def _dispatch_email_delivery(email, subject, body, *, timeout):
+    target = str(email or '').strip()
+    if not target:
+        return None
+    sent_at = now_ts()
+    if not os.path.exists(SEND_EMAIL_PY):
+        return {
+            'channel': 'email',
+            'target': target,
+            'ok': False,
+            'sent_at': sent_at,
+            'error': f'missing email sender at {SEND_EMAIL_PY}',
+        }
+    try:
+        result = subprocess.run(
+            [sys.executable, SEND_EMAIL_PY, '--to', target, '--subject', subject, '--body', body],
+            capture_output=True,
+            text=True,
+            timeout=min(int(timeout or DEFAULT_LOOM_DELIVERY_TIMEOUT), DEFAULT_LOOM_DELIVERY_TIMEOUT),
+            cwd=WORKSPACE,
+        )
+    except subprocess.TimeoutExpired:
+        return {
+            'channel': 'email',
+            'target': target,
+            'ok': False,
+            'sent_at': sent_at,
+            'error': 'email delivery timed out',
+        }
+    except Exception as exc:
+        return {
+            'channel': 'email',
+            'target': target,
+            'ok': False,
+            'sent_at': sent_at,
+            'error': str(exc),
+        }
+    if result.returncode == 0:
+        return {
+            'channel': 'email',
+            'target': target,
+            'ok': True,
+            'sent_at': sent_at,
+            'receipt': (result.stdout or '').strip(),
+        }
+    return {
+        'channel': 'email',
+        'target': target,
+        'ok': False,
+        'sent_at': sent_at,
+        'error': ((result.stderr or result.stdout or '').strip()[:500] or 'email delivery failed'),
+    }
+
+
+def _deliver_subscription_artifact(job, artifact, *, timeout):
+    body = f"{artifact.get('delivery_title', 'Meridian Intelligence brief')}\n\n{artifact.get('brief_text', '').strip()}".strip()
+    subject = artifact.get('delivery_title', 'Meridian Intelligence brief')
+    dispatches = []
+    telegram_dispatch = _dispatch_telegram_delivery(job.get('telegram_id', ''), body, timeout=timeout)
+    if telegram_dispatch is not None:
+        dispatches.append(telegram_dispatch)
+    email_dispatch = _dispatch_email_delivery(job.get('email', ''), subject, body, timeout=timeout)
+    if email_dispatch is not None:
+        dispatches.append(email_dispatch)
+    successful = [dispatch for dispatch in dispatches if dispatch.get('ok')]
+    if successful:
+        primary = successful[0]
+        return {
+            'ok': True,
+            'delivery_status': 'delivered',
+            'dispatches': dispatches,
+            'delivery_channel': primary.get('channel', ''),
+            'delivery_target': primary.get('target', ''),
+            'delivered_at': primary.get('sent_at', ''),
+            'error': '',
+        }
+    if dispatches:
+        errors = '; '.join(
+            dispatch.get('error', '')
+            for dispatch in dispatches
+            if dispatch.get('error')
+        )
+        return {
+            'ok': False,
+            'delivery_status': 'dispatch_failed',
+            'dispatches': dispatches,
+            'delivery_channel': '',
+            'delivery_target': '',
+            'delivered_at': '',
+            'error': errors or 'No delivery channel succeeded',
+        }
+    return {
+        'ok': False,
+        'delivery_status': 'artifact_ready',
+        'dispatches': [],
+        'delivery_channel': '',
+        'delivery_target': '',
+        'delivered_at': '',
+        'error': 'No delivery channel is configured for this subscription',
+    }
+
+
+def _find_subscription_record(payload, subscription_id):
+    subscription_id = (subscription_id or '').strip()
+    if not subscription_id:
+        return '', -1, None
+    for telegram_id, records in payload.get('subscribers', {}).items():
+        for index, record in enumerate(records):
+            if (record.get('id') or '').strip() == subscription_id:
+                return telegram_id, index, record
+    return '', -1, None
+
+
+def _persist_subscription_delivery_state(payload, job, artifact, dispatch, *, run_id='', finished_at=''):
+    telegram_id, index, record = _find_subscription_record(payload, job.get('subscription_id', ''))
+    if record is None:
+        return None
+    updated = dict(record)
+    attempted_at = (finished_at or now_ts()).strip()
+    updated['latest_delivery_ref'] = (job.get('delivery_ref') or '').strip()
+    updated['latest_delivery_run_id'] = (run_id or '').strip()
+    updated['latest_delivery_job_id'] = (job.get('job_id') or '').strip()
+    updated['latest_delivery_status'] = (dispatch.get('delivery_status') or '').strip()
+    updated['latest_delivery_runtime'] = 'loom'
+    updated['latest_delivery_channel'] = (dispatch.get('delivery_channel') or '').strip()
+    updated['latest_delivery_target'] = (dispatch.get('delivery_target') or '').strip()
+    updated['latest_delivery_attempted_at'] = attempted_at
+    updated['latest_delivery_date'] = (artifact.get('brief_date') or '').strip()
+    updated['latest_delivery_preview'] = (artifact.get('brief_preview') or '').strip()
+    updated['latest_delivery_result_path'] = (artifact.get('result_path') or '').strip()
+    updated['latest_delivery_artifact'] = {
+        'artifact_type': artifact.get('artifact_type', ''),
+        'delivery_title': artifact.get('delivery_title', ''),
+        'brief_date': artifact.get('brief_date', ''),
+        'brief_preview': artifact.get('brief_preview', ''),
+        'result_path': artifact.get('result_path', ''),
+    }
+    if dispatch.get('ok'):
+        updated['last_delivered_at'] = attempted_at
+    payload['subscribers'][telegram_id][index] = updated
+    return updated
+
+
 def _normalize_loom_delivery_run(run, org_id=None, existing=None):
     run = dict(run or {})
     existing = dict(existing or {})
@@ -399,6 +763,7 @@ def _normalize_loom_delivery_run(run, org_id=None, existing=None):
     record['subscription_id'] = (run.get('subscription_id') or existing.get('subscription_id') or '').strip()
     record['preview_id'] = (run.get('preview_id') or existing.get('preview_id') or '').strip()
     record['telegram_id'] = (run.get('telegram_id') or existing.get('telegram_id') or '').strip()
+    record['email'] = (run.get('email') or existing.get('email') or '').strip()
     record['plan'] = (run.get('plan') or existing.get('plan') or '').strip()
     record['capability_name'] = (run.get('capability_name') or existing.get('capability_name') or '').strip()
     record['state'] = (run.get('state') or existing.get('state') or 'queued').strip() or 'queued'
@@ -413,10 +778,20 @@ def _normalize_loom_delivery_run(run, org_id=None, existing=None):
     record['result_path'] = (run.get('result_path') or existing.get('result_path') or '').strip()
     record['delivery_ref'] = (run.get('delivery_ref') or existing.get('delivery_ref') or '').strip()
     record['recorded_by'] = (run.get('recorded_by') or existing.get('recorded_by') or '').strip()
+    record['dispatch_channel'] = (run.get('dispatch_channel') or existing.get('dispatch_channel') or '').strip()
+    record['dispatch_target'] = (run.get('dispatch_target') or existing.get('dispatch_target') or '').strip()
+    record['brief_preview'] = (run.get('brief_preview') or existing.get('brief_preview') or '').strip()
+    record['brief_date'] = (run.get('brief_date') or existing.get('brief_date') or '').strip()
     record['submit'] = dict(run.get('submit') or existing.get('submit') or {})
     record['snapshot'] = dict(run.get('snapshot') or existing.get('snapshot') or {})
     record['worker_result'] = dict(run.get('worker_result') or existing.get('worker_result') or {})
     record['execution_refs'] = dict(run.get('execution_refs') or existing.get('execution_refs') or {})
+    record['delivery_artifact'] = dict(run.get('delivery_artifact') or existing.get('delivery_artifact') or {})
+    record['dispatches'] = [
+        dict(item)
+        for item in (run.get('dispatches') or existing.get('dispatches') or [])
+        if isinstance(item, dict)
+    ]
     record['created_at'] = (run.get('created_at') or existing.get('created_at') or now_ts()).strip()
     record['updated_at'] = now_ts()
     return record
@@ -658,22 +1033,48 @@ def _normalize_loom_delivery_job(job, org_id=None, existing=None):
     record['subscription_id'] = subscription_id
     record['preview_id'] = preview_id
     record['telegram_id'] = telegram_id
+    record['email'] = (job.get('email') or existing.get('email') or '').strip()
+    record['name'] = (job.get('name') or existing.get('name') or '').strip()
+    record['company'] = (job.get('company') or existing.get('company') or '').strip()
+    record['requested_cadence'] = (job.get('requested_cadence') or existing.get('requested_cadence') or '').strip()
+    record['requested_offer'] = (job.get('requested_offer') or existing.get('requested_offer') or '').strip()
+    record['topics'] = _normalize_text_list(job.get('topics') or existing.get('topics'))
+    record['competitors'] = _normalize_text_list(job.get('competitors') or existing.get('competitors'))
     record['plan'] = (job.get('plan') or existing.get('plan') or '').strip()
     record['delivery_runtime'] = (job.get('delivery_runtime') or existing.get('delivery_runtime') or 'loom').strip() or 'loom'
     record['delivery_channel'] = (job.get('delivery_channel') or existing.get('delivery_channel') or 'loom').strip() or 'loom'
     record['job_type'] = (job.get('job_type') or existing.get('job_type') or 'subscription_loom_delivery').strip() or 'subscription_loom_delivery'
     record['state'] = (job.get('state') or existing.get('state') or 'queued').strip() or 'queued'
+    record['delivery_status'] = (job.get('delivery_status') or existing.get('delivery_status') or record['state']).strip() or record['state']
+    record['attempts'] = int(job.get('attempts', existing.get('attempts', 0)) or 0)
     record['queued_at'] = (job.get('queued_at') or existing.get('queued_at') or now_ts()).strip()
     record['queued_by'] = (job.get('queued_by') or existing.get('queued_by') or '').strip()
     record['claimed_at'] = (job.get('claimed_at') or existing.get('claimed_at') or '').strip()
     record['claimed_by'] = (job.get('claimed_by') or existing.get('claimed_by') or '').strip()
+    record['running_at'] = (job.get('running_at') or existing.get('running_at') or '').strip()
+    record['blocked_at'] = (job.get('blocked_at') or existing.get('blocked_at') or '').strip()
+    record['executed_at'] = (job.get('executed_at') or existing.get('executed_at') or '').strip()
     record['completed_at'] = (job.get('completed_at') or existing.get('completed_at') or '').strip()
     record['completed_by'] = (job.get('completed_by') or existing.get('completed_by') or '').strip()
     record['delivery_ref'] = (job.get('delivery_ref') or existing.get('delivery_ref') or '').strip()
+    record['dispatch_channel'] = (job.get('dispatch_channel') or existing.get('dispatch_channel') or '').strip()
+    record['dispatch_target'] = (job.get('dispatch_target') or existing.get('dispatch_target') or '').strip()
+    record['brief_preview'] = (job.get('brief_preview') or existing.get('brief_preview') or '').strip()
+    record['brief_date'] = (job.get('brief_date') or existing.get('brief_date') or '').strip()
+    record['result_path'] = (job.get('result_path') or existing.get('result_path') or '').strip()
     record['notes'] = (job.get('notes') or existing.get('notes') or '').strip()
     record['subscription_status'] = (job.get('subscription_status') or existing.get('subscription_status') or '').strip()
     record['payment_verified'] = bool(job.get('payment_verified', existing.get('payment_verified', False)))
     record['payment_ref'] = (job.get('payment_ref') or existing.get('payment_ref') or '').strip()
+    record['blocked_reason'] = (job.get('blocked_reason') or existing.get('blocked_reason') or '').strip()
+    record['error'] = (job.get('error') or existing.get('error') or '').strip()
+    record['execution_refs'] = dict(job.get('execution_refs') or existing.get('execution_refs') or {})
+    record['delivery_artifact'] = dict(job.get('delivery_artifact') or existing.get('delivery_artifact') or {})
+    record['dispatches'] = [
+        dict(item)
+        for item in (job.get('dispatches') or existing.get('dispatches') or [])
+        if isinstance(item, dict)
+    ]
     record['created_at'] = (job.get('created_at') or existing.get('created_at') or now_ts()).strip()
     record['updated_at'] = now_ts()
     return record
@@ -695,11 +1096,19 @@ def queue_loom_delivery(subscription, *, preview=None, org_id=None, actor=''):
         'subscription_id': subscription_id,
         'preview_id': (preview.get('preview_id') or subscription.get('activated_from_preview_id') or '').strip(),
         'telegram_id': (subscription.get('telegram_id') or subscription.get('subscriber_id') or subscription.get('created_for') or '').strip(),
+        'email': (subscription.get('email') or preview.get('email') or '').strip(),
+        'name': (preview.get('name') or '').strip(),
+        'company': (preview.get('company') or '').strip(),
+        'requested_cadence': (preview.get('requested_cadence') or '').strip(),
+        'requested_offer': (preview.get('requested_offer') or '').strip(),
+        'topics': _normalize_text_list(preview.get('topics')),
+        'competitors': _normalize_text_list(preview.get('competitors')),
         'plan': subscription.get('plan', ''),
         'delivery_runtime': 'loom',
         'delivery_channel': 'loom',
         'job_type': 'subscription_loom_delivery',
         'state': 'queued',
+        'delivery_status': 'queued',
         'queued_at': now_ts(),
         'queued_by': actor or '',
         'payment_verified': bool(subscription.get('payment_verified', False)),
@@ -730,10 +1139,12 @@ def run_loom_delivery_job(job_id, *, org_id=None, actor='', timeout=120, capabil
     capability_name = (capability_name or _loom_delivery_capability()).strip()
     now = now_ts()
     run_record = {
+        'run_id': f'ldr_{uuid.uuid4().hex[:12]}',
         'job_id': job_id,
         'subscription_id': job.get('subscription_id', ''),
         'preview_id': job.get('preview_id', ''),
         'telegram_id': job.get('telegram_id', ''),
+        'email': job.get('email', ''),
         'plan': job.get('plan', ''),
         'capability_name': capability_name,
         'queued_at': job.get('queued_at', now),
@@ -744,6 +1155,11 @@ def run_loom_delivery_job(job_id, *, org_id=None, actor='', timeout=120, capabil
         'delivery_status': 'running',
         'delivered': False,
     }
+
+    _telegram_id, _sub_index, subscription_record = _find_subscription_record(payload, job.get('subscription_id', ''))
+    if subscription_record:
+        job['telegram_id'] = (job.get('telegram_id') or subscription_record.get('telegram_id') or _telegram_id or '').strip()
+        job['email'] = (job.get('email') or subscription_record.get('email') or '').strip()
 
     if not capability_name:
         run_record.update({
@@ -758,8 +1174,8 @@ def run_loom_delivery_job(job_id, *, org_id=None, actor='', timeout=120, capabil
             'attempts': run_record['attempts'],
             'blocked_reason': run_record['error'],
             'updated_at': now_ts(),
+            'execution_refs': dict(job.get('execution_refs') or {}),
         })
-        job['execution_refs'] = dict(job.get('execution_refs') or {})
         payload['loom_delivery_runs'] = list(payload.get('loom_delivery_runs', [])) + [_normalize_loom_delivery_run(run_record, org_id)]
         jobs[job_id] = job
         save_subscriptions(payload, org_id)
@@ -809,67 +1225,122 @@ def run_loom_delivery_job(job_id, *, org_id=None, actor='', timeout=120, capabil
     jobs[job_id] = job
     save_subscriptions(payload, org_id)
 
-    run_payload = {
-        'job_id': job_id,
-        'subscription_id': job.get('subscription_id', ''),
-        'preview_id': job.get('preview_id', ''),
-        'telegram_id': job.get('telegram_id', ''),
-        'plan': job.get('plan', ''),
-        'queued_at': job.get('queued_at', now),
-        'started_at': now,
-        'capability_name': capability_name,
-        'actor': actor or '',
-        'job_type': job.get('job_type', 'subscription_loom_delivery'),
-    }
+    run_payload = _subscription_delivery_payload(job, subscription=subscription_record, actor=actor)
     execution = _run_loom_delivery_capability(capability_name, run_payload, timeout=timeout)
     finished_at = now_ts()
+    artifact = {}
+    dispatch = {
+        'ok': False,
+        'delivery_status': 'blocked',
+        'dispatches': [],
+        'delivery_channel': '',
+        'delivery_target': '',
+        'delivered_at': '',
+        'error': execution.get('error', ''),
+    }
+
     if execution.get('ok'):
-        job.update({
-            'state': 'executed',
-            'delivery_status': 'delivered',
-            'delivered_at': finished_at,
-            'executed_at': finished_at,
-            'delivery_ref': execution.get('job_id', job_id),
-            'completed_at': finished_at,
-            'completed_by': actor or '',
-            'updated_at': now_ts(),
-            'error': '',
-            'execution_refs': {
-                'capability_name': capability_name,
-                'submit': execution.get('submit', {}),
-                'snapshot': execution.get('snapshot', {}),
-                'worker_result': execution.get('worker_result', {}),
-                'result_path': execution.get('result_path', ''),
-            },
-        })
-        run_record.update({
-            'state': 'executed',
-            'delivery_status': 'delivered',
-            'delivered': True,
-            'finished_at': finished_at,
-            'executed_at': finished_at,
-            'delivery_ref': job['delivery_ref'],
-            'error': '',
+        artifact_result = _extract_loom_delivery_artifact(execution.get('worker_result', {}) or {}, job=job, execution=execution)
+        artifact = dict(artifact_result.get('artifact') or {})
+        if artifact_result.get('ok'):
+            dispatch = _deliver_subscription_artifact(job, artifact, timeout=timeout)
+        else:
+            dispatch = {
+                'ok': False,
+                'delivery_status': 'artifact_missing',
+                'dispatches': [],
+                'delivery_channel': '',
+                'delivery_target': '',
+                'delivered_at': '',
+                'error': artifact_result.get('error', 'Loom execution completed without a deliverable brief body'),
+            }
+
+        execution_refs = {
+            'capability_name': capability_name,
             'submit': execution.get('submit', {}),
             'snapshot': execution.get('snapshot', {}),
             'worker_result': execution.get('worker_result', {}),
             'result_path': execution.get('result_path', ''),
-            'execution_refs': dict(job.get('execution_refs') or {}),
+            'dispatches': list(dispatch.get('dispatches') or []),
+        }
+        job.update({
+            'state': 'executed' if dispatch.get('ok') else 'blocked',
+            'delivery_status': dispatch.get('delivery_status', 'blocked'),
+            'delivered_at': dispatch.get('delivered_at', ''),
+            'executed_at': finished_at,
+            'delivery_ref': execution.get('job_id', job_id),
+            'completed_at': finished_at if dispatch.get('ok') else '',
+            'completed_by': (actor or '') if dispatch.get('ok') else '',
+            'dispatch_channel': dispatch.get('delivery_channel', ''),
+            'dispatch_target': dispatch.get('delivery_target', ''),
+            'brief_preview': artifact.get('brief_preview', ''),
+            'brief_date': artifact.get('brief_date', ''),
+            'result_path': execution.get('result_path', ''),
+            'delivery_artifact': artifact,
+            'dispatches': list(dispatch.get('dispatches') or []),
+            'updated_at': now_ts(),
+            'error': dispatch.get('error', ''),
+            'blocked_reason': dispatch.get('error', '') if not dispatch.get('ok') else '',
+            'blocked_at': finished_at if not dispatch.get('ok') else '',
+            'execution_refs': execution_refs,
         })
-        payload.setdefault('delivery_log', []).append({
-            'telegram_id': job.get('telegram_id', ''),
-            'product': f"subscription:{job.get('plan', '') or 'delivery'}",
-            'delivered_at': finished_at,
-            'recorded_by': actor or '',
-            'delivery_ref': job['delivery_ref'],
-            'subscription_id': job.get('subscription_id', ''),
-            'preview_id': job.get('preview_id', ''),
-            'job_id': job_id,
-            'delivery_status': 'delivered',
-            'delivery_runtime': 'loom',
-            'capability_name': capability_name,
+        run_record.update({
+            'state': 'executed' if dispatch.get('ok') else 'blocked',
+            'delivery_status': dispatch.get('delivery_status', 'blocked'),
+            'delivered': bool(dispatch.get('ok')),
+            'finished_at': finished_at,
+            'executed_at': finished_at,
+            'delivery_ref': job.get('delivery_ref', execution.get('job_id', job_id)),
+            'error': dispatch.get('error', ''),
+            'submit': execution.get('submit', {}),
+            'snapshot': execution.get('snapshot', {}),
+            'worker_result': execution.get('worker_result', {}),
+            'result_path': execution.get('result_path', ''),
+            'execution_refs': execution_refs,
+            'dispatch_channel': dispatch.get('delivery_channel', ''),
+            'dispatch_target': dispatch.get('delivery_target', ''),
+            'brief_preview': artifact.get('brief_preview', ''),
+            'brief_date': artifact.get('brief_date', ''),
+            'delivery_artifact': artifact,
+            'dispatches': list(dispatch.get('dispatches') or []),
         })
+        _persist_subscription_delivery_state(
+            payload,
+            job,
+            artifact,
+            dispatch,
+            run_id=run_record['run_id'],
+            finished_at=finished_at,
+        )
+        if dispatch.get('ok'):
+            payload.setdefault('delivery_log', []).append({
+                'telegram_id': job.get('telegram_id', ''),
+                'email': job.get('email', ''),
+                'product': f"subscription:{job.get('plan', '') or 'delivery'}",
+                'delivered_at': finished_at,
+                'recorded_by': actor or '',
+                'delivery_ref': job['delivery_ref'],
+                'subscription_id': job.get('subscription_id', ''),
+                'preview_id': job.get('preview_id', ''),
+                'job_id': job_id,
+                'run_id': run_record['run_id'],
+                'delivery_status': 'delivered',
+                'delivery_runtime': 'loom',
+                'capability_name': capability_name,
+                'brief_date': artifact.get('brief_date', ''),
+                'brief_preview': artifact.get('brief_preview', ''),
+                'dispatch_channel': dispatch.get('delivery_channel', ''),
+                'dispatch_target': dispatch.get('delivery_target', ''),
+                'result_path': execution.get('result_path', ''),
+            })
+            if len(payload['delivery_log']) > 500:
+                payload['delivery_log'] = payload['delivery_log'][-500:]
     else:
+        execution_refs = {
+            'capability_name': capability_name,
+            'submit': execution.get('submit', {}),
+            'snapshot': execution.get('snapshot', {}),
+        }
         job.update({
             'state': 'blocked',
             'delivery_status': 'blocked',
@@ -877,11 +1348,7 @@ def run_loom_delivery_job(job_id, *, org_id=None, actor='', timeout=120, capabil
             'finished_at': finished_at,
             'error': execution.get('error', ''),
             'updated_at': now_ts(),
-            'execution_refs': {
-                'capability_name': capability_name,
-                'submit': execution.get('submit', {}),
-                'snapshot': execution.get('snapshot', {}),
-            },
+            'execution_refs': execution_refs,
         })
         run_record.update({
             'state': 'blocked',
@@ -890,16 +1357,17 @@ def run_loom_delivery_job(job_id, *, org_id=None, actor='', timeout=120, capabil
             'error': execution.get('error', 'loom delivery failed'),
             'submit': execution.get('submit', {}),
             'snapshot': execution.get('snapshot', {}),
-            'execution_refs': dict(job.get('execution_refs') or {}),
+            'execution_refs': execution_refs,
         })
 
-    payload['loom_delivery_runs'] = list(payload.get('loom_delivery_runs', [])) + [_normalize_loom_delivery_run(run_record, org_id)]
-    jobs[job_id] = job
+    normalized_run = _normalize_loom_delivery_run(run_record, org_id)
+    payload['loom_delivery_runs'] = list(payload.get('loom_delivery_runs', [])) + [normalized_run]
+    jobs[job_id] = _normalize_loom_delivery_job(job, org_id, existing=job)
     save_subscriptions(payload, org_id)
     return {
         'job_id': job_id,
-        'delivery_job': job,
-        'run': _normalize_loom_delivery_run(run_record, org_id),
+        'delivery_job': jobs[job_id],
+        'run': normalized_run,
         'execution': execution,
     }
 
@@ -1007,6 +1475,8 @@ def activate_subscription_from_preview(preview, *, telegram_id=None, plan=None,
         'delivery_job': delivery_job,
         'delivery_run': delivery_run['run'],
         'delivery_execution': delivery_run.get('execution', {}),
+        'delivery_artifact': dict(delivery_run['run'].get('delivery_artifact') or {}),
+        'delivery_dispatches': list(delivery_run['run'].get('dispatches') or []),
     }
 
 

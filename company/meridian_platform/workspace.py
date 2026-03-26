@@ -4531,7 +4531,7 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                 )
                 activated = result['subscription']
                 run = result.get('delivery_run', {})
-                if (run.get('state') or '') == 'executed' and result.get('delivery_job', {}).get('preview_id'):
+                if bool(run.get('delivered')) and result.get('delivery_job', {}).get('preview_id'):
                     preview_result = subscription_preview_queue.mark_preview_delivered(
                         preview_id,
                         run.get('delivery_ref') or result.get('delivery_job', {}).get('delivery_ref') or result['delivery_job']['job_id'],
@@ -4566,7 +4566,7 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                     },
                 )
                 return self._json({
-                    'message': 'Captured checkout activated from preview or draft record; Loom delivery advanced when possible without claiming fulfillment',
+                    'message': 'Captured checkout activated from preview or draft record; Loom execution and customer delivery ran automatically when the runtime and delivery channels were healthy',
                     'result': result,
                     'preview': preview_result['preview'],
                     'subscription_preview_summary': preview_result['summary'],
@@ -4848,7 +4848,7 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                 )
                 activated = result['subscription']
                 run = result.get('delivery_run', {})
-                if (run.get('state') or '') == 'executed' and result.get('delivery_job', {}).get('preview_id'):
+                if bool(run.get('delivered')) and result.get('delivery_job', {}).get('preview_id'):
                     preview_result = subscription_preview_queue.mark_preview_delivered(
                         preview_id,
                         run.get('delivery_ref') or result.get('delivery_job', {}).get('delivery_ref') or result['delivery_job']['job_id'],
@@ -4880,7 +4880,7 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                     session_id=_sid,
                 )
                 return self._json({
-                    'message': 'Captured subscription activated from preview record; Loom delivery advanced when possible without claiming fulfillment',
+                    'message': 'Captured subscription activated from preview record; Loom execution and customer delivery ran automatically when the runtime and delivery channels were healthy',
                     'result': result,
                     'preview': preview_result['preview'],
                     'subscription_preview_summary': preview_result['summary'],
