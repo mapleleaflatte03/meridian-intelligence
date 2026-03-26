@@ -389,10 +389,11 @@ def _on_demand_research_prompt(topic: str, depth: str = 'standard') -> str:
     )
 
 
-def _loom_research_preflight(capability_name: str) -> dict:
+def _loom_capability_preflight(capability_name: str, *, route: str) -> dict:
     preflight = {
         'ok': False,
         'runtime': 'loom',
+        'route': route,
         'capability_name': capability_name,
         'errors': [],
     }
@@ -402,7 +403,7 @@ def _loom_research_preflight(capability_name: str) -> dict:
         env['LOOM_SERVICE_TOKEN'] = service_token
 
     if not capability_name:
-        preflight['errors'].append('research capability is not configured')
+        preflight['errors'].append(f'{route} capability is not configured')
         return preflight
 
     service_cmd = [_loom_bin(), 'service', 'status', '--root', _loom_root(), '--format', 'json']
@@ -478,7 +479,15 @@ def _loom_research_preflight(capability_name: str) -> dict:
     return preflight
 
 
-def _on_demand_research_cutover_state(
+def _loom_research_preflight(capability_name: str) -> dict:
+    return _loom_capability_preflight(capability_name, route='intelligence_on_demand_research')
+
+
+def _loom_qa_preflight(capability_name: str) -> dict:
+    return _loom_capability_preflight(capability_name, route='intelligence_qa_verify')
+
+def _route_cutover_state(
+    route_name: str,
     requested_runtime: str,
     selected_runtime: str,
     fallback_enabled: bool,
@@ -488,7 +497,7 @@ def _on_demand_research_cutover_state(
     loom_preflight: dict | None = None,
 ) -> dict:
     state = {
-        'route': 'intelligence_on_demand_research',
+        'route': route_name,
         'requested_runtime': requested_runtime,
         'selected_runtime': selected_runtime,
         'fallback_enabled': fallback_enabled,
@@ -498,7 +507,7 @@ def _on_demand_research_cutover_state(
     if isinstance(loom_preflight, dict):
         state['loom_preflight'] = loom_preflight
     transcript_bits = [
-        'route=intelligence_on_demand_research',
+        f'route={route_name}',
         f'requested={requested_runtime}',
         f'selected={selected_runtime}',
         f"fallback={'on' if fallback_enabled else 'off'}",
@@ -514,7 +523,7 @@ def _on_demand_research_cutover_state(
             transcript_bits.append(f"fallback_used={'true' if fallback_used else 'false'}")
         fallback_state_name = (fallback_state.get('state') or '').strip()
         if fallback_state_name:
-            transcript_bits.append(f'fallback_state={fallback_state_name}')
+            transcript_bits.append(f"fallback_state={fallback_state_name}")
         fallback_reason = (fallback_state.get('reason') or '').strip()
         if fallback_reason:
             transcript_bits.append(f'fallback_reason={fallback_reason}')
@@ -565,6 +574,46 @@ def _on_demand_research_cutover_state(
     return state
 
 
+def _on_demand_research_cutover_state(
+    requested_runtime: str,
+    selected_runtime: str,
+    fallback_enabled: bool,
+    *,
+    fallback_state: dict | None = None,
+    loom_result: dict | None = None,
+    loom_preflight: dict | None = None,
+) -> dict:
+    return _route_cutover_state(
+        'intelligence_on_demand_research',
+        requested_runtime,
+        selected_runtime,
+        fallback_enabled,
+        fallback_state=fallback_state,
+        loom_result=loom_result,
+        loom_preflight=loom_preflight,
+    )
+
+
+def _qa_verify_cutover_state(
+    requested_runtime: str,
+    selected_runtime: str,
+    fallback_enabled: bool,
+    *,
+    fallback_state: dict | None = None,
+    loom_result: dict | None = None,
+    loom_preflight: dict | None = None,
+) -> dict:
+    return _route_cutover_state(
+        'intelligence_qa_verify',
+        requested_runtime,
+        selected_runtime,
+        fallback_enabled,
+        fallback_state=fallback_state,
+        loom_result=loom_result,
+        loom_preflight=loom_preflight,
+    )
+
+
 def _with_on_demand_research_cutover(
     result: dict,
     requested_runtime: str,
@@ -586,6 +635,27 @@ def _with_on_demand_research_cutover(
     )
     return enriched
 
+
+def _with_qa_verify_cutover(
+    result: dict,
+    requested_runtime: str,
+    selected_runtime: str,
+    fallback_enabled: bool,
+    *,
+    fallback_state: dict | None = None,
+    loom_result: dict | None = None,
+    loom_preflight: dict | None = None,
+) -> dict:
+    enriched = dict(result)
+    enriched['route_cutover'] = _qa_verify_cutover_state(
+        requested_runtime,
+        selected_runtime,
+        fallback_enabled,
+        fallback_state=fallback_state,
+        loom_result=loom_result,
+        loom_preflight=loom_preflight,
+    )
+    return enriched
 
 def _extract_loom_research_content(worker_result: dict) -> str:
     payload = worker_result.get('skill_output')
@@ -1282,6 +1352,160 @@ def do_qa_verify(text: str, criteria: str = 'factual') -> dict:
     }
 
 
+def do_qa_verify_route(text: str, criteria: str = 'factual') -> dict:
+    """Run QA verification with truthful route preflight and cutover state."""
+    requested_runtime = _intelligence_route_runtime('qa_verify', tool='qa')
+    fallback_enabled = _intelligence_route_fallback('qa_verify', default=False)
+    prompt = (
+        f"Verify the following text for {criteria} quality. "
+        f"Return PASS or FAIL with specific reasons and confidence score (0-100). "
+        f"Text to verify:\n\n{text[:3000]}"
+    )
+
+    if requested_runtime != 'loom':
+        result = _run_openclaw_agent('aegis', prompt, timeout=60)
+        if result.get('ok'):
+            result = {
+                'criteria': criteria,
+                'verification': result.get('content', ''),
+                'agent': 'Aegis',
+                'runtime': 'openclaw',
+                'source': 'Meridian QA Pipeline',
+            }
+        else:
+            result = {
+                'criteria': criteria,
+                'runtime': 'openclaw',
+                'error': result.get('error', 'OpenClaw runtime failed'),
+            }
+        return _with_qa_verify_cutover(result, requested_runtime, 'openclaw', fallback_enabled)
+
+    loom_preflight = _loom_qa_preflight(_loom_qa_capability())
+    if not loom_preflight.get('ok'):
+        fallback_state = {
+            'used': False,
+            'from_runtime': 'loom',
+            'to_runtime': 'openclaw',
+            'reason': '; '.join(loom_preflight.get('errors') or ['loom preflight failed']),
+            'state': 'preflight_failed',
+        }
+        if fallback_enabled:
+            result = _run_openclaw_agent('aegis', prompt, timeout=60)
+            fallback_state['used'] = True
+            fallback_state['result'] = 'completed' if result.get('ok') else 'failed'
+            if result.get('ok'):
+                result = {
+                    'criteria': criteria,
+                    'verification': result.get('content', ''),
+                    'agent': 'Aegis',
+                    'runtime': 'openclaw',
+                    'source': 'Meridian QA Pipeline',
+                }
+            else:
+                result = {
+                    'criteria': criteria,
+                    'runtime': 'openclaw',
+                    'error': result.get('error', 'OpenClaw runtime failed'),
+                }
+            return _with_qa_verify_cutover(
+                result,
+                requested_runtime,
+                'openclaw',
+                fallback_enabled,
+                fallback_state=fallback_state,
+                loom_preflight=loom_preflight,
+            )
+        result = {
+            'criteria': criteria,
+            'runtime': 'loom',
+            'capability_name': _loom_qa_capability(),
+            'error': f"Loom QA preflight failed: {fallback_state['reason']}",
+        }
+        return _with_qa_verify_cutover(
+            result,
+            requested_runtime,
+            'loom',
+            fallback_enabled,
+            fallback_state=fallback_state,
+            loom_preflight=loom_preflight,
+        )
+
+    loom_result = _run_loom_capability(
+        _loom_qa_capability(),
+        {'text': text, 'criteria': criteria, 'prompt': prompt},
+        timeout=90,
+    )
+    if loom_result.get('ok'):
+        worker_result = loom_result.get('worker_result') or {}
+        result = {
+            'criteria': criteria,
+            'verification': _extract_loom_content(worker_result, ('verification', 'response', 'message', 'text')),
+            'runtime': 'loom',
+            'capability_name': loom_result.get('capability_name', ''),
+            'job_id': loom_result.get('job_id', ''),
+            'source': 'Meridian QA Pipeline',
+        }
+        return _with_qa_verify_cutover(
+            result,
+            requested_runtime,
+            'loom',
+            fallback_enabled,
+            loom_result=loom_result,
+            loom_preflight=loom_preflight,
+        )
+
+    fallback_state = {
+        'used': False,
+        'from_runtime': 'loom',
+        'to_runtime': 'openclaw',
+        'reason': loom_result.get('error', 'loom runtime failed'),
+        'state': 'loom_failed',
+    }
+    if fallback_enabled:
+        fallback_result = _run_openclaw_agent('aegis', prompt, timeout=60)
+        fallback_state['used'] = True
+        fallback_state['result'] = 'completed' if fallback_result.get('ok') else 'failed'
+        if fallback_result.get('ok'):
+            result = {
+                'criteria': criteria,
+                'verification': fallback_result.get('content', ''),
+                'agent': 'Aegis',
+                'runtime': 'openclaw',
+                'source': 'Meridian QA Pipeline',
+            }
+        else:
+            result = {
+                'criteria': criteria,
+                'runtime': 'openclaw',
+                'error': fallback_result.get('error', 'OpenClaw runtime failed'),
+            }
+        return _with_qa_verify_cutover(
+            result,
+            requested_runtime,
+            'openclaw',
+            fallback_enabled,
+            fallback_state=fallback_state,
+            loom_result=loom_result,
+            loom_preflight=loom_preflight,
+        )
+
+    result = {
+        'criteria': criteria,
+        'runtime': 'loom',
+        'capability_name': loom_result.get('capability_name', ''),
+        'job_id': loom_result.get('job_id', ''),
+        'error': loom_result.get('error', 'Loom runtime failed'),
+    }
+    return _with_qa_verify_cutover(
+        result,
+        requested_runtime,
+        'loom',
+        fallback_enabled,
+        fallback_state=fallback_state,
+        loom_result=loom_result,
+        loom_preflight=loom_preflight,
+    )
+
 # ── MCP Server Setup ─────────────────────────────────────────────────────────
 
 def create_server(free_mode: bool = False) -> FastMCP:
@@ -1411,7 +1635,7 @@ def create_server(free_mode: bool = False) -> FastMCP:
             async def qa_verify(text: str, criteria: str = 'factual') -> str:
                 _audit_tool_call('qa-verify', PRICES['qa-verify'],
                                  agent_id='agent_aegis', details={'criteria': criteria})
-                result = do_qa_verify(text, criteria)
+                result = do_qa_verify_route(text, criteria)
                 return json.dumps(result)
 
             # Paid Tool 4: Weekly Digest
@@ -1494,7 +1718,7 @@ def create_server(free_mode: bool = False) -> FastMCP:
         @mcp.tool(name='intelligence_qa_verify',
                    description='[FREE/TEST] QA verification of any text.')
         async def qa_verify_free(text: str, criteria: str = 'factual') -> str:
-            return json.dumps(do_qa_verify(text, criteria))
+            return json.dumps(do_qa_verify_route(text, criteria))
 
         @mcp.tool(name='intelligence_weekly_digest',
                    description='[FREE/TEST] Top 5 AI/ML developments from the past 7 days.')

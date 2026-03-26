@@ -437,5 +437,114 @@ class McpRuntimeAdapterTests(unittest.TestCase):
         self.assertEqual(result['verification'], 'PASS with confidence 92')
 
 
+    def test_qa_route_override_openclaw_beats_global_loom(self):
+        stdout = json.dumps({'response': 'openclaw qa route result'})
+        completed = mock.Mock(returncode=0, stdout=stdout, stderr='')
+        env = {
+            'MERIDIAN_INTELLIGENCE_QA_RUNTIME': 'loom',
+            'MERIDIAN_INTELLIGENCE_QA_VERIFY_RUNTIME': 'openclaw',
+        }
+        with mock.patch.dict(os.environ, env, clear=False):
+            with mock.patch.object(mcp_server.subprocess, 'run', return_value=completed):
+                result = mcp_server.do_qa_verify_route('text to verify', 'factual')
+
+        self.assertEqual(result['runtime'], 'openclaw')
+        self.assertEqual(result['verification'], 'openclaw qa route result')
+        self.assertEqual(result['route_cutover']['requested_runtime'], 'openclaw')
+        self.assertEqual(result['route_cutover']['selected_runtime'], 'openclaw')
+        self.assertFalse(result['route_cutover']['fallback_enabled'])
+        self.assertIn('requested=openclaw', result['route_cutover']['transcript'])
+        self.assertIn('selected=openclaw', result['route_cutover']['transcript'])
+
+    def test_qa_route_uses_loom_with_cutover_metadata(self):
+        service_status = mock.Mock(
+            returncode=0,
+            stdout=json.dumps({
+                'running': True,
+                'service_status': 'running',
+                'health': 'healthy',
+                'transport': 'socket+http',
+            }),
+            stderr='',
+        )
+        capability_show = mock.Mock(
+            returncode=0,
+            stdout=json.dumps({
+                'enabled': True,
+                'verification_status': 'verified',
+                'promotion_state': 'promoted',
+                'worker_kind': 'python',
+                'worker_entry': 'workers/python/imported-company-qa-v0.py',
+                'payload_mode': 'json',
+                'adapter_kind': 'url_report_v0',
+                'runtime_lane': 'python_host_process/imported_workspace_skill',
+                'env_contract': 'host python3',
+            }),
+            stderr='',
+        )
+        submit = mock.Mock(returncode=0, stdout=json.dumps({'job_id': 'job-qa-route'}), stderr='')
+        inspect = mock.Mock(returncode=0, stdout=json.dumps({'job_status': 'completed', 'job_path': '/tmp/jobs/job-qa-route/job.json', 'worker_status': 'completed'}), stderr='')
+        worker_result = {
+            'summary': 'PASS',
+            'skill_output': {'verification': 'PASS with confidence 88'},
+        }
+        env = {
+            'MERIDIAN_INTELLIGENCE_QA_VERIFY_RUNTIME': 'loom',
+            'MERIDIAN_LOOM_QA_CAPABILITY': 'company.qa.v0',
+            'MERIDIAN_LOOM_SERVICE_TOKEN': 'loom-local-token',
+        }
+        with mock.patch.dict(os.environ, env, clear=False):
+            with mock.patch.object(mcp_server.subprocess, 'run', side_effect=[service_status, capability_show, submit, inspect]):
+                with mock.patch.object(mcp_server, '_load_json_file', return_value=worker_result):
+                    with mock.patch.object(mcp_server.time, 'sleep', return_value=None):
+                        result = mcp_server.do_qa_verify_route('text to verify', 'factual')
+
+        self.assertEqual(result['runtime'], 'loom')
+        self.assertEqual(result['capability_name'], 'company.qa.v0')
+        self.assertEqual(result['job_id'], 'job-qa-route')
+        self.assertEqual(result['verification'], 'PASS with confidence 88')
+        self.assertTrue(result['route_cutover']['loom_preflight']['ok'])
+        self.assertEqual(result['route_cutover']['requested_runtime'], 'loom')
+        self.assertEqual(result['route_cutover']['selected_runtime'], 'loom')
+        self.assertIn('preflight=ok', result['route_cutover']['transcript'])
+        self.assertIn('requested=loom', result['route_cutover']['transcript'])
+        self.assertIn('selected=loom', result['route_cutover']['transcript'])
+        self.assertEqual(result['route_cutover']['loom']['job_id'], 'job-qa-route')
+        self.assertEqual(result['route_cutover']['loom']['result_path_hint'], '/tmp/jobs/job-qa-route/result.json')
+
+    def test_qa_route_preflight_failure_falls_back_when_enabled(self):
+        service_status = mock.Mock(
+            returncode=0,
+            stdout=json.dumps({
+                'running': True,
+                'service_status': 'running',
+                'health': 'healthy',
+                'transport': 'socket+http',
+            }),
+            stderr='',
+        )
+        capability_show = mock.Mock(returncode=1, stdout='', stderr='missing qa capability')
+        openclaw = mock.Mock(returncode=0, stdout=json.dumps({'response': 'fallback qa result'}), stderr='')
+        env = {
+            'MERIDIAN_INTELLIGENCE_QA_VERIFY_RUNTIME': 'loom',
+            'MERIDIAN_INTELLIGENCE_QA_VERIFY_ALLOW_FALLBACK': '1',
+            'MERIDIAN_LOOM_QA_CAPABILITY': 'missing.capability.v0',
+        }
+        with mock.patch.dict(os.environ, env, clear=False):
+            with mock.patch.object(mcp_server.subprocess, 'run', side_effect=[service_status, capability_show, openclaw]):
+                result = mcp_server.do_qa_verify_route('text to verify', 'factual')
+
+        self.assertEqual(result['runtime'], 'openclaw')
+        self.assertEqual(result['verification'], 'fallback qa result')
+        self.assertEqual(result['route_cutover']['requested_runtime'], 'loom')
+        self.assertEqual(result['route_cutover']['selected_runtime'], 'openclaw')
+        self.assertTrue(result['route_cutover']['fallback_enabled'])
+        self.assertTrue(result['route_cutover']['fallback']['used'])
+        self.assertIn('fallback_used=true', result['route_cutover']['transcript'])
+        self.assertIn('fallback_state=preflight_failed', result['route_cutover']['transcript'])
+        self.assertEqual(result['route_cutover']['fallback']['state'], 'preflight_failed')
+        self.assertIn('missing qa capability', result['route_cutover']['fallback']['reason'])
+
+
 if __name__ == '__main__':
     unittest.main()
