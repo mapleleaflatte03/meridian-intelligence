@@ -4,8 +4,8 @@
 This script is intentionally truthful:
 - it writes explicit local demo payment evidence into an isolated temp journal
 - it exercises the real subscription activation path used by checkout capture
-- it only claims a blockchain transfer if the delivery/runtime path returns a real
-  tx hash or signed raw hex artifact
+- it only claims a blockchain transfer if a real broadcast tx hash exists; offline
+  signed raw hex is surfaced separately as a non-broadcast artifact
 - outbound delivery is disabled by default for demo safety
 - it only prints a generated brief if the configured Loom runtime actually returns one
 """
@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import importlib.util
 import json
 import os
 import shutil
@@ -39,6 +40,20 @@ DIRECT_LOOM_ORG_ID = 'org_51fcd87f'
 DIRECT_LOOM_AGENT_ID = 'agent_atlas'
 DIRECT_LOOM_CAPABILITY = 'loom.browser.navigate.v1'
 DIRECT_LOOM_URL = 'http://example.com/'
+DIRECT_X402_WALLET_ID = 'automated_loom_settlement_v1'
+DIRECT_X402_SOURCE_ACCOUNT_ID = 'automated_loom_settlement'
+DIRECT_X402_SETTLEMENT_ADAPTER = 'base_usdc_x402'
+DIRECT_X402_PROOF_TYPE = 'signed_raw_transaction_offline'
+DIRECT_X402_TOKEN_CONTRACT = '0x036CbD53842c5426634e7929541eC2318f3dCF7e'
+DIRECT_X402_RECIPIENT = '0x2222222222222222222222222222222222222222'
+DIRECT_X402_AMOUNT_USDC = '1.00'
+DIRECT_X402_CHAIN_ID = 84532
+DIRECT_X402_NONCE = 0
+DIRECT_X402_GAS_LIMIT = 65000
+DIRECT_X402_GAS_PRICE_WEI = 1_000_000_000
+KERNEL_TREASURY_PATH = '/tmp/meridian-kernel/kernel/treasury.py'
+HOT_WALLET_SECRET_PATH = '/tmp/meridian-kernel/.hot-wallet-secrets/automated_loom_settlement_v1.json'
+_KERNEL_TREASURY_MODULE = None
 
 
 @contextlib.contextmanager
@@ -245,6 +260,125 @@ def _host_response_brief_text(worker_result):
 
 
 
+
+def _load_kernel_treasury_module():
+    global _KERNEL_TREASURY_MODULE
+    if _KERNEL_TREASURY_MODULE is not None:
+        return _KERNEL_TREASURY_MODULE
+    if not os.path.exists(KERNEL_TREASURY_PATH):
+        return None
+    kernel_dir = os.path.dirname(KERNEL_TREASURY_PATH)
+    if kernel_dir not in sys.path:
+        sys.path.insert(0, kernel_dir)
+    spec = importlib.util.spec_from_file_location('meridian_kernel_treasury_phase6', KERNEL_TREASURY_PATH)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    _KERNEL_TREASURY_MODULE = module
+    return module
+
+
+
+def _load_hot_wallet_secret():
+    if not os.path.exists(HOT_WALLET_SECRET_PATH):
+        return {}
+    with open(HOT_WALLET_SECRET_PATH) as f:
+        return json.load(f)
+
+
+
+def _offline_x402_signature(timeout):
+    treasury = _load_kernel_treasury_module()
+    if treasury is None:
+        return {
+            'ok': False,
+            'error': f'Kernel treasury module is missing at {KERNEL_TREASURY_PATH}',
+            'signing': {},
+        }
+    secret = _load_hot_wallet_secret()
+    private_key = str(secret.get('private_key_hex') or '').strip()
+    if not private_key:
+        return {
+            'ok': False,
+            'error': f'Hot wallet secret is missing a private key at {HOT_WALLET_SECRET_PATH}',
+            'signing': {},
+        }
+    try:
+        signing = treasury.sign_x402_transfer_from_wallet(
+            SCRIPT_ACTOR,
+            org_id=DIRECT_LOOM_ORG_ID,
+            source_account_id=DIRECT_X402_SOURCE_ACCOUNT_ID,
+            sender_wallet_id=DIRECT_X402_WALLET_ID,
+            recipient_address=DIRECT_X402_RECIPIENT,
+            amount_usdc=DIRECT_X402_AMOUNT_USDC,
+            token_contract_address=DIRECT_X402_TOKEN_CONTRACT,
+            private_key=private_key,
+            chain_id=DIRECT_X402_CHAIN_ID,
+            nonce=DIRECT_X402_NONCE,
+            gas_limit=DIRECT_X402_GAS_LIMIT,
+            gas_price_wei=DIRECT_X402_GAS_PRICE_WEI,
+            host_supported_adapters=[DIRECT_X402_SETTLEMENT_ADAPTER],
+            timeout_seconds=max(1, min(int(timeout), 10)),
+        )
+    except Exception as exc:
+        return {
+            'ok': False,
+            'error': str(exc),
+            'signing': {},
+        }
+    signed_transaction = dict(signing.get('signed_transaction') or {})
+    raw_hex = str(signed_transaction.get('raw_transaction_hex') or '').strip()
+    return {
+        'ok': bool(signing.get('signing_performed') and raw_hex),
+        'error': '' if (signing.get('signing_performed') and raw_hex) else 'offline x402 signing did not produce raw_transaction_hex',
+        'signing': signing,
+        'raw_hex': raw_hex,
+    }
+
+
+
+def _attach_offline_x402_signature(result, *, timeout):
+    runtime = dict(result.get('runtime') or {})
+    capture_result = dict(result.get('capture_result') or {})
+    delivery_artifact = dict(capture_result.get('delivery_artifact') or {})
+    if not runtime.get('loom_bin_exists'):
+        return result
+    if not (delivery_artifact.get('brief_text') or '').strip():
+        return result
+
+    signing_result = _offline_x402_signature(timeout)
+    result['offline_x402_signing'] = signing_result.get('signing', {})
+    if not signing_result.get('ok'):
+        return result
+
+    signing = dict(signing_result.get('signing') or {})
+    signed_transaction = dict(signing.get('signed_transaction') or {})
+    execution_refs = dict((capture_result.get('delivery_run') or {}).get('execution_refs') or {})
+    execution_refs.update({
+        'settlement_adapter': DIRECT_X402_SETTLEMENT_ADAPTER,
+        'proof_type': DIRECT_X402_PROOF_TYPE,
+        'proof': {
+            'signed_raw_hex': signing_result.get('raw_hex', ''),
+            'signed_tx_hash': signed_transaction.get('signed_tx_hash', ''),
+            'sender_address': signed_transaction.get('sender_address', ''),
+            'wallet_id': DIRECT_X402_WALLET_ID,
+            'source_account_id': DIRECT_X402_SOURCE_ACCOUNT_ID,
+            'broadcast_requested': bool((signing.get('broadcast') or {}).get('requested')),
+            'broadcast_attempted': bool((signing.get('broadcast') or {}).get('attempted')),
+            'truth_boundary': signing.get('truth_boundary', ''),
+            'actual_transfer_blockers': list(signing.get('actual_transfer_blockers') or []),
+        },
+    })
+    delivery_run = dict(capture_result.get('delivery_run') or {})
+    delivery_run['execution_refs'] = execution_refs
+    capture_result['delivery_run'] = delivery_run
+
+    delivery_execution = dict(capture_result.get('delivery_execution') or {})
+    delivery_execution['execution_refs'] = execution_refs
+    capture_result['delivery_execution'] = delivery_execution
+    result['capture_result'] = capture_result
+    return result
+
+
 def _builtin_browser_capability_ready(loom_bin, *, timeout=10):
     capability_result = _run_loom_json(
         [
@@ -444,7 +578,8 @@ def run_demo(*, plan=DEFAULT_PLAN, telegram_id=DEFAULT_TELEGRAM_ID, email='', ti
                 'capture_result': capture_result,
                 'subscriptions_state': state,
             }
-            return _direct_browser_fallback_capture(result, timeout=int(timeout))
+            result = _direct_browser_fallback_capture(result, timeout=int(timeout))
+            return _attach_offline_x402_signature(result, timeout=int(timeout))
 
 
 
@@ -548,7 +683,7 @@ def _print_result(result):
     print(f"workspace: {WORKSPACE}")
     print(f"demo_state_dir: {result['demo_state_dir']}")
     print(f"outbound_dispatch_disabled: {str(result['outbound_dispatch_disabled']).lower()}")
-    print(f"blockchain_transfer_claimed: {str(bool(blockchain.get('artifact'))).lower()}")
+    print(f"blockchain_transfer_claimed: {str((blockchain.get('artifact_type') or '') == 'tx_hash').lower()}")
     print(f"blockchain_artifact_type: {blockchain.get('artifact_type') or '<none>'}")
     print(f"blockchain_artifact_source: {blockchain.get('artifact_source') or '<none>'}")
     if blockchain.get('settlement_adapter'):
