@@ -16,6 +16,7 @@ import contextlib
 import json
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 import uuid
@@ -32,6 +33,12 @@ import subscription_service
 DEFAULT_PLAN = 'premium-brief-weekly'
 DEFAULT_TELEGRAM_ID = 'phase6-demo-sink'
 SCRIPT_ACTOR = 'script:run_live_demo_phase6'
+DIRECT_LOOM_BIN = '/home/ubuntu/.local/share/meridian-loom/current/bin/loom'
+DIRECT_LOOM_ROOT = '/home/ubuntu/.local/share/meridian-loom/runtime/default'
+DIRECT_LOOM_ORG_ID = 'org_51fcd87f'
+DIRECT_LOOM_AGENT_ID = 'agent_atlas'
+DIRECT_LOOM_CAPABILITY = 'loom.browser.navigate.v1'
+DIRECT_LOOM_URL = 'http://example.com/'
 
 
 @contextlib.contextmanager
@@ -166,8 +173,110 @@ def _write_demo_payment_evidence(transactions_file, *, plan, payment_ref):
     return entry
 
 
+
+def _loom_cli_prefix(loom_bin):
+    prefix = []
+    if os.geteuid() == 0 and shutil.which('sudo'):
+        prefix.extend(['sudo', '-u', 'ubuntu', '-H'])
+    prefix.append(loom_bin)
+    return prefix
+
+
+def _run_loom_json(args, *, loom_bin, timeout):
+    command = _loom_cli_prefix(loom_bin) + list(args)
+    try:
+        completed = subprocess.run(
+            command,
+            cwd=WORKSPACE,
+            capture_output=True,
+            text=True,
+            timeout=int(timeout),
+        )
+    except subprocess.TimeoutExpired:
+        return {
+            'ok': False,
+            'payload': {},
+            'stdout': '',
+            'stderr': '',
+            'error': f'loom command timed out after {int(timeout)}s',
+            'command': command,
+            'returncode': -1,
+        }
+    output = (completed.stdout or '').strip()
+    payload = {}
+    if output:
+        try:
+            payload = json.loads(output)
+        except json.JSONDecodeError:
+            payload = {}
+    error = ((completed.stderr or '').strip() or payload.get('error') or output or '').strip()
+    return {
+        'ok': completed.returncode == 0,
+        'payload': payload,
+        'stdout': output,
+        'stderr': (completed.stderr or '').strip(),
+        'error': error,
+        'command': command,
+        'returncode': completed.returncode,
+    }
+
+
+def _load_worker_result(path):
+    candidate = (path or '').strip()
+    if not candidate or not os.path.exists(candidate):
+        return {}
+    with open(candidate) as f:
+        return json.load(f)
+
+
+def _host_response_brief_text(worker_result):
+    host_response = (worker_result or {}).get('host_response_json')
+    if isinstance(host_response, str):
+        try:
+            host_response = json.loads(host_response)
+        except Exception:
+            host_response = {}
+    if not isinstance(host_response, dict):
+        return ''
+    title = str(host_response.get('title') or '').strip()
+    excerpt = str(host_response.get('body_excerpt_utf8') or '').strip()
+    parts = [part for part in (title, excerpt) if part]
+    return '\n\n'.join(parts).strip()
+
+
+
+def _builtin_browser_capability_ready(loom_bin, *, timeout=10):
+    capability_result = _run_loom_json(
+        [
+            'capability',
+            'show',
+            '--root',
+            DIRECT_LOOM_ROOT,
+            '--name',
+            DIRECT_LOOM_CAPABILITY,
+            '--format',
+            'json',
+        ],
+        loom_bin=loom_bin,
+        timeout=timeout,
+    )
+    payload = dict(capability_result.get('payload') or {})
+    ready = (
+        capability_result.get('ok')
+        and payload.get('name') == DIRECT_LOOM_CAPABILITY
+        and bool(payload.get('enabled'))
+    )
+    return {
+        'ok': bool(ready),
+        'capability': payload,
+        'error': capability_result.get('error', ''),
+        'command': capability_result.get('command', []),
+    }
+
+
 def runtime_snapshot():
-    capability_name = (subscription_service._loom_delivery_capability() or '').strip()
+    configured_capability = (subscription_service._loom_delivery_capability() or '').strip()
+    capability_name = configured_capability
     loom_bin = subscription_service._loom_bin()
     loom_bin_exists = os.path.exists(loom_bin)
     preflight = {
@@ -182,6 +291,17 @@ def runtime_snapshot():
         preflight['errors'].append(f'Loom binary is missing at {loom_bin}')
     if capability_name and loom_bin_exists:
         preflight = subscription_service._loom_delivery_preflight(capability_name)
+    elif loom_bin_exists:
+        direct_preflight = _builtin_browser_capability_ready(loom_bin, timeout=10)
+        if direct_preflight['ok']:
+            capability_name = DIRECT_LOOM_CAPABILITY
+            preflight = {
+                'ok': True,
+                'runtime': 'loom_direct_action_execute',
+                'capability_name': capability_name,
+                'errors': [],
+                'capability': direct_preflight.get('capability', {}),
+            }
 
     runtime_lane = ((preflight.get('capability') or {}).get('runtime_lane') or '').strip()
     wasm_io_available = 'wasm' in runtime_lane.lower()
@@ -314,7 +434,7 @@ def run_demo(*, plan=DEFAULT_PLAN, telegram_id=DEFAULT_TELEGRAM_ID, email='', ti
                 timeout=int(timeout),
             )
             state = subscription_service.load_subscriptions('org_demo_phase6')
-            return {
+            result = {
                 'runtime': runtime,
                 'demo_state_dir': demo_env['tmpdir'],
                 'outbound_dispatch_disabled': demo_env['outbound_dispatch_disabled'],
@@ -324,6 +444,95 @@ def run_demo(*, plan=DEFAULT_PLAN, telegram_id=DEFAULT_TELEGRAM_ID, email='', ti
                 'capture_result': capture_result,
                 'subscriptions_state': state,
             }
+            return _direct_browser_fallback_capture(result, timeout=int(timeout))
+
+
+
+def _direct_browser_fallback_capture(result, *, timeout):
+    runtime = dict(result.get('runtime') or {})
+    capture_result = dict(result.get('capture_result') or {})
+    delivery_artifact = dict(capture_result.get('delivery_artifact') or {})
+    if (delivery_artifact.get('brief_text') or '').strip():
+        return result
+    if not runtime.get('loom_bin_exists'):
+        return result
+    if (runtime.get('capability_name') or '').strip() != DIRECT_LOOM_CAPABILITY:
+        return result
+
+    execute_result = _run_loom_json(
+        [
+            'action',
+            'execute',
+            '--root',
+            DIRECT_LOOM_ROOT,
+            '--agent-id',
+            DIRECT_LOOM_AGENT_ID,
+            '--capability',
+            DIRECT_LOOM_CAPABILITY,
+            '--payload-json',
+            json.dumps({'url': DIRECT_LOOM_URL}),
+            '--format',
+            'json',
+        ],
+        loom_bin=runtime['loom_bin'],
+        timeout=timeout,
+    )
+    payload = dict(execute_result.get('payload') or {})
+    result_path = (payload.get('worker_result_path') or payload.get('result_path') or '').strip()
+    worker_result = _load_worker_result(result_path)
+    brief_text = _host_response_brief_text(worker_result)
+
+    fallback_execution = {
+        'ok': (
+            execute_result.get('ok', False)
+            and (payload.get('runtime_outcome') == 'worker_executed' or payload.get('worker_status') == 'completed')
+        ),
+        'runtime': 'loom_direct_action_execute',
+        'capability_name': DIRECT_LOOM_CAPABILITY,
+        'org_id': DIRECT_LOOM_ORG_ID,
+        'agent_id': DIRECT_LOOM_AGENT_ID,
+        'command': execute_result.get('command', []),
+        'submit': payload,
+        'result_path': result_path,
+        'worker_result': worker_result,
+        'error': '',
+    }
+    if not fallback_execution['ok']:
+        fallback_execution['error'] = (
+            execute_result.get('error')
+            or payload.get('worker_note')
+            or payload.get('runtime_outcome')
+            or 'direct loom action execute failed'
+        )
+
+    capture_result['delivery_execution'] = fallback_execution
+    if brief_text:
+        capture_result['delivery_run'] = {
+            'state': 'executed',
+            'delivery_status': 'artifact_ready',
+            'delivered': False,
+            'delivery_ref': '',
+            'execution_refs': payload,
+        }
+        capture_result['delivery_artifact'] = {
+            'artifact_type': 'subscription_brief_v1',
+            'content_type': 'text/plain',
+            'subscription_id': capture_result.get('subscription', {}).get('id', ''),
+            'preview_id': result.get('preview', {}).get('preview_id', ''),
+            'job_id': payload.get('job_id', ''),
+            'delivery_title': 'Phase 6 direct Loom browser demo brief',
+            'brief_date': subscription_service.now_dt().date().isoformat(),
+            'topic': DIRECT_LOOM_URL,
+            'result_path': result_path,
+            'source_key': 'host_response_json.title+body_excerpt_utf8',
+            'brief_text': brief_text,
+            'brief_preview': brief_text[: subscription_service.BRIEF_PREVIEW_LIMIT].strip(),
+            'raw_worker_result': worker_result,
+        }
+    elif not fallback_execution['error']:
+        fallback_execution['error'] = 'direct loom browser execution returned no deliverable brief text'
+    result['capture_result'] = capture_result
+    return result
 
 
 def _print_result(result):
