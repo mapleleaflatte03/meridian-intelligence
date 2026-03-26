@@ -2764,6 +2764,62 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.assertIn('Witness archive is disabled', handler.response['data']['error'])
         self.assertEqual(result, handler.response)
 
+    def test_alerts_route_returns_alert_queue_snapshot(self):
+        calls = []
+
+        class FakeHandler:
+            def __init__(self):
+                self.path = '/api/alerts'
+                self.headers = _Headers({'Content-Length': '0'})
+                self.response = None
+
+            def _require_auth(self, path):
+                calls.append(('require_auth', path))
+                return True
+
+            def _json(self, data, status=200):
+                self.response = {'data': data, 'status': status}
+                return self.response
+
+            def _service_unavailable(self, *args, **kwargs):
+                raise AssertionError('alerts route should return JSON queue snapshot')
+
+            def _session_claims_from_request(self, expected_org_id=None):
+                return None
+
+        handler = FakeHandler()
+        with mock.patch.object(
+            self.workspace,
+            '_resolve_workspace_context',
+            return_value=types.SimpleNamespace(org_id='org_founding', org={}, context_source='configured_org'),
+        ), mock.patch.object(
+            self.workspace,
+            '_enforce_request_context',
+            return_value={'mode': 'process_bound'},
+        ), mock.patch.object(
+            self.workspace,
+            '_resolve_auth_context',
+            return_value={'enabled': True, 'role': 'owner'},
+        ), mock.patch.object(
+            self.workspace.alerting,
+            'alert_queue_snapshot',
+            return_value={
+                'log_path': '/tmp/slo_alert_log.jsonl',
+                'org_id': 'org_founding',
+                'queue_count': 1,
+                'pending_delivery_count': 1,
+                'delivered_count': 0,
+                'queue': [{'delivery_state': 'dry_run'}],
+                'db': {'status': 'present'},
+            },
+        ):
+            result = self.workspace.WorkspaceHandler.do_GET(handler)
+        self.assertEqual(calls, [('require_auth', '/api/alerts')])
+        self.assertEqual(handler.response['status'], 200)
+        self.assertEqual(handler.response['data']['queue_count'], 1)
+        self.assertEqual(handler.response['data']['pending_delivery_count'], 1)
+        self.assertEqual(result, handler.response)
+
     def test_runtime_proof_route_returns_live_runtime_snapshot(self):
         calls = []
 

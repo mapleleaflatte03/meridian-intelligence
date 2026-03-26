@@ -274,6 +274,7 @@ def observability_snapshot(org_id):
     slo = slo_policy.evaluate_observability(metrics)
     alert_run = alerting.record_slo_alerts(slo, org_id=org_id)
     alert_log = alerting.alert_surface_snapshot(org_id)
+    alert_queue = alerting.alert_queue_snapshot(org_id)
 
     return {
         'backend': persistence.get('backend', 'file-backed-jsonl'),
@@ -286,6 +287,7 @@ def observability_snapshot(org_id):
         'slo': slo,
         'alerting': alert_run,
         'alert_log': alert_log,
+        'alert_queue': alert_queue,
     }
 
 

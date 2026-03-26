@@ -1,4 +1,4 @@
-"""Durable SLO alert transitions and truthful optional delivery hooks."""
+"""Durable SLO alert transitions, queue views, and truthful delivery hooks."""
 
 from __future__ import annotations
 
@@ -134,12 +134,38 @@ def _delivery_record(org_id: str, alert_event_id: str, hook_name: str, result: A
     }
 
 
+def _event_delivery_summary(event: dict[str, Any], deliveries: list[dict[str, Any]]) -> dict[str, Any]:
+    latest_delivery = deliveries[0] if deliveries else None
+    latest_status = str((latest_delivery or {}).get('status', '') or '')
+    delivered = bool((latest_delivery or {}).get('delivered'))
+    if not deliveries:
+        delivery_state = 'queued'
+    elif delivered:
+        delivery_state = 'delivered'
+    elif latest_status:
+        delivery_state = latest_status
+    else:
+        delivery_state = 'attempted'
+    return {
+        'alert_event_id': event.get('id', ''),
+        'objective': event.get('objective', ''),
+        'status': event.get('status', 'unknown'),
+        'active': bool(event.get('active')),
+        'state_change': event.get('state_change', ''),
+        'delivery_state': delivery_state,
+        'delivery_attempt_count': len(deliveries),
+        'latest_delivery': latest_delivery,
+        'event': event,
+    }
+
+
 def record_slo_alerts(
     evaluation: dict[str, Any],
     *,
     org_id: str,
     delivery_hook: AlertHook | None = None,
     hook_name: str = '',
+    dry_run: bool = False,
 ) -> dict[str, Any]:
     policy_name = str(evaluation.get('policy_name') or 'meridian_observability_slo_v1')
     evaluated_at = str(evaluation.get('evaluated_at') or _now())
@@ -199,7 +225,23 @@ def record_slo_alerts(
         observability_store.upsert_slo_alert_state(ALERT_LOG_FILE, state_record)
 
         if event_record and active:
-            if delivery_hook is None:
+            if dry_run:
+                delivery_result = _delivery_record(
+                    org_id,
+                    event_record['id'],
+                    hook_name or (getattr(delivery_hook, '__name__', '') if delivery_hook is not None else ''),
+                    {
+                        'status': 'dry_run',
+                        'delivered': False,
+                        'dry_run': True,
+                        'would_call_hook': delivery_hook is not None,
+                    },
+                    evaluated_at=evaluated_at,
+                )
+                deliveries.append(delivery_result)
+                _persist_jsonl_record(delivery_result)
+                observability_store.write_slo_alert_delivery(ALERT_LOG_FILE, delivery_result)
+            elif delivery_hook is None:
                 delivery_result = _delivery_record(org_id, event_record['id'], hook_name or '', None, evaluated_at=evaluated_at)
                 deliveries.append(delivery_result)
                 _persist_jsonl_record(delivery_result)
@@ -236,6 +278,7 @@ def record_slo_alerts(
         'log_path': ALERT_LOG_FILE,
         'policy_name': policy_name,
         'evaluated_at': evaluated_at,
+        'delivery_mode': 'dry_run' if dry_run else ('hook' if delivery_hook is not None else 'none'),
         'event_count': len(events),
         'delivery_count': len(deliveries),
         'active_alert_count': len(active_events),
@@ -246,7 +289,33 @@ def record_slo_alerts(
         'hook': {
             'configured': delivery_hook is not None,
             'name': hook_name or (getattr(delivery_hook, '__name__', '') if delivery_hook is not None else ''),
+            'dry_run': dry_run,
         },
+    }
+
+
+def alert_queue_snapshot(org_id: str, *, limit: int = 20) -> dict[str, Any]:
+    events = observability_store.query_slo_alert_events(ALERT_LOG_FILE, org_id=org_id, limit=limit)
+    deliveries = observability_store.query_slo_alert_deliveries(ALERT_LOG_FILE, org_id=org_id, limit=limit * 5)
+    deliveries_by_event: dict[str, list[dict[str, Any]]] = {}
+    for delivery in deliveries:
+        alert_event_id = str(delivery.get('alert_event_id', '') or '')
+        deliveries_by_event.setdefault(alert_event_id, []).append(delivery)
+    queue_entries = []
+    for event in events:
+        if not event.get('active'):
+            continue
+        queue_entries.append(_event_delivery_summary(event, deliveries_by_event.get(str(event.get('id', '') or ''), [])))
+    pending_entries = [entry for entry in queue_entries if entry['delivery_state'] not in HOOK_SUCCESS_STATUSES]
+    delivered_entries = [entry for entry in queue_entries if entry['delivery_state'] in HOOK_SUCCESS_STATUSES]
+    return {
+        'log_path': ALERT_LOG_FILE,
+        'org_id': org_id,
+        'queue_count': len(queue_entries),
+        'pending_delivery_count': len(pending_entries),
+        'delivered_count': len(delivered_entries),
+        'queue': queue_entries,
+        'db': observability_store.db_status_for_log(ALERT_LOG_FILE),
     }
 
 
@@ -267,8 +336,10 @@ def alert_surface_snapshot(org_id: str, *, limit: int = 20) -> dict[str, Any]:
         'event_count': len(events),
         'delivery_count': len(deliveries),
         'active_alert_count': active_count,
+        'queue_count': len([event for event in events if event.get('active')]),
         'events': events,
         'deliveries': deliveries,
+        'queue': alert_queue_snapshot(org_id, limit=limit),
         'state': state_rows,
         'db': observability_store.db_status_for_log(ALERT_LOG_FILE),
     }

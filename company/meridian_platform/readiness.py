@@ -388,6 +388,7 @@ def print_report(report):
     slo = observability.get('slo', {})
     alerting_run = observability.get('alerting', {}) if isinstance(observability, dict) else {}
     alert_log = observability.get('alert_log', {}) if isinstance(observability, dict) else {}
+    alert_queue = observability.get('alert_queue', {}) if isinstance(observability, dict) else {}
     objectives = slo.get('objectives', []) if isinstance(slo, dict) else []
     alerts = slo.get('alerts', []) if isinstance(slo, dict) else []
     print(
@@ -425,6 +426,13 @@ def print_report(report):
             'Alert surface: '
             + f"recent {alert_log.get('event_count', 0)} event(s) | "
             + f"deliveries {alert_log.get('delivery_count', 0)}"
+        )
+    if alert_queue:
+        print(
+            'Alert queue: '
+            + f"queued {alert_queue.get('queue_count', 0)} | "
+            + f"pending {alert_queue.get('pending_delivery_count', 0)} | "
+            + f"delivered {alert_queue.get('delivered_count', 0)}"
         )
 
     if report["verdict"] == "ENGINEERING_BLOCKED_RUNTIME":

@@ -134,6 +134,65 @@ class AlertingTests(unittest.TestCase):
         self.assertTrue(deliveries[0]['delivered'])
         self.assertEqual(deliveries[0]['details']['hook_response']['channel'], 'test-hook')
 
+    def test_record_slo_alerts_dry_run_persists_queue_without_invoking_hook(self):
+        evaluation = {
+            'policy_name': 'meridian_observability_slo_v1',
+            'evaluated_at': '2026-03-25T00:45:00Z',
+            'status': 'warning',
+            'objectives': [
+                {
+                    'name': 'audit_freshness',
+                    'status': 'warning',
+                    'message': 'Latest sample age is 7200s',
+                    'metric': 'audit.latest_at',
+                    'warning_after_seconds': 3600,
+                    'breach_after_seconds': 86400,
+                    'observed_seconds': 7200,
+                },
+            ],
+            'alerts': [
+                {
+                    'objective': 'audit_freshness',
+                    'status': 'warning',
+                    'message': 'Latest sample age is 7200s',
+                },
+            ],
+            'alert_count': 1,
+        }
+        called = []
+
+        def hook(event):
+            called.append(event)
+            return {'status': 'delivered'}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            alert_path = os.path.join(tmp, 'slo_alert_log.jsonl')
+            with (
+                mock.patch.object(alerting, 'ALERT_LOG_FILE', alert_path),
+                mock.patch.object(alerting, '_now', return_value='2026-03-25T00:45:00Z'),
+            ):
+                result = alerting.record_slo_alerts(
+                    evaluation,
+                    org_id='org_demo',
+                    delivery_hook=hook,
+                    hook_name='test_hook',
+                    dry_run=True,
+                )
+                queue = alerting.alert_queue_snapshot('org_demo')
+
+            deliveries = observability_store.query_slo_alert_deliveries(alert_path, org_id='org_demo')
+
+        self.assertEqual(called, [])
+        self.assertEqual(result['delivery_mode'], 'dry_run')
+        self.assertEqual(result['hook']['dry_run'], True)
+        self.assertEqual(result['delivery_count'], 1)
+        self.assertEqual(deliveries[0]['status'], 'dry_run')
+        self.assertFalse(deliveries[0]['delivered'])
+        self.assertEqual(queue['queue_count'], 1)
+        self.assertEqual(queue['pending_delivery_count'], 1)
+        self.assertEqual(queue['queue'][0]['delivery_state'], 'dry_run')
+        self.assertEqual(queue['queue'][0]['event']['objective'], 'audit_freshness')
+
 
 if __name__ == '__main__':
     unittest.main()

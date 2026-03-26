@@ -94,6 +94,7 @@ class StatusSurfaceTests(unittest.TestCase):
         self.assertEqual(snapshot['metrics']['metering']['latest_metric'], 'mcp_tool_call')
         self.assertEqual(snapshot['alerting']['event_count'], 0)
         self.assertEqual(snapshot['alert_log']['event_count'], 0)
+        self.assertEqual(snapshot['alert_queue']['queue_count'], 0)
 
     def test_sqlite_observability_mirror_supports_queries_and_export(self):
         with tempfile.TemporaryDirectory() as tmp:

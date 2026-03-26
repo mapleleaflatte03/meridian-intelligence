@@ -30,6 +30,7 @@ Endpoints:
   GET  /api/federation/execution-jobs → Receiver-side federated execution jobs
   GET  /api/federation/manifest   → Public host federation manifest
   GET  /api/federation/witness/archive → Witness-host archival evidence state
+  GET  /api/alerts               → Alert queue and delivery summary
   GET  /api/runtime-proof         → Public live OpenClaw runtime proof receipt
   POST /api/authority/kill-switch → Engage/disengage kill switch
   POST /api/authority/approve     → Decide an approval
@@ -148,6 +149,7 @@ from organizations import (load_orgs, set_charter, set_policy_defaults,
                            transition_lifecycle as org_transition_lifecycle)
 from agent_registry import load_registry, normalize_agent_record, sync_from_economy
 from audit import log_event, query_events
+import alerting
 
 import importlib.util
 
@@ -4268,6 +4270,8 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                 org_id,
                 host_identity=host_identity,
             ))
+        elif path == '/api/alerts':
+            return self._json(alerting.alert_queue_snapshot(org_id))
         elif path == '/api/runtime-proof':
             proof = openclaw_runtime_proof.collect_openclaw_runtime_proof(include_pong=True)
             return self._json(
