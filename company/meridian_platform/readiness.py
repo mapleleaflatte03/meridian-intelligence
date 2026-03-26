@@ -386,6 +386,8 @@ def print_report(report):
     observability = report.get('observability', {})
     metrics = observability.get('metrics', {})
     slo = observability.get('slo', {})
+    alerting_run = observability.get('alerting', {}) if isinstance(observability, dict) else {}
+    alert_log = observability.get('alert_log', {}) if isinstance(observability, dict) else {}
     objectives = slo.get('objectives', []) if isinstance(slo, dict) else []
     alerts = slo.get('alerts', []) if isinstance(slo, dict) else []
     print(
@@ -411,6 +413,19 @@ def print_report(report):
                 'SLO alert: '
                 + f"{first_alert.get('objective', 'unknown')} — {first_alert.get('message', '')}"
             )
+    if alerting_run:
+        print(
+            'Alert log: '
+            + f"persisted {alerting_run.get('event_count', 0)} event(s) | "
+            + f"deliveries {alerting_run.get('delivery_count', 0)} | "
+            + f"active {alerting_run.get('active_alert_count', 0)}"
+        )
+    if alert_log:
+        print(
+            'Alert surface: '
+            + f"recent {alert_log.get('event_count', 0)} event(s) | "
+            + f"deliveries {alert_log.get('delivery_count', 0)}"
+        )
 
     if report["verdict"] == "ENGINEERING_BLOCKED_RUNTIME":
         print("Next action: stabilize runtime before attempting pipeline execution.")

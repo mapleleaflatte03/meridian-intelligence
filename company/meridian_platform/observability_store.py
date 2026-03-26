@@ -59,8 +59,61 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
         )
         """
     )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS slo_alert_events (
+            id TEXT PRIMARY KEY,
+            timestamp TEXT NOT NULL,
+            org_id TEXT NOT NULL,
+            policy_name TEXT NOT NULL,
+            objective TEXT NOT NULL,
+            status TEXT NOT NULL,
+            message TEXT NOT NULL,
+            evaluated_at TEXT,
+            active INTEGER NOT NULL,
+            state_change TEXT NOT NULL,
+            fingerprint TEXT NOT NULL,
+            details_json TEXT
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS slo_alert_deliveries (
+            id TEXT PRIMARY KEY,
+            timestamp TEXT NOT NULL,
+            org_id TEXT NOT NULL,
+            alert_event_id TEXT NOT NULL,
+            hook_name TEXT,
+            status TEXT NOT NULL,
+            delivered INTEGER NOT NULL,
+            details_json TEXT
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS slo_alert_state (
+            org_id TEXT NOT NULL,
+            policy_name TEXT NOT NULL,
+            objective TEXT NOT NULL,
+            current_status TEXT NOT NULL,
+            current_fingerprint TEXT NOT NULL,
+            first_seen_at TEXT NOT NULL,
+            last_seen_at TEXT NOT NULL,
+            last_evaluated_at TEXT NOT NULL,
+            current_event_id TEXT NOT NULL,
+            current_message TEXT NOT NULL,
+            PRIMARY KEY (org_id, policy_name, objective)
+        )
+        """
+    )
     conn.execute('CREATE INDEX IF NOT EXISTS idx_audit_org_time ON audit_events(org_id, timestamp DESC)')
     conn.execute('CREATE INDEX IF NOT EXISTS idx_meter_org_time ON metering_events(org_id, timestamp DESC)')
+    conn.execute('CREATE INDEX IF NOT EXISTS idx_alert_org_time ON slo_alert_events(org_id, timestamp DESC)')
+    conn.execute('CREATE INDEX IF NOT EXISTS idx_alert_policy_time ON slo_alert_events(policy_name, timestamp DESC)')
+    conn.execute('CREATE INDEX IF NOT EXISTS idx_alert_delivery_org_time ON slo_alert_deliveries(org_id, timestamp DESC)')
+    conn.execute('CREATE INDEX IF NOT EXISTS idx_alert_state_org_policy ON slo_alert_state(org_id, policy_name, objective)')
 
 
 def _write_audit_row(conn: sqlite3.Connection, event: dict[str, Any]) -> None:
@@ -112,6 +165,79 @@ def _write_meter_row(conn: sqlite3.Connection, event: dict[str, Any]) -> None:
     )
 
 
+def _write_alert_event_row(conn: sqlite3.Connection, event: dict[str, Any]) -> None:
+    _ensure_schema(conn)
+    conn.execute(
+        """
+        INSERT OR REPLACE INTO slo_alert_events (
+            id, timestamp, org_id, policy_name, objective, status, message,
+            evaluated_at, active, state_change, fingerprint, details_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            event.get('id', ''),
+            event.get('timestamp', ''),
+            event.get('org_id', ''),
+            event.get('policy_name', ''),
+            event.get('objective', ''),
+            event.get('status', ''),
+            event.get('message', ''),
+            event.get('evaluated_at', ''),
+            1 if event.get('active') else 0,
+            event.get('state_change', ''),
+            event.get('fingerprint', ''),
+            json.dumps(event.get('details') or {}, sort_keys=True),
+        ),
+    )
+
+
+def _write_alert_delivery_row(conn: sqlite3.Connection, delivery: dict[str, Any]) -> None:
+    _ensure_schema(conn)
+    conn.execute(
+        """
+        INSERT OR REPLACE INTO slo_alert_deliveries (
+            id, timestamp, org_id, alert_event_id, hook_name, status,
+            delivered, details_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            delivery.get('id', ''),
+            delivery.get('timestamp', ''),
+            delivery.get('org_id', ''),
+            delivery.get('alert_event_id', ''),
+            delivery.get('hook_name', ''),
+            delivery.get('status', ''),
+            1 if delivery.get('delivered') else 0,
+            json.dumps(delivery.get('details') or {}, sort_keys=True),
+        ),
+    )
+
+
+def _write_alert_state_row(conn: sqlite3.Connection, state: dict[str, Any]) -> None:
+    _ensure_schema(conn)
+    conn.execute(
+        """
+        INSERT OR REPLACE INTO slo_alert_state (
+            org_id, policy_name, objective, current_status, current_fingerprint,
+            first_seen_at, last_seen_at, last_evaluated_at, current_event_id,
+            current_message
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            state.get('org_id', ''),
+            state.get('policy_name', ''),
+            state.get('objective', ''),
+            state.get('current_status', ''),
+            state.get('current_fingerprint', ''),
+            state.get('first_seen_at', ''),
+            state.get('last_seen_at', ''),
+            state.get('last_evaluated_at', ''),
+            state.get('current_event_id', ''),
+            state.get('current_message', ''),
+        ),
+    )
+
+
 def _row_to_event(row: sqlite3.Row, *, details_key: str) -> dict[str, Any]:
     event = dict(row)
     details = event.pop(details_key, '{}')
@@ -144,6 +270,39 @@ def write_metering_event(log_path: str, event: dict[str, Any]) -> bool:
         return False
 
 
+def write_slo_alert_event(log_path: str, event: dict[str, Any]) -> bool:
+    db_path = db_path_for_log(log_path)
+    try:
+        with _connect(db_path) as conn:
+            _write_alert_event_row(conn, event)
+            conn.commit()
+        return True
+    except sqlite3.Error:
+        return False
+
+
+def write_slo_alert_delivery(log_path: str, delivery: dict[str, Any]) -> bool:
+    db_path = db_path_for_log(log_path)
+    try:
+        with _connect(db_path) as conn:
+            _write_alert_delivery_row(conn, delivery)
+            conn.commit()
+        return True
+    except sqlite3.Error:
+        return False
+
+
+def upsert_slo_alert_state(log_path: str, state: dict[str, Any]) -> bool:
+    db_path = db_path_for_log(log_path)
+    try:
+        with _connect(db_path) as conn:
+            _write_alert_state_row(conn, state)
+            conn.commit()
+        return True
+    except sqlite3.Error:
+        return False
+
+
 def db_status_for_log(log_path: str) -> dict[str, Any]:
     db_path = db_path_for_log(log_path)
     snapshot = {
@@ -158,12 +317,18 @@ def db_status_for_log(log_path: str) -> dict[str, Any]:
             _ensure_schema(conn)
             audit_count = conn.execute('SELECT COUNT(*) FROM audit_events').fetchone()[0]
             meter_count = conn.execute('SELECT COUNT(*) FROM metering_events').fetchone()[0]
+            alert_count = conn.execute('SELECT COUNT(*) FROM slo_alert_events').fetchone()[0]
+            alert_delivery_count = conn.execute('SELECT COUNT(*) FROM slo_alert_deliveries').fetchone()[0]
+            alert_state_count = conn.execute('SELECT COUNT(*) FROM slo_alert_state').fetchone()[0]
         snapshot.update({
             'status': 'present',
             'reason': '',
             'size_bytes': os.path.getsize(db_path),
             'audit_events': int(audit_count or 0),
             'metering_events': int(meter_count or 0),
+            'slo_alert_events': int(alert_count or 0),
+            'slo_alert_deliveries': int(alert_delivery_count or 0),
+            'slo_alert_state_rows': int(alert_state_count or 0),
         })
     except sqlite3.Error as exc:
         snapshot.update({
@@ -228,6 +393,8 @@ def query_audit_events(
             try:
                 event = json.loads(line)
             except json.JSONDecodeError:
+                continue
+            if event.get('record_type') and event.get('record_type') != 'event':
                 continue
             if org_id and event.get('org_id') != org_id:
                 continue
@@ -300,6 +467,175 @@ def query_metering_events(
                 continue
             results.append(event)
     return results
+
+
+def query_slo_alert_events(
+    log_path: str,
+    *,
+    org_id: str | None = None,
+    policy_name: str | None = None,
+    status: str | None = None,
+    objective: str | None = None,
+    since: str | None = None,
+    limit: int = 50,
+) -> list[dict[str, Any]]:
+    db_path = db_path_for_log(log_path)
+    if os.path.exists(db_path):
+        try:
+            clauses = []
+            params: list[Any] = []
+            if org_id:
+                clauses.append('org_id = ?')
+                params.append(org_id)
+            if policy_name:
+                clauses.append('policy_name = ?')
+                params.append(policy_name)
+            if status:
+                clauses.append('status = ?')
+                params.append(status)
+            if objective:
+                clauses.append('objective = ?')
+                params.append(objective)
+            if since:
+                clauses.append('timestamp >= ?')
+                params.append(since)
+            where = f"WHERE {' AND '.join(clauses)}" if clauses else ''
+            query = (
+                'SELECT id, timestamp, org_id, policy_name, objective, status, message, '
+                'evaluated_at, active, state_change, fingerprint, details_json '
+                f'FROM slo_alert_events {where} '
+                'ORDER BY timestamp DESC, rowid DESC LIMIT ?'
+            )
+            params.append(limit)
+            with _connect(db_path) as conn:
+                _ensure_schema(conn)
+                rows = conn.execute(query, params).fetchall()
+            return [_row_to_event(row, details_key='details_json') for row in rows]
+        except sqlite3.Error:
+            pass
+    if not os.path.exists(log_path):
+        return []
+    results: list[dict[str, Any]] = []
+    with open(log_path) as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if event.get('record_type') and event.get('record_type') != 'event':
+                continue
+            if org_id and event.get('org_id') != org_id:
+                continue
+            if policy_name and event.get('policy_name') != policy_name:
+                continue
+            if status and event.get('status') != status:
+                continue
+            if objective and event.get('objective') != objective:
+                continue
+            if since and event.get('timestamp', '') < since:
+                continue
+            results.append(event)
+    results.reverse()
+    return results[:limit]
+
+
+def query_slo_alert_deliveries(
+    log_path: str,
+    *,
+    org_id: str | None = None,
+    alert_event_id: str | None = None,
+    status: str | None = None,
+    since: str | None = None,
+    limit: int = 50,
+) -> list[dict[str, Any]]:
+    db_path = db_path_for_log(log_path)
+    if os.path.exists(db_path):
+        try:
+            clauses = []
+            params: list[Any] = []
+            if org_id:
+                clauses.append('org_id = ?')
+                params.append(org_id)
+            if alert_event_id:
+                clauses.append('alert_event_id = ?')
+                params.append(alert_event_id)
+            if status:
+                clauses.append('status = ?')
+                params.append(status)
+            if since:
+                clauses.append('timestamp >= ?')
+                params.append(since)
+            where = f"WHERE {' AND '.join(clauses)}" if clauses else ''
+            query = (
+                'SELECT id, timestamp, org_id, alert_event_id, hook_name, status, delivered, details_json '
+                f'FROM slo_alert_deliveries {where} '
+                'ORDER BY timestamp DESC, rowid DESC LIMIT ?'
+            )
+            params.append(limit)
+            with _connect(db_path) as conn:
+                _ensure_schema(conn)
+                rows = conn.execute(query, params).fetchall()
+            return [_row_to_event(row, details_key='details_json') for row in rows]
+        except sqlite3.Error:
+            pass
+    if not os.path.exists(log_path):
+        return []
+    results: list[dict[str, Any]] = []
+    with open(log_path) as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if event.get('record_type') and event.get('record_type') != 'delivery':
+                continue
+            if org_id and event.get('org_id') != org_id:
+                continue
+            if alert_event_id and event.get('alert_event_id') != alert_event_id:
+                continue
+            if status and event.get('status') != status:
+                continue
+            if since and event.get('timestamp', '') < since:
+                continue
+            results.append(event)
+    results.reverse()
+    return results[:limit]
+
+
+def get_slo_alert_state(
+    log_path: str,
+    *,
+    org_id: str,
+    policy_name: str,
+    objective: str,
+) -> dict[str, Any] | None:
+    db_path = db_path_for_log(log_path)
+    if not os.path.exists(db_path):
+        return None
+    try:
+        with _connect(db_path) as conn:
+            _ensure_schema(conn)
+            row = conn.execute(
+                """
+                SELECT org_id, policy_name, objective, current_status, current_fingerprint,
+                       first_seen_at, last_seen_at, last_evaluated_at, current_event_id,
+                       current_message
+                FROM slo_alert_state
+                WHERE org_id = ? AND policy_name = ? AND objective = ?
+                """,
+                (org_id, policy_name, objective),
+            ).fetchone()
+        if row is None:
+            return None
+        return dict(row)
+    except sqlite3.Error:
+        return None
 
 
 def _timestamp_to_epoch_seconds(timestamp: str) -> int | None:

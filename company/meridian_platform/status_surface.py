@@ -19,6 +19,7 @@ import observability_store
 import accounting_store
 import cases_store
 import slo_policy
+import alerting
 
 
 PLATFORM_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -166,6 +167,12 @@ def persistence_snapshot(org_id=None):
             append_only=True,
         ),
         _file_snapshot(
+            alerting.ALERT_LOG_FILE,
+            kind='jsonl',
+            owner='alerting.py',
+            append_only=True,
+        ),
+        _file_snapshot(
             _safe_capsule_path(org_id, 'ledger.json'),
             kind='json',
             owner='treasury.py',
@@ -265,6 +272,8 @@ def observability_snapshot(org_id):
         },
     }
     slo = slo_policy.evaluate_observability(metrics)
+    alert_run = alerting.record_slo_alerts(slo, org_id=org_id)
+    alert_log = alerting.alert_surface_snapshot(org_id)
 
     return {
         'backend': persistence.get('backend', 'file-backed-jsonl'),
@@ -275,6 +284,8 @@ def observability_snapshot(org_id):
         },
         'metrics': metrics,
         'slo': slo,
+        'alerting': alert_run,
+        'alert_log': alert_log,
     }
 
 

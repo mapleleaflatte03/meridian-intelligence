@@ -19,19 +19,27 @@ SPEC = importlib.util.spec_from_file_location('meridian_status_surface', STATUS_
 status_surface = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(status_surface)
 
-import audit
-import metering
-import organizations
-import organizations_store
-import observability_store
+import alerting
 import accounting_store
+import audit
 import cases_store
+import metering
+import observability_store
+import organizations
 import slo_policy
 
 
 class StatusSurfaceTests(unittest.TestCase):
     def test_persistence_snapshot_exposes_concrete_file_backed_seams(self):
-        snapshot = status_surface.persistence_snapshot('org_founding')
+        with tempfile.TemporaryDirectory() as tmp:
+            orgs_path = os.path.join(tmp, 'organizations.json')
+            audit_path = os.path.join(tmp, 'audit_log.jsonl')
+            with (
+                mock.patch.object(organizations, 'ORGS_FILE', orgs_path),
+                mock.patch.object(audit, 'AUDIT_FILE', audit_path),
+            ):
+                snapshot = status_surface.persistence_snapshot('org_founding')
+
         self.assertEqual(snapshot['backend'], 'file-backed-jsonl')
         self.assertEqual(snapshot['db']['status'], 'absent')
         seam_names = {os.path.basename(seam['path']) for seam in snapshot['seams']}
@@ -47,8 +55,10 @@ class StatusSurfaceTests(unittest.TestCase):
 
     def test_observability_snapshot_summarizes_file_backed_metrics(self):
         with tempfile.TemporaryDirectory() as tmp:
+            orgs_path = os.path.join(tmp, 'organizations.json')
             audit_path = os.path.join(tmp, 'audit_log.jsonl')
             metering_path = os.path.join(tmp, 'metering.jsonl')
+            alert_path = os.path.join(tmp, 'slo_alert_log.jsonl')
             with open(audit_path, 'w') as f:
                 f.write(json.dumps({
                     'org_id': 'org_founding',
@@ -67,9 +77,13 @@ class StatusSurfaceTests(unittest.TestCase):
                     'cost_usd': 1.25,
                     'timestamp': '2026-03-25T00:01:00Z',
                 }) + '\n')
-            with mock.patch.object(audit, 'AUDIT_FILE', audit_path), \
-                 mock.patch.object(metering, 'METERING_FILE', metering_path), \
-                 mock.patch.object(slo_policy, '_now', return_value=datetime.datetime(2026, 3, 25, 0, 30, 0)):
+            with (
+                mock.patch.object(organizations, 'ORGS_FILE', orgs_path),
+                mock.patch.object(audit, 'AUDIT_FILE', audit_path),
+                mock.patch.object(metering, 'METERING_FILE', metering_path),
+                mock.patch.object(alerting, 'ALERT_LOG_FILE', alert_path),
+                mock.patch.object(slo_policy, '_now', return_value=datetime.datetime(2026, 3, 25, 0, 30, 0)),
+            ):
                 snapshot = status_surface.observability_snapshot('org_founding')
 
         self.assertEqual(snapshot['backend'], 'file-backed-jsonl')
@@ -78,15 +92,21 @@ class StatusSurfaceTests(unittest.TestCase):
         self.assertEqual(snapshot['slo']['status'], 'healthy')
         self.assertEqual(snapshot['slo']['policy_name'], 'meridian_observability_slo_v1')
         self.assertEqual(snapshot['metrics']['metering']['latest_metric'], 'mcp_tool_call')
+        self.assertEqual(snapshot['alerting']['event_count'], 0)
+        self.assertEqual(snapshot['alert_log']['event_count'], 0)
 
     def test_sqlite_observability_mirror_supports_queries_and_export(self):
         with tempfile.TemporaryDirectory() as tmp:
+            orgs_path = os.path.join(tmp, 'organizations.json')
             audit_path = os.path.join(tmp, 'audit_log.jsonl')
             metering_path = os.path.join(tmp, 'metering.jsonl')
-            with mock.patch.object(audit, 'AUDIT_FILE', audit_path), \
-                 mock.patch.object(metering, 'METERING_FILE', metering_path), \
-                 mock.patch.object(audit, '_now', return_value='2026-03-25T00:30:00Z'), \
-                 mock.patch.object(metering, '_now', return_value='2026-03-25T00:30:00Z'):
+            with (
+                mock.patch.object(organizations, 'ORGS_FILE', orgs_path),
+                mock.patch.object(audit, 'AUDIT_FILE', audit_path),
+                mock.patch.object(metering, 'METERING_FILE', metering_path),
+                mock.patch.object(audit, '_now', return_value='2026-03-25T00:30:00Z'),
+                mock.patch.object(metering, '_now', return_value='2026-03-25T00:30:00Z'),
+            ):
                 audit.log_event(
                     'org_founding',
                     'agent_main',
@@ -114,9 +134,14 @@ class StatusSurfaceTests(unittest.TestCase):
             self.assertEqual(audit_count, 1)
             self.assertEqual(meter_count, 1)
 
-            with mock.patch.object(audit, 'AUDIT_FILE', audit_path), \
-                 mock.patch.object(metering, 'METERING_FILE', metering_path), \
-                 mock.patch.object(slo_policy, '_now', return_value=datetime.datetime(2026, 3, 25, 0, 30, 0)):
+            alert_path = os.path.join(tmp, 'slo_alert_log.jsonl')
+            with (
+                mock.patch.object(organizations, 'ORGS_FILE', orgs_path),
+                mock.patch.object(audit, 'AUDIT_FILE', audit_path),
+                mock.patch.object(metering, 'METERING_FILE', metering_path),
+                mock.patch.object(alerting, 'ALERT_LOG_FILE', alert_path),
+                mock.patch.object(slo_policy, '_now', return_value=datetime.datetime(2026, 3, 25, 0, 30, 0)),
+            ):
                 snapshot = status_surface.observability_snapshot('org_founding')
                 metrics_text = status_surface.observability_metrics_text('org_founding')
 
@@ -130,6 +155,8 @@ class StatusSurfaceTests(unittest.TestCase):
 
     def test_accounting_sqlite_mirror_surfaces_in_persistence_snapshot(self):
         with tempfile.TemporaryDirectory() as tmp:
+            orgs_path = os.path.join(tmp, 'organizations.json')
+            audit_path = os.path.join(tmp, 'audit_log.jsonl')
             owner_path = os.path.join(tmp, 'owner_ledger.json')
             accounting_store.save_owner_ledger_state(
                 owner_path,
@@ -144,7 +171,11 @@ class StatusSurfaceTests(unittest.TestCase):
                 },
                 org_id='org_founding',
             )
-            with mock.patch.object(status_surface, '_safe_capsule_path', side_effect=lambda org_id, filename: owner_path if filename == 'owner_ledger.json' else ''):
+            with (
+                mock.patch.object(organizations, 'ORGS_FILE', orgs_path),
+                mock.patch.object(audit, 'AUDIT_FILE', audit_path),
+                mock.patch.object(status_surface, '_safe_capsule_path', side_effect=lambda org_id, filename: owner_path if filename == 'owner_ledger.json' else ''),
+            ):
                 snapshot = status_surface.persistence_snapshot('org_founding')
 
         self.assertEqual(snapshot['db']['accounting']['status'], 'present')
@@ -152,6 +183,8 @@ class StatusSurfaceTests(unittest.TestCase):
 
     def test_cases_sqlite_mirror_surfaces_in_persistence_snapshot(self):
         with tempfile.TemporaryDirectory() as tmp:
+            orgs_path = os.path.join(tmp, 'organizations.json')
+            audit_path = os.path.join(tmp, 'audit_log.jsonl')
             cases_path = os.path.join(tmp, 'cases.json')
             cases_store.save_case_store(
                 cases_path,
@@ -183,7 +216,11 @@ class StatusSurfaceTests(unittest.TestCase):
                 },
                 org_id='org_founding',
             )
-            with mock.patch.object(status_surface, '_safe_capsule_path', side_effect=lambda org_id, filename: cases_path if filename == 'cases.json' else ''):
+            with (
+                mock.patch.object(organizations, 'ORGS_FILE', orgs_path),
+                mock.patch.object(audit, 'AUDIT_FILE', audit_path),
+                mock.patch.object(status_surface, '_safe_capsule_path', side_effect=lambda org_id, filename: cases_path if filename == 'cases.json' else ''),
+            ):
                 snapshot = status_surface.persistence_snapshot('org_founding')
 
         self.assertEqual(snapshot['db']['cases']['status'], 'present')
@@ -192,7 +229,11 @@ class StatusSurfaceTests(unittest.TestCase):
     def test_organizations_sqlite_mirror_surfaces_in_persistence_snapshot(self):
         with tempfile.TemporaryDirectory() as tmp:
             orgs_path = os.path.join(tmp, 'organizations.json')
-            with mock.patch.object(organizations, 'ORGS_FILE', orgs_path):
+            audit_path = os.path.join(tmp, 'audit_log.jsonl')
+            with (
+                mock.patch.object(organizations, 'ORGS_FILE', orgs_path),
+                mock.patch.object(audit, 'AUDIT_FILE', audit_path),
+            ):
                 organizations.create_org('Acme Corp', 'user_123', plan='pro')
                 snapshot = status_surface.persistence_snapshot('org_founding')
 
