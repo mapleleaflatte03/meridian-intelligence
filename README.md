@@ -3,30 +3,64 @@
 </p>
 
 <p align="center">
-  Founding-host product surface for Meridian's first managed vertical on top of the governance kernel.
+  Meridian Intelligence is the live customer surface on top of a three-part stack: <a href="https://github.com/mapleleaflatte03/meridian-kernel">meridian-kernel</a> for governance truth, this repo for the public intelligence surface, and <a href="https://github.com/mapleleaflatte03/meridian-loom">meridian-loom</a> for delivery execution.
 </p>
 
 <p align="center">
   <img src="https://img.shields.io/badge/host-live%20founding%20surface-0c1117?style=flat-square" alt="Live founding host">
+  <img src="https://img.shields.io/badge/layer-governance%20kernel-1f6feb?style=flat-square" alt="Governance kernel">
+  <img src="https://img.shields.io/badge/layer-intelligence%20surface-0f766e?style=flat-square" alt="Intelligence surface">
+  <img src="https://img.shields.io/badge/layer-delivery%20runtime-7c3aed?style=flat-square" alt="Delivery runtime">
   <img src="https://img.shields.io/badge/runtime-OpenClaw--backed-1f6feb?style=flat-square" alt="OpenClaw backed">
-  <img src="https://img.shields.io/badge/scope-founding--only-8b0000?style=flat-square" alt="Founding only">
-  <img src="https://img.shields.io/badge/delivery-founder--led%20pilot-475569?style=flat-square" alt="Founder-led pilot">
   <img src="https://img.shields.io/badge/payments-x402%20USDC-0f766e?style=flat-square" alt="x402 USDC">
+  <img src="https://img.shields.io/badge/scope-founding--only-8b0000?style=flat-square" alt="Founding only">
 </p>
 
 <p align="center">
   <a href="https://app.welliam.codes/demo.html">Demo</a> ·
   <a href="https://app.welliam.codes/pilot.html">Pilot</a> ·
   <a href="https://app.welliam.codes/support.html">Support</a> ·
-  <a href="https://github.com/mapleleaflatte03/meridian-kernel">OSS Kernel</a> ·
-  <a href="https://github.com/mapleleaflatte03/meridian-loom">Loom Runtime</a>
+  <a href="https://github.com/mapleleaflatte03/meridian-kernel">meridian-kernel</a> ·
+  <a href="https://github.com/mapleleaflatte03/meridian-loom">meridian-loom</a> ·
+  <a href="#three-part-architecture">Architecture</a>
 </p>
 
 <p align="center">
   <img src="company/www/assets/meridian_live_surfaces.svg" alt="Meridian live surface overview" width="960">
 </p>
 
-> This repo is the live founding-host surface: real demo, real pilot path, real MCP endpoint, and an intentionally narrow truth boundary.
+> This repo is the public intelligence surface: demo, pilot, support, MCP, subscriptions, and live host proof. It is not the governance kernel and it is not the delivery runtime.
+
+## Three-Part Architecture
+
+<table>
+  <thead>
+    <tr>
+      <th align="left">Layer</th>
+      <th align="left">Repository</th>
+      <th align="left">Role</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>Governance kernel</strong></td>
+      <td><a href="https://github.com/mapleleaflatte03/meridian-kernel">meridian-kernel</a></td>
+      <td>Institution, authority, treasury, court, and the durable policy boundary.</td>
+    </tr>
+    <tr>
+      <td><strong>Intelligence surface</strong></td>
+      <td><strong>this repo</strong></td>
+      <td>Public demo, pilot, subscriptions, MCP endpoints, and host proof surfaces.</td>
+    </tr>
+    <tr>
+      <td><strong>Delivery runtime</strong></td>
+      <td><a href="https://github.com/mapleleaflatte03/meridian-loom">meridian-loom</a></td>
+      <td>Execution queues, delivery workers, and the runtime that advances approved work.</td>
+    </tr>
+  </tbody>
+</table>
+
+The practical flow is: preview truth -> evidence-backed checkout capture -> active subscription -> Loom delivery run. When Loom is not configured, the code persists the blocked state instead of pretending fulfillment happened.
 
 # Meridian — Governance Kernel for Managed Digital Labor
 
@@ -40,7 +74,7 @@
 
 Meridian is a governance kernel for running AI agents as managed digital labor. It is built on five constitutional primitives that compose over a real economy layer and an honest treasury gate.
 
-**Competitive intelligence is the first proving vertical** — a 7-agent governed workflow for cited intelligence output. The current customer path is a founder-led manual pilot; automated delivery remains treasury-gated by policy.
+**Competitive intelligence is the first proving vertical** — a 7-agent governed workflow for cited intelligence output. The current customer path includes both founder-led manual pilot handling and a customer-initiated, evidence-backed checkout capture rail; Loom delivery still advances only when the runtime capability is configured.
 
 Meridian itself is not the competitor-intelligence vertical. The vertical is
 the first managed workflow proving the kernel in public. The kernel is the
@@ -220,7 +254,7 @@ multi-host deployment proof.
 
 **Live service:** https://app.welliam.codes
 **Product demo:** https://app.welliam.codes/demo.html
-**Current go-to-market mode:** founder-led manual pilot until Meridian reaches customer-backed treasury and treasury-cleared automation
+**Current go-to-market mode:** founder-led manual pilot with a customer-initiated evidence-backed checkout capture rail; broader card checkout is still not live
 
 Need the plain-language model behind this?
 - [Meridian Doctrine](company/MERIDIAN_DOCTRINE.md)
@@ -255,7 +289,7 @@ Start with the demo and pilot surfaces:
 - Support the work: https://app.welliam.codes/support.html
 - Contact: Telegram [@Enhanhsj](https://t.me/Enhanhsj) or email `nguyensimon186@gmail.com`
 
-The honest current offer is a founder-led manual pilot. More cash in treasury only clears the reserve gate; automated delivery still waits for customer-backed phase progression, treasury-cleared automation, and constitutional preflight.
+The honest current offer is a founder-led manual pilot plus an evidence-backed checkout capture rail. More cash in treasury only clears the reserve gate; automated delivery still waits for customer-backed phase progression, runtime preflight, and constitutional approval where required.
 If you want to back Meridian without pretending that support equals customer delivery, use the dedicated support path instead of the pilot flow.
 
 If you are confused about support vs pilot vs customer revenue vs future contributor payouts, read:
@@ -300,7 +334,7 @@ public instead of implicit.
 ## Payment
 
 - **MCP tool calls:** [x402](https://x402.org) over USDC on Base L2
-- **Pilot engagements:** manual activation currently available via bank transfer, Wise, or stablecoin while card checkout is not live
+- **Pilot engagements:** manual activation is available via bank transfer, Wise, or stablecoin; the repo also exposes a customer-initiated checkout-capture rail for validated payment evidence, but card checkout is not live
 - **Support / sponsorship:** use the support page for non-customer backing of the build, infra, and open kernel
 - **Chain:** Base L2 (Chain ID 8453)
 - **Token:** USDC (`0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`)
