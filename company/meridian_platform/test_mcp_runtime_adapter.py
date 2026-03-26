@@ -274,7 +274,7 @@ class McpRuntimeAdapterTests(unittest.TestCase):
         self.assertEqual(result['route_cutover']['loom']['job_id'], 'job-route')
         self.assertEqual(result['route_cutover']['loom']['result_path_hint'], '/tmp/jobs/job-route/result.json')
 
-    def test_on_demand_research_route_loom_preflight_failure_falls_back_when_enabled(self):
+    def test_on_demand_research_route_loom_preflight_failure_fails_closed(self):
         service_status = mock.Mock(
             returncode=0,
             stdout=json.dumps({
@@ -286,26 +286,26 @@ class McpRuntimeAdapterTests(unittest.TestCase):
             stderr='',
         )
         capability_show = mock.Mock(returncode=1, stdout='', stderr='missing capability')
-        openclaw = mock.Mock(returncode=0, stdout=json.dumps({'response': 'fallback openclaw result'}), stderr='')
         env = {
             'MERIDIAN_INTELLIGENCE_ON_DEMAND_RESEARCH_RUNTIME': 'loom',
-            'MERIDIAN_INTELLIGENCE_ON_DEMAND_RESEARCH_ALLOW_FALLBACK': '1',
             'MERIDIAN_LOOM_RESEARCH_CAPABILITY': 'missing.capability.v0',
         }
         with mock.patch.dict(os.environ, env, clear=False):
-            with mock.patch.object(mcp_server.subprocess, 'run', side_effect=[service_status, capability_show, openclaw]):
+            with mock.patch.object(mcp_server.subprocess, 'run', side_effect=[service_status, capability_show]) as run_mock:
                 result = mcp_server.do_on_demand_research_route('OpenAI pricing', 'quick')
 
-        self.assertEqual(result['runtime'], 'openclaw')
-        self.assertEqual(result['research'], 'fallback openclaw result')
+        self.assertEqual(result['runtime'], 'loom')
+        self.assertIn('Loom research preflight failed', result['error'])
         self.assertEqual(result['route_cutover']['requested_runtime'], 'loom')
-        self.assertEqual(result['route_cutover']['selected_runtime'], 'openclaw')
-        self.assertTrue(result['route_cutover']['fallback_enabled'])
-        self.assertTrue(result['route_cutover']['fallback']['used'])
-        self.assertIn('fallback_used=true', result['route_cutover']['transcript'])
-        self.assertIn('fallback_state=preflight_failed', result['route_cutover']['transcript'])
+        self.assertEqual(result['route_cutover']['selected_runtime'], 'loom')
+        self.assertFalse(result['route_cutover']['fallback_enabled'])
+        self.assertIn('preflight=blocked', result['route_cutover']['transcript'])
+        self.assertIn('fallback=off', result['route_cutover']['transcript'])
+        self.assertEqual(result['route_cutover']['fallback']['used'], False)
+        self.assertEqual(result['route_cutover']['fallback']['from_runtime'], 'loom')
         self.assertEqual(result['route_cutover']['fallback']['state'], 'preflight_failed')
         self.assertIn('missing capability', result['route_cutover']['fallback']['reason'])
+        self.assertEqual(len(run_mock.call_args_list), 2)
 
     def test_research_loom_plugin_skill_import_metadata_is_normalized(self):
         service_status = mock.Mock(

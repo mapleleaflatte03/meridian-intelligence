@@ -1217,10 +1217,10 @@ def do_on_demand_research(topic: str, depth: str = 'standard') -> dict:
 def do_on_demand_research_route(topic: str, depth: str = 'standard') -> dict:
     """Run the paid on-demand research route with route-specific cutover controls."""
     requested_runtime = _intelligence_route_runtime('on_demand_research', tool='research')
-    fallback_enabled = _intelligence_route_fallback('on_demand_research', default=False)
     prompt = _on_demand_research_prompt(topic, depth)
 
     if requested_runtime != 'loom':
+        fallback_enabled = _intelligence_route_fallback('on_demand_research', default=False)
         result = _run_openclaw_on_demand_research(topic, depth, prompt)
         return _with_on_demand_research_cutover(result, requested_runtime, 'openclaw', fallback_enabled)
 
@@ -1229,22 +1229,9 @@ def do_on_demand_research_route(topic: str, depth: str = 'standard') -> dict:
         fallback_state = {
             'used': False,
             'from_runtime': 'loom',
-            'to_runtime': 'openclaw',
             'reason': '; '.join(loom_preflight.get('errors') or ['loom preflight failed']),
             'state': 'preflight_failed',
         }
-        if fallback_enabled:
-            result = _run_openclaw_on_demand_research(topic, depth, prompt)
-            fallback_state['used'] = True
-            fallback_state['result'] = 'completed' if not result.get('error') else 'failed'
-            return _with_on_demand_research_cutover(
-                result,
-                requested_runtime,
-                'openclaw',
-                fallback_enabled,
-                fallback_state=fallback_state,
-                loom_preflight=loom_preflight,
-            )
         result = {
             'topic': topic,
             'depth': depth,
@@ -1256,7 +1243,7 @@ def do_on_demand_research_route(topic: str, depth: str = 'standard') -> dict:
             result,
             requested_runtime,
             'loom',
-            fallback_enabled,
+            False,
             fallback_state=fallback_state,
             loom_preflight=loom_preflight,
         )
@@ -1267,7 +1254,7 @@ def do_on_demand_research_route(topic: str, depth: str = 'standard') -> dict:
             result,
             requested_runtime,
             'loom',
-            fallback_enabled,
+            False,
             loom_result=loom_result,
             loom_preflight=loom_preflight,
         )
@@ -1275,34 +1262,18 @@ def do_on_demand_research_route(topic: str, depth: str = 'standard') -> dict:
     fallback_state = {
         'used': False,
         'from_runtime': 'loom',
-        'to_runtime': 'openclaw',
         'reason': result.get('error', 'loom runtime failed'),
         'state': 'loom_failed',
     }
-    if fallback_enabled:
-        fallback_result = _run_openclaw_on_demand_research(topic, depth, prompt)
-        fallback_state['used'] = True
-        fallback_state['result'] = 'completed' if not fallback_result.get('error') else 'failed'
-        return _with_on_demand_research_cutover(
-            fallback_result,
-            requested_runtime,
-            'openclaw',
-            fallback_enabled,
-            fallback_state=fallback_state,
-            loom_result=loom_result,
-            loom_preflight=loom_preflight,
-        )
-
     return _with_on_demand_research_cutover(
         result,
         requested_runtime,
         'loom',
-        fallback_enabled,
+        False,
         fallback_state=fallback_state,
         loom_result=loom_result,
         loom_preflight=loom_preflight,
     )
-
 
 def do_qa_verify(text: str, criteria: str = 'factual') -> dict:
     """Run QA verification through the configured runtime adapter."""
