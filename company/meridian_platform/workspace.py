@@ -18,6 +18,7 @@ Endpoints:
   GET  /api/subscriptions         → Institution-owned subscription service state on the founding-locked host
   GET  /api/subscriptions/delivery-targets → Institution-owned delivery-target calculation on the founding-locked host
   GET  /api/subscriptions/loom-delivery-jobs → Inspect queued Loom delivery jobs on the founding-locked host
+  GET  /api/subscriptions/loom-delivery-runs → Inspect persisted Loom delivery runs on the founding-locked host
   GET  /api/accounting            → Institution-owned accounting owner-ledger state on the founding-locked host
   GET  /api/pilot/intake          → Manual pilot intake queue snapshot on the founding-locked host
   GET  /api/payouts              → Payout proposals and summary
@@ -64,6 +65,7 @@ Endpoints:
   POST /api/subscriptions/add     → Create an institution-owned subscription record on the founding-locked host
   POST /api/subscriptions/convert → Convert a trial into a paid subscription
   POST /api/subscriptions/activate-from-preview → Activate a captured subscription from preview truth and queue Loom delivery
+  POST /api/subscriptions/loom-delivery-jobs/run → Run or advance queued Loom delivery jobs on the founding-locked host
   POST /api/subscriptions/verify-payment → Bind payment evidence to a subscription
   POST /api/subscriptions/remove  → Cancel active subscriptions for a Telegram user
   POST /api/subscriptions/set-email → Update subscription email metadata
@@ -291,6 +293,7 @@ MUTATION_ROLE_REQUIREMENTS = {
     '/api/subscriptions/add': 'admin',
     '/api/subscriptions/draft-from-preview': 'admin',
     '/api/subscriptions/activate-from-preview': 'admin',
+    '/api/subscriptions/loom-delivery-jobs/run': 'admin',
     '/api/subscriptions/convert': 'admin',
     '/api/subscriptions/verify-payment': 'admin',
     '/api/subscriptions/remove': 'admin',
@@ -4246,6 +4249,9 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
         elif path == '/api/subscriptions/loom-delivery-jobs':
             limit = parse_qs(parsed.query).get('limit', ['50'])[-1]
             return self._json(subscription_service.loom_delivery_queue_snapshot(org_id, limit=limit))
+        elif path == '/api/subscriptions/loom-delivery-runs':
+            limit = parse_qs(parsed.query).get('limit', ['50'])[-1]
+            return self._json(subscription_service.loom_delivery_run_snapshot(org_id, limit=limit))
         elif path == '/api/subscriptions/preview-queue':
             limit = parse_qs(parsed.query).get('limit', ['50'])[-1]
             return self._json(service_state.subscription_preview_snapshot(org_id, limit=limit))
@@ -4746,16 +4752,27 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                     payment_ref=body.get('payment_ref'),
                     org_id=org_id,
                     actor=by,
+                    timeout=int(body.get('timeout') or 120),
                 )
                 activated = result['subscription']
-                preview_result = subscription_preview_queue.mark_preview_activated(
-                    preview_id,
-                    activated['id'],
-                    org_id=org_id,
-                    by=by,
-                    checkout_claimed=bool(activated.get('payment_verified')),
-                    payment_capture_claimed=bool(activated.get('payment_verified')),
-                )
+                run = result.get('delivery_run', {})
+                if (run.get('state') or '') == 'executed' and result.get('delivery_job', {}).get('preview_id'):
+                    preview_result = subscription_preview_queue.mark_preview_delivered(
+                        preview_id,
+                        run.get('delivery_ref') or result.get('delivery_job', {}).get('delivery_ref') or result['delivery_job']['job_id'],
+                        org_id=org_id,
+                        by=by,
+                        delivery_run_id=run.get('run_id', ''),
+                    )
+                else:
+                    preview_result = subscription_preview_queue.mark_preview_activated(
+                        preview_id,
+                        activated['id'],
+                        org_id=org_id,
+                        by=by,
+                        checkout_claimed=bool(activated.get('payment_verified')),
+                        payment_capture_claimed=bool(activated.get('payment_verified')),
+                    )
                 log_event(
                     org_id,
                     by,
@@ -4771,10 +4788,43 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                     session_id=_sid,
                 )
                 return self._json({
-                    'message': 'Captured subscription activated from preview record; Loom delivery queued without claiming fulfillment',
+                    'message': 'Captured subscription activated from preview record; Loom delivery advanced when possible without claiming fulfillment',
                     'result': result,
                     'preview': preview_result['preview'],
                     'subscription_preview_summary': preview_result['summary'],
+                    'service_state': service_state.subscription_snapshot(org_id),
+                })
+
+            elif path == '/api/subscriptions/loom-delivery-jobs/run':
+                job_id = (body.get('job_id') or '').strip()
+                if job_id:
+                    result = subscription_service.run_loom_delivery_job(
+                        job_id,
+                        org_id=org_id,
+                        actor=by,
+                        timeout=int(body.get('timeout') or 120),
+                    )
+                else:
+                    result = subscription_service.run_pending_loom_delivery_jobs(
+                        org_id,
+                        actor=by,
+                        timeout=int(body.get('timeout') or 120),
+                        limit=int(body.get('limit') or 1),
+                    )
+                log_event(
+                    org_id,
+                    by,
+                    'subscription_delivery_run',
+                    outcome='success',
+                    resource=job_id or 'pending',
+                    details={
+                        'attempted_count': result.get('attempted_count', 1 if job_id else 0),
+                    },
+                    session_id=_sid,
+                )
+                return self._json({
+                    'message': 'Loom subscription delivery runner advanced queued jobs',
+                    'result': result,
                     'service_state': service_state.subscription_snapshot(org_id),
                 })
 

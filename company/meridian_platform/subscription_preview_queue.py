@@ -132,6 +132,11 @@ def _normalize_preview(preview, org_id, existing=None):
     record['activated_at'] = (preview.get('activated_at') or existing.get('activated_at') or '').strip()
     record['activated_by'] = (preview.get('activated_by') or existing.get('activated_by') or '').strip()
     record['activation_state'] = (preview.get('activation_state') or existing.get('activation_state') or '').strip()
+    record['delivery_run_id'] = (preview.get('delivery_run_id') or existing.get('delivery_run_id') or '').strip()
+    record['delivery_ref'] = (preview.get('delivery_ref') or existing.get('delivery_ref') or '').strip()
+    record['delivered_at'] = (preview.get('delivered_at') or existing.get('delivered_at') or '').strip()
+    record['delivered_by'] = (preview.get('delivered_by') or existing.get('delivered_by') or '').strip()
+    record['delivery_state'] = (preview.get('delivery_state') or existing.get('delivery_state') or '').strip()
     record['state'] = _normalize_state(
         preview.get('state') or preview.get('preview_state') or '',
         existing_state=existing.get('state') or existing.get('preview_state') or '',
@@ -240,6 +245,7 @@ def _queue_summary(previews, org_id):
     checkout_claimed_count = 0
     drafted_count = 0
     activated_count = 0
+    delivered_count = 0
     for preview in previews:
         state = preview.get('state', 'previewed')
         state_counts[state] = state_counts.get(state, 0) + 1
@@ -249,6 +255,8 @@ def _queue_summary(previews, org_id):
             drafted_count += 1
         if preview.get('activated_subscription_id'):
             activated_count += 1
+        if preview.get('delivery_ref'):
+            delivered_count += 1
     return {
         'bound_org_id': (org_id or '').strip(),
         'total_previews': len(previews),
@@ -258,6 +266,7 @@ def _queue_summary(previews, org_id):
         'superseded_count': state_counts.get('superseded', 0),
         'drafted_count': drafted_count,
         'activated_count': activated_count,
+        'delivered_count': delivered_count,
         'checkout_claimed_count': checkout_claimed_count,
         'latest_preview_at': previews[0].get('created_at', '') if previews else '',
         'state_counts': state_counts,
@@ -407,6 +416,44 @@ def mark_preview_activated(
         updated['activation_state'] = (state or 'captured').strip() or 'captured'
         updated['payment_capture_claimed'] = bool(payment_capture_claimed)
         updated['checkout_claimed'] = bool(checkout_claimed)
+        updated['updated_at'] = timestamp
+        store.setdefault('subscription_previews', {})[preview_id] = _normalize_preview(
+            updated,
+            org_id,
+            existing=updated,
+        )
+        payload = _save_store(store, org_id)
+    previews = _sorted_previews([
+        _normalize_preview(item, org_id, existing=item)
+        for item in payload.get('subscription_previews', {}).values()
+    ])
+    return {
+        'preview': store['subscription_previews'][preview_id],
+        'summary': _queue_summary(previews, org_id),
+    }
+
+
+def mark_preview_delivered(preview_id, delivery_ref, *, org_id=None, by='', delivery_run_id=''):
+    preview_id = (preview_id or '').strip()
+    delivery_ref = (delivery_ref or '').strip()
+    if not preview_id:
+        raise ValueError('preview_id is required')
+    if not delivery_ref:
+        raise ValueError('delivery_ref is required')
+
+    with _preview_lock(org_id):
+        store = _load_store(org_id)
+        existing = store.get('subscription_previews', {}).get(preview_id)
+        if not existing:
+            raise LookupError(f'Subscription preview not found: {preview_id}')
+        updated = dict(existing)
+        timestamp = _now()
+        updated['delivery_ref'] = delivery_ref
+        updated['delivery_run_id'] = (delivery_run_id or '').strip()
+        updated['delivered_at'] = timestamp
+        updated['delivered_by'] = (by or '').strip()
+        updated['delivery_state'] = 'delivered'
+        updated['fulfillment_claimed'] = True
         updated['updated_at'] = timestamp
         store.setdefault('subscription_previews', {})[preview_id] = _normalize_preview(
             updated,

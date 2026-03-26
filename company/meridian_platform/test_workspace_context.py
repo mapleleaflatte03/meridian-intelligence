@@ -235,6 +235,7 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.assertTrue(permissions['/api/subscriptions/add']['allowed'])
         self.assertTrue(permissions['/api/subscriptions/draft-from-preview']['allowed'])
         self.assertTrue(permissions['/api/subscriptions/activate-from-preview']['allowed'])
+        self.assertTrue(permissions['/api/subscriptions/loom-delivery-jobs/run']['allowed'])
         self.assertTrue(permissions['/api/subscriptions/convert']['allowed'])
         self.assertTrue(permissions['/api/subscriptions/verify-payment']['allowed'])
         self.assertTrue(permissions['/api/subscriptions/remove']['allowed'])
@@ -253,6 +254,7 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.assertEqual(permissions['/api/subscriptions/add']['required_role'], 'admin')
         self.assertEqual(permissions['/api/subscriptions/draft-from-preview']['required_role'], 'admin')
         self.assertEqual(permissions['/api/subscriptions/activate-from-preview']['required_role'], 'admin')
+        self.assertEqual(permissions['/api/subscriptions/loom-delivery-jobs/run']['required_role'], 'admin')
         self.assertEqual(permissions['/api/subscriptions/convert']['required_role'], 'admin')
         self.assertEqual(permissions['/api/subscriptions/verify-payment']['required_role'], 'admin')
         self.assertEqual(permissions['/api/subscriptions/remove']['required_role'], 'admin')
@@ -776,20 +778,41 @@ class LiveWorkspaceContextTests(unittest.TestCase):
             },
             'delivery_job': {
                 'job_id': 'loom_sub_activated',
-                'state': 'queued',
+                'preview_id': 'quote_pir_demo',
+                'delivery_ref': 'loom-job-1',
             },
+            'delivery_run': {
+                'run_id': 'ldr_sub_activated',
+                'job_id': 'loom_sub_activated',
+                'state': 'executed',
+                'delivery_status': 'delivered',
+                'delivered': True,
+                'delivery_ref': 'loom-job-1',
+            },
+            'delivery_execution': {'ok': True, 'job_id': 'loom-job-1'},
         }), mock.patch.object(self.workspace.subscription_preview_queue, 'mark_preview_activated', return_value={
             'preview': {
                 'preview_id': 'quote_pir_demo',
                 'pilot_request_id': 'pir_demo',
                 'activated_subscription_id': 'sub_activated',
-                'activation_state': 'captured',
+                'delivery_ref': 'loom-job-1',
+                'delivery_state': 'delivered',
             },
-            'summary': {'total_previews': 1, 'activated_count': 1},
+            'summary': {'total_previews': 1, 'activated_count': 1, 'delivered_count': 1},
+        }), mock.patch.object(self.workspace.subscription_preview_queue, 'mark_preview_delivered', return_value={
+            'preview': {
+                'preview_id': 'quote_pir_demo',
+                'pilot_request_id': 'pir_demo',
+                'activated_subscription_id': 'sub_activated',
+                'delivery_ref': 'loom-job-1',
+                'delivery_state': 'delivered',
+            },
+            'summary': {'total_previews': 1, 'activated_count': 1, 'delivered_count': 1},
         }), mock.patch.object(self.workspace.service_state, 'subscription_snapshot', return_value={
             'bound_org_id': 'org_founding',
             'summary': {'subscriber_count': 1, 'active_subscription_count': 1},
-            'loom_delivery_queue_summary': {'total_jobs': 1, 'queued_count': 1},
+            'loom_delivery_queue_summary': {'total_jobs': 1, 'queued_count': 0, 'blocked_count': 0, 'completed_count': 1},
+            'loom_delivery_run_summary': {'total_runs': 1, 'delivered_count': 1},
         }), mock.patch.object(self.workspace, 'log_event', return_value='evt_demo'), mock.patch.object(self.workspace, '_resolve_auth_context', return_value={
             'enabled': True,
             'mode': 'credential_bound',
@@ -805,8 +828,62 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.assertEqual(calls, [('require_auth', '/api/subscriptions/activate-from-preview')])
         self.assertEqual(handler.response['status'], 200)
         self.assertEqual(handler.response['data']['result']['subscription']['status'], 'active')
-        self.assertEqual(handler.response['data']['preview']['activated_subscription_id'], 'sub_activated')
-        self.assertEqual(handler.response['data']['subscription_preview_summary']['activated_count'], 1)
+        self.assertEqual(handler.response['data']['preview']['delivery_ref'], 'loom-job-1')
+        self.assertEqual(handler.response['data']['subscription_preview_summary']['delivered_count'], 1)
+        self.assertEqual(result, handler.response)
+
+    def test_subscription_loom_delivery_run_route_advances_jobs(self):
+        calls = []
+        self.workspace._resolve_workspace_context = lambda: types.SimpleNamespace(org_id='org_founding', org={}, context_source='configured_org')
+
+        class PostHandler:
+            def __init__(self):
+                self.path = '/api/subscriptions/loom-delivery-jobs/run'
+                self.headers = _Headers({'Content-Type': 'application/json'})
+                self.response = None
+
+            def _require_auth(self, path):
+                calls.append(('require_auth', path))
+                return True
+
+            def _json(self, data, status=200):
+                self.response = {'data': data, 'status': status}
+                return self.response
+
+            def _service_unavailable(self, message, is_api=False):
+                raise AssertionError(message)
+
+            def _session_claims_from_request(self, expected_org_id=None):
+                return None
+
+            def _read_body(self):
+                return {'job_id': 'loom_sub_activated', 'timeout': 5}
+
+        with mock.patch.object(self.workspace.subscription_service, 'run_loom_delivery_job', return_value={
+            'job_id': 'loom_sub_activated',
+            'delivery_job': {'job_id': 'loom_sub_activated', 'state': 'executed', 'delivery_status': 'delivered'},
+            'run': {'run_id': 'ldr_sub_activated', 'job_id': 'loom_sub_activated', 'state': 'executed', 'delivery_status': 'delivered', 'delivered': True},
+            'execution': {'ok': True, 'job_id': 'loom-job-1'},
+        }), mock.patch.object(self.workspace.service_state, 'subscription_snapshot', return_value={
+            'bound_org_id': 'org_founding',
+            'summary': {'subscriber_count': 1, 'active_subscription_count': 1},
+            'loom_delivery_queue_summary': {'total_jobs': 1, 'queued_count': 0, 'blocked_count': 0, 'completed_count': 1},
+            'loom_delivery_run_summary': {'total_runs': 1, 'delivered_count': 1},
+        }), mock.patch.object(self.workspace, 'log_event', return_value='evt_demo'), mock.patch.object(self.workspace, '_resolve_auth_context', return_value={
+            'enabled': True,
+            'mode': 'credential_bound',
+            'org_id': 'org_founding',
+            'user_id': 'user_owner',
+            'role': 'owner',
+            'actor_id': 'user_owner',
+            'actor_source': 'test',
+            'session_id': 'sid_demo',
+        }):
+            handler = PostHandler()
+            result = self.workspace.WorkspaceHandler.do_POST(handler)
+        self.assertEqual(calls, [('require_auth', '/api/subscriptions/loom-delivery-jobs/run')])
+        self.assertEqual(handler.response['status'], 200)
+        self.assertEqual(handler.response['data']['result']['run']['state'], 'executed')
         self.assertEqual(result, handler.response)
 
     def test_operator_pilot_intake_routes_expose_review_only_flow(self):

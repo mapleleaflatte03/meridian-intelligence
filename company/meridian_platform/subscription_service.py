@@ -6,7 +6,9 @@ import fcntl
 import importlib.util
 import json
 import os
+import subprocess
 import tempfile
+import time
 import uuid
 
 from capsule import (
@@ -34,6 +36,11 @@ PLANS = {
     'trial':                 {'price_usd': 0.00, 'duration_days': TRIAL_DAYS,  'type': 'trial'},
 }
 
+LOOM_DELIVERY_CAPABILITY_ENV_VARS = (
+    'MERIDIAN_LOOM_SUBSCRIPTION_DELIVERY_CAPABILITY',
+    'MERIDIAN_LOOM_DELIVERY_CAPABILITY',
+)
+
 
 def now_ts():
     return datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
@@ -48,6 +55,7 @@ def _default_subscriptions(org_id=None):
         'subscribers': {},
         'draft_subscriptions': {},
         'loom_delivery_jobs': {},
+        'loom_delivery_runs': [],
         'delivery_log': [],
         'updatedAt': now_ts(),
         '_meta': {
@@ -119,6 +127,7 @@ def _normalize_subscriptions(data, org_id=None):
     payload.setdefault('subscribers', {})
     payload.setdefault('draft_subscriptions', {})
     payload.setdefault('loom_delivery_jobs', {})
+    payload.setdefault('loom_delivery_runs', [])
     payload.setdefault('delivery_log', [])
     payload.setdefault('updatedAt', now_ts())
     payload.setdefault('_meta', {})
@@ -164,6 +173,23 @@ def _normalize_subscriptions(data, org_id=None):
         job_id: _normalize_loom_delivery_job(record, org_id, existing=record)
         for job_id, record in jobs.items()
     }
+
+    raw_runs = payload.get('loom_delivery_runs', [])
+    runs = []
+    if isinstance(raw_runs, list):
+        for item in raw_runs:
+            if isinstance(item, dict):
+                runs.append(dict(item))
+    elif isinstance(raw_runs, dict):
+        for run_id, item in raw_runs.items():
+            if isinstance(item, dict):
+                record = dict(item)
+                record['run_id'] = record.get('run_id') or run_id
+                runs.append(record)
+    payload['loom_delivery_runs'] = [
+        _normalize_loom_delivery_run(run, org_id, existing=run)
+        for run in runs
+    ]
     return payload
 
 
@@ -297,6 +323,295 @@ def _bind_payment_evidence(subscription, payment_ref=None, *, org_id=None):
     return evidence
 
 
+def _loom_bin():
+    return (
+        os.environ.get('MERIDIAN_LOOM_BIN')
+        or '/root/.local/share/meridian-loom/current/bin/loom'
+    ).strip()
+
+
+def _loom_root():
+    return (os.environ.get('MERIDIAN_LOOM_ROOT') or '/root/.local/share/meridian-loom/runtime/default').strip()
+
+
+def _loom_service_token():
+    return (
+        os.environ.get('MERIDIAN_LOOM_SERVICE_TOKEN')
+        or os.environ.get('LOOM_SERVICE_TOKEN')
+        or ''
+    ).strip()
+
+
+def _loom_delivery_capability():
+    for name in LOOM_DELIVERY_CAPABILITY_ENV_VARS:
+        capability = (os.environ.get(name) or '').strip()
+        if capability:
+            return capability
+    return ''
+
+
+def _load_json_file(path, default=None):
+    if not os.path.exists(path):
+        return default
+    with open(path) as f:
+        return json.load(f)
+
+
+def _normalize_loom_delivery_run(run, org_id=None, existing=None):
+    run = dict(run or {})
+    existing = dict(existing or {})
+    job_id = (run.get('job_id') or existing.get('job_id') or '').strip()
+    if not job_id:
+        job_id = (run.get('job_id') or existing.get('job_id') or f'loom_{uuid.uuid4().hex[:12]}').strip()
+    run_id = (run.get('run_id') or existing.get('run_id') or '').strip()
+    if not run_id:
+        run_id = f'ldr_{uuid.uuid4().hex[:12]}'
+
+    record = dict(existing)
+    record['run_id'] = run_id
+    record['job_id'] = job_id
+    record['subscription_id'] = (run.get('subscription_id') or existing.get('subscription_id') or '').strip()
+    record['preview_id'] = (run.get('preview_id') or existing.get('preview_id') or '').strip()
+    record['telegram_id'] = (run.get('telegram_id') or existing.get('telegram_id') or '').strip()
+    record['plan'] = (run.get('plan') or existing.get('plan') or '').strip()
+    record['capability_name'] = (run.get('capability_name') or existing.get('capability_name') or '').strip()
+    record['state'] = (run.get('state') or existing.get('state') or 'queued').strip() or 'queued'
+    record['delivery_status'] = (run.get('delivery_status') or existing.get('delivery_status') or record['state']).strip() or record['state']
+    record['delivered'] = bool(run.get('delivered', existing.get('delivered', False)))
+    record['attempts'] = int(run.get('attempts', existing.get('attempts', 0)) or 0)
+    record['queued_at'] = (run.get('queued_at') or existing.get('queued_at') or '').strip()
+    record['started_at'] = (run.get('started_at') or existing.get('started_at') or '').strip()
+    record['finished_at'] = (run.get('finished_at') or existing.get('finished_at') or '').strip()
+    record['executed_at'] = (run.get('executed_at') or existing.get('executed_at') or '').strip()
+    record['error'] = (run.get('error') or existing.get('error') or '').strip()
+    record['result_path'] = (run.get('result_path') or existing.get('result_path') or '').strip()
+    record['delivery_ref'] = (run.get('delivery_ref') or existing.get('delivery_ref') or '').strip()
+    record['recorded_by'] = (run.get('recorded_by') or existing.get('recorded_by') or '').strip()
+    record['submit'] = dict(run.get('submit') or existing.get('submit') or {})
+    record['snapshot'] = dict(run.get('snapshot') or existing.get('snapshot') or {})
+    record['worker_result'] = dict(run.get('worker_result') or existing.get('worker_result') or {})
+    record['execution_refs'] = dict(run.get('execution_refs') or existing.get('execution_refs') or {})
+    record['created_at'] = (run.get('created_at') or existing.get('created_at') or now_ts()).strip()
+    record['updated_at'] = now_ts()
+    return record
+
+
+def _loom_delivery_preflight(capability_name):
+    preflight = {
+        'ok': False,
+        'runtime': 'loom',
+        'capability_name': capability_name,
+        'errors': [],
+    }
+    if not capability_name:
+        preflight['errors'].append('Loom subscription delivery capability is not configured')
+        return preflight
+
+    env = os.environ.copy()
+    service_token = _loom_service_token()
+    if service_token:
+        env['LOOM_SERVICE_TOKEN'] = service_token
+
+    service_cmd = [_loom_bin(), 'service', 'status', '--root', _loom_root(), '--format', 'json']
+    capability_cmd = [_loom_bin(), 'capability', 'show', '--root', _loom_root(), '--name', capability_name, '--format', 'json']
+
+    try:
+        service = subprocess.run(service_cmd, capture_output=True, text=True, timeout=15, cwd=WORKSPACE, env=env)
+    except subprocess.TimeoutExpired:
+        preflight['errors'].append('loom service status timed out')
+        service = None
+    except Exception as exc:
+        preflight['errors'].append(str(exc))
+        service = None
+
+    if service is not None:
+        if service.returncode != 0:
+            preflight['errors'].append(f'loom service status failed: {service.stderr[:500]}')
+        else:
+            try:
+                payload = json.loads((service.stdout or '').strip())
+            except json.JSONDecodeError:
+                preflight['errors'].append('loom service status returned non-JSON output')
+            else:
+                preflight['service'] = payload
+                if not payload.get('running'):
+                    preflight['errors'].append('loom service is not running')
+                if payload.get('service_status') != 'running':
+                    preflight['errors'].append(f"loom service_status={payload.get('service_status', '')}")
+                if payload.get('health') != 'healthy':
+                    preflight['errors'].append(f"loom health={payload.get('health', '')}")
+
+    try:
+        capability = subprocess.run(capability_cmd, capture_output=True, text=True, timeout=15, cwd=WORKSPACE, env=env)
+    except subprocess.TimeoutExpired:
+        preflight['errors'].append('loom capability show timed out')
+        capability = None
+    except Exception as exc:
+        preflight['errors'].append(str(exc))
+        capability = None
+
+    if capability is not None:
+        if capability.returncode != 0:
+            message = capability.stderr.strip() or capability.stdout.strip() or 'unknown error'
+            preflight['errors'].append(f'loom capability show failed: {message[:500]}')
+        else:
+            try:
+                payload = json.loads((capability.stdout or '').strip())
+            except json.JSONDecodeError:
+                preflight['errors'].append('loom capability show returned non-JSON output')
+            else:
+                preflight['capability'] = payload
+                if not payload.get('enabled', False):
+                    preflight['errors'].append('loom capability is disabled')
+                if payload.get('verification_status') != 'verified':
+                    preflight['errors'].append(f"loom capability verification={payload.get('verification_status', '')}")
+                if payload.get('promotion_state') != 'promoted':
+                    preflight['errors'].append(f"loom capability promotion={payload.get('promotion_state', '')}")
+
+    preflight['ok'] = not preflight['errors']
+    return preflight
+
+
+def _run_loom_delivery_capability(capability_name, payload, timeout):
+    if not capability_name:
+        return {
+            'ok': False,
+            'runtime': 'loom',
+            'capability_name': '',
+            'error': 'Loom subscription delivery capability is not configured',
+        }
+
+    env = os.environ.copy()
+    service_token = _loom_service_token()
+    if service_token:
+        env['LOOM_SERVICE_TOKEN'] = service_token
+
+    submit_cmd = [
+        _loom_bin(),
+        'service',
+        'submit',
+        '--root',
+        _loom_root(),
+        '--agent-id',
+        (os.environ.get('MERIDIAN_LOOM_AGENT_ID') or 'agent_leviathann').strip(),
+        '--capability',
+        capability_name,
+        '--estimated-cost-usd',
+        '0',
+        '--payload-json',
+        json.dumps(payload),
+        '--format',
+        'json',
+    ]
+    if service_token:
+        submit_cmd.extend(['--service-token', service_token])
+
+    try:
+        submit = subprocess.run(submit_cmd, capture_output=True, text=True, timeout=min(timeout, 30), cwd=WORKSPACE, env=env)
+    except subprocess.TimeoutExpired:
+        return {
+            'ok': False,
+            'runtime': 'loom',
+            'capability_name': capability_name,
+            'error': 'Loom service submit timed out',
+        }
+    except Exception as exc:
+        return {
+            'ok': False,
+            'runtime': 'loom',
+            'capability_name': capability_name,
+            'error': str(exc),
+        }
+
+    if submit.returncode != 0:
+        return {
+            'ok': False,
+            'runtime': 'loom',
+            'capability_name': capability_name,
+            'error': f'Loom service submit failed: {submit.stderr[:500]}',
+        }
+
+    try:
+        submit_payload = json.loads((submit.stdout or '').strip())
+    except json.JSONDecodeError:
+        return {
+            'ok': False,
+            'runtime': 'loom',
+            'capability_name': capability_name,
+            'error': 'Loom service submit returned non-JSON output',
+        }
+
+    job_id = (submit_payload.get('job_id') or '').strip()
+    if not job_id:
+        return {
+            'ok': False,
+            'runtime': 'loom',
+            'capability_name': capability_name,
+            'error': 'Loom service submit did not return a job_id',
+            'submit': submit_payload,
+        }
+
+    inspect_cmd = [
+        _loom_bin(),
+        'job',
+        'inspect',
+        '--root',
+        _loom_root(),
+        '--job-id',
+        job_id,
+        '--format',
+        'json',
+    ]
+    deadline = time.time() + timeout
+    last_snapshot = None
+    while time.time() < deadline:
+        try:
+            inspect = subprocess.run(inspect_cmd, capture_output=True, text=True, timeout=15, cwd=WORKSPACE, env=env)
+        except subprocess.TimeoutExpired:
+            inspect = None
+        if inspect and inspect.returncode == 0:
+            try:
+                last_snapshot = json.loads((inspect.stdout or '').strip())
+            except json.JSONDecodeError:
+                last_snapshot = None
+            if isinstance(last_snapshot, dict):
+                status = (last_snapshot.get('job_status') or '').strip().lower()
+                if status == 'completed':
+                    result_path = os.path.join(_loom_root(), 'state', 'runtime', 'jobs', job_id, 'result.json')
+                    worker_result = _load_json_file(result_path, default={}) or {}
+                    return {
+                        'ok': True,
+                        'runtime': 'loom',
+                        'capability_name': capability_name,
+                        'job_id': job_id,
+                        'submit': submit_payload,
+                        'snapshot': last_snapshot,
+                        'worker_result': worker_result,
+                        'result_path': result_path,
+                    }
+                if status in {'failed', 'denied', 'cancelled'}:
+                    return {
+                        'ok': False,
+                        'runtime': 'loom',
+                        'capability_name': capability_name,
+                        'job_id': job_id,
+                        'submit': submit_payload,
+                        'snapshot': last_snapshot,
+                        'error': f'Loom job ended with status={status}',
+                    }
+        time.sleep(1)
+
+    return {
+        'ok': False,
+        'runtime': 'loom',
+        'capability_name': capability_name,
+        'job_id': job_id,
+        'submit': submit_payload,
+        'snapshot': last_snapshot,
+        'error': f'Loom job timed out ({timeout}s limit)',
+    }
+
+
 def _normalize_loom_delivery_job(job, org_id=None, existing=None):
     job = dict(job or {})
     existing = dict(existing or {})
@@ -374,9 +689,227 @@ def queue_loom_delivery(subscription, *, preview=None, org_id=None, actor=''):
     }
 
 
+def run_loom_delivery_job(job_id, *, org_id=None, actor='', timeout=120, capability_name=None):
+    job_id = (job_id or '').strip()
+    if not job_id:
+        raise ValueError('job_id is required')
+
+    payload = load_subscriptions(org_id)
+    jobs = payload.setdefault('loom_delivery_jobs', {})
+    job = jobs.get(job_id)
+    if not job:
+        raise LookupError(f'Loom delivery job not found: {job_id}')
+
+    job = _normalize_loom_delivery_job(job, org_id, existing=job)
+    capability_name = (capability_name or _loom_delivery_capability()).strip()
+    now = now_ts()
+    run_record = {
+        'job_id': job_id,
+        'subscription_id': job.get('subscription_id', ''),
+        'preview_id': job.get('preview_id', ''),
+        'telegram_id': job.get('telegram_id', ''),
+        'plan': job.get('plan', ''),
+        'capability_name': capability_name,
+        'queued_at': job.get('queued_at', now),
+        'started_at': now,
+        'attempts': int(job.get('attempts', 0) or 0) + 1,
+        'recorded_by': actor or '',
+        'state': 'running',
+        'delivery_status': 'running',
+        'delivered': False,
+    }
+
+    if not capability_name:
+        run_record.update({
+            'state': 'blocked',
+            'delivery_status': 'blocked',
+            'error': 'Loom subscription delivery capability is not configured',
+            'finished_at': now,
+        })
+        job.update({
+            'state': 'ready',
+            'delivery_status': 'blocked',
+            'attempts': run_record['attempts'],
+            'blocked_reason': run_record['error'],
+            'updated_at': now_ts(),
+        })
+        job['execution_refs'] = dict(job.get('execution_refs') or {})
+        payload['loom_delivery_runs'] = list(payload.get('loom_delivery_runs', [])) + [_normalize_loom_delivery_run(run_record, org_id)]
+        jobs[job_id] = job
+        save_subscriptions(payload, org_id)
+        return {
+            'job_id': job_id,
+            'delivery_job': job,
+            'run': _normalize_loom_delivery_run(run_record, org_id),
+        }
+
+    preflight = _loom_delivery_preflight(capability_name)
+    if not preflight.get('ok'):
+        run_record.update({
+            'state': 'blocked',
+            'delivery_status': 'blocked',
+            'error': '; '.join(preflight.get('errors') or ['loom delivery preflight failed']),
+            'finished_at': now,
+            'execution_refs': {'preflight': preflight},
+        })
+        job.update({
+            'state': 'blocked',
+            'delivery_status': 'blocked',
+            'blocked_reason': run_record['error'],
+            'blocked_at': now,
+            'attempts': run_record['attempts'],
+            'execution_refs': {'preflight': preflight},
+            'updated_at': now_ts(),
+        })
+        payload['loom_delivery_runs'] = list(payload.get('loom_delivery_runs', [])) + [_normalize_loom_delivery_run(run_record, org_id)]
+        jobs[job_id] = job
+        save_subscriptions(payload, org_id)
+        return {
+            'job_id': job_id,
+            'delivery_job': job,
+            'run': _normalize_loom_delivery_run(run_record, org_id),
+            'preflight': preflight,
+        }
+
+    job.update({
+        'state': 'executing',
+        'delivery_status': 'running',
+        'running_at': now,
+        'attempts': run_record['attempts'],
+        'executing_by': actor or '',
+        'updated_at': now_ts(),
+        'execution_refs': dict(job.get('execution_refs') or {}),
+    })
+    jobs[job_id] = job
+    save_subscriptions(payload, org_id)
+
+    run_payload = {
+        'job_id': job_id,
+        'subscription_id': job.get('subscription_id', ''),
+        'preview_id': job.get('preview_id', ''),
+        'telegram_id': job.get('telegram_id', ''),
+        'plan': job.get('plan', ''),
+        'queued_at': job.get('queued_at', now),
+        'started_at': now,
+        'capability_name': capability_name,
+        'actor': actor or '',
+        'job_type': job.get('job_type', 'subscription_loom_delivery'),
+    }
+    execution = _run_loom_delivery_capability(capability_name, run_payload, timeout=timeout)
+    finished_at = now_ts()
+    if execution.get('ok'):
+        job.update({
+            'state': 'executed',
+            'delivery_status': 'delivered',
+            'delivered_at': finished_at,
+            'executed_at': finished_at,
+            'delivery_ref': execution.get('job_id', job_id),
+            'completed_at': finished_at,
+            'completed_by': actor or '',
+            'updated_at': now_ts(),
+            'error': '',
+            'execution_refs': {
+                'capability_name': capability_name,
+                'submit': execution.get('submit', {}),
+                'snapshot': execution.get('snapshot', {}),
+                'worker_result': execution.get('worker_result', {}),
+                'result_path': execution.get('result_path', ''),
+            },
+        })
+        run_record.update({
+            'state': 'executed',
+            'delivery_status': 'delivered',
+            'delivered': True,
+            'finished_at': finished_at,
+            'executed_at': finished_at,
+            'delivery_ref': job['delivery_ref'],
+            'error': '',
+            'submit': execution.get('submit', {}),
+            'snapshot': execution.get('snapshot', {}),
+            'worker_result': execution.get('worker_result', {}),
+            'result_path': execution.get('result_path', ''),
+            'execution_refs': dict(job.get('execution_refs') or {}),
+        })
+        payload.setdefault('delivery_log', []).append({
+            'telegram_id': job.get('telegram_id', ''),
+            'product': f"subscription:{job.get('plan', '') or 'delivery'}",
+            'delivered_at': finished_at,
+            'recorded_by': actor or '',
+            'delivery_ref': job['delivery_ref'],
+            'subscription_id': job.get('subscription_id', ''),
+            'preview_id': job.get('preview_id', ''),
+            'job_id': job_id,
+            'delivery_status': 'delivered',
+            'delivery_runtime': 'loom',
+            'capability_name': capability_name,
+        })
+    else:
+        job.update({
+            'state': 'blocked',
+            'delivery_status': 'blocked',
+            'blocked_reason': execution.get('error', 'loom delivery failed'),
+            'finished_at': finished_at,
+            'error': execution.get('error', ''),
+            'updated_at': now_ts(),
+            'execution_refs': {
+                'capability_name': capability_name,
+                'submit': execution.get('submit', {}),
+                'snapshot': execution.get('snapshot', {}),
+            },
+        })
+        run_record.update({
+            'state': 'blocked',
+            'delivery_status': 'blocked',
+            'finished_at': finished_at,
+            'error': execution.get('error', 'loom delivery failed'),
+            'submit': execution.get('submit', {}),
+            'snapshot': execution.get('snapshot', {}),
+            'execution_refs': dict(job.get('execution_refs') or {}),
+        })
+
+    payload['loom_delivery_runs'] = list(payload.get('loom_delivery_runs', [])) + [_normalize_loom_delivery_run(run_record, org_id)]
+    jobs[job_id] = job
+    save_subscriptions(payload, org_id)
+    return {
+        'job_id': job_id,
+        'delivery_job': job,
+        'run': _normalize_loom_delivery_run(run_record, org_id),
+        'execution': execution,
+    }
+
+
+def run_pending_loom_delivery_jobs(org_id=None, *, actor='', timeout=120, limit=50, capability_name=None):
+    payload = load_subscriptions(org_id)
+    jobs = list(payload.get('loom_delivery_jobs', {}).keys())
+    queued_job_ids = [
+        job_id for job_id in jobs
+        if (payload.get('loom_delivery_jobs', {}).get(job_id, {}).get('state') or 'queued') in {'queued', 'ready'}
+    ]
+    try:
+        limit = max(int(limit), 0)
+    except (TypeError, ValueError):
+        limit = 50
+    results = []
+    for job_id in queued_job_ids[:limit] if limit else []:
+        results.append(
+            run_loom_delivery_job(
+                job_id,
+                org_id=org_id,
+                actor=actor,
+                timeout=timeout,
+                capability_name=capability_name,
+            )
+        )
+    return {
+        'bound_org_id': (org_id or '').strip(),
+        'attempted_count': len(results),
+        'results': results,
+    }
+
+
 def activate_subscription_from_preview(preview, *, telegram_id=None, plan=None,
                                        payment_method='captured', payment_ref=None,
-                                       org_id=None, actor=''):
+                                       org_id=None, actor='', timeout=120):
     preview = dict(preview or {})
     preview_id = (preview.get('preview_id') or '').strip()
     if not preview_id:
@@ -432,11 +965,21 @@ def activate_subscription_from_preview(preview, *, telegram_id=None, plan=None,
     save_subscriptions(payload, org_id)
 
     delivery_job = queue_loom_delivery(subscription, preview=preview, org_id=org_id, actor=actor)
+    delivery_run = run_loom_delivery_job(
+        delivery_job['job_id'],
+        org_id=org_id,
+        actor=actor,
+        timeout=timeout,
+    )
+    payload = load_subscriptions(org_id)
+    delivery_job = payload.get('loom_delivery_jobs', {}).get(delivery_job['job_id'], delivery_job)
     return {
         'preview_id': preview_id,
         'telegram_id': subscriber_key,
         'subscription': subscription,
-        'delivery_job': delivery_job['delivery_job'],
+        'delivery_job': delivery_job,
+        'delivery_run': delivery_run['run'],
+        'delivery_execution': delivery_run.get('execution', {}),
     }
 
 
@@ -805,6 +1348,56 @@ def loom_delivery_queue_snapshot(org_id=None, *, limit=50):
     }
 
 
+def loom_delivery_run_snapshot(org_id=None, *, limit=50):
+    payload = load_subscriptions(org_id)
+    runs = [
+        _normalize_loom_delivery_run(run, org_id, existing=run)
+        for run in payload.get('loom_delivery_runs', [])
+    ]
+    runs = sorted(
+        runs,
+        key=lambda run: (
+            run.get('started_at', ''),
+            run.get('finished_at', ''),
+            run.get('run_id', ''),
+        ),
+        reverse=True,
+    )
+    try:
+        limit = max(int(limit), 0)
+    except (TypeError, ValueError):
+        limit = 50
+    limited_runs = runs[:limit] if limit else []
+    state_counts = {
+        'running': 0,
+        'executed': 0,
+        'blocked': 0,
+        'queued': 0,
+    }
+    delivered_count = 0
+    for run in runs:
+        state = run.get('state', 'queued')
+        state_counts[state] = state_counts.get(state, 0) + 1
+        if run.get('delivered'):
+            delivered_count += 1
+    return {
+        'bound_org_id': (org_id or '').strip(),
+        'management_mode': 'institution_owned_service',
+        'service_scope': 'institution_owned_subscription_service',
+        'boundary_name': 'subscriptions',
+        'summary': {
+            'total_runs': len(runs),
+            'delivered_count': delivered_count,
+            'running_count': state_counts.get('running', 0),
+            'executed_count': state_counts.get('executed', 0),
+            'blocked_count': state_counts.get('blocked', 0),
+            'queued_count': state_counts.get('queued', 0),
+        },
+        'delivery_runs': limited_runs,
+        'meta': payload.get('_meta', {}),
+    }
+
+
 def subscription_summary(org_id=None):
     payload = load_subscriptions(org_id)
     rows = list(payload.get('subscribers', {}).values())
@@ -812,6 +1405,7 @@ def subscription_summary(org_id=None):
     active = [sub for sub in all_subs if sub.get('status') == 'active']
     draft_subscriptions = list(payload.get('draft_subscriptions', {}).values())
     loom_delivery_jobs = list(payload.get('loom_delivery_jobs', {}).values())
+    loom_delivery_runs = list(payload.get('loom_delivery_runs', []))
     verified = [
         sub for sub in active
         if sub.get('plan') != 'trial' and sub.get('payment_verified')
@@ -824,6 +1418,10 @@ def subscription_summary(org_id=None):
         'verified_paid_subscription_count': len(verified),
         'delivery_log_count': len(payload.get('delivery_log', [])),
         'loom_delivery_job_count': len(loom_delivery_jobs),
+        'loom_delivery_run_count': len(loom_delivery_runs),
+        'executed_loom_delivery_run_count': sum(
+            1 for run in loom_delivery_runs if (run.get('state') or '') == 'executed'
+        ),
         'queued_loom_delivery_job_count': sum(
             1 for job in loom_delivery_jobs if (job.get('state') or 'queued') == 'queued'
         ),

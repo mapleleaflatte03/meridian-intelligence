@@ -25,6 +25,7 @@ SUBSCRIPTIONS_MUTATION_PATHS = [
     '/api/subscriptions/add',
     '/api/subscriptions/draft-from-preview',
     '/api/subscriptions/activate-from-preview',
+    '/api/subscriptions/loom-delivery-jobs/run',
     '/api/subscriptions/convert',
     '/api/subscriptions/verify-payment',
     '/api/subscriptions/set-email',
@@ -148,6 +149,7 @@ def subscription_snapshot(org_id=None):
     meta = payload.get('_meta', {})
     summary = subscription_service.subscription_summary(org_id)
     loom_delivery_queue = subscription_service.loom_delivery_queue_snapshot(org_id)
+    loom_delivery_runs = subscription_service.loom_delivery_run_snapshot(org_id)
     alias_registry = ensure_subscription_aliases(org_id)
     canonical_path = os.path.relpath(
         alias_registry['canonical_paths']['subscriptions'],
@@ -207,6 +209,8 @@ def subscription_snapshot(org_id=None):
         'loom_delivery_queue_summary': loom_delivery_queue['summary'],
         'loom_delivery_queue_paths': loom_delivery_queue['queue_paths'],
         'loom_delivery_queue_tail': loom_delivery_queue['delivery_jobs'][-20:],
+        'loom_delivery_run_summary': loom_delivery_runs['summary'],
+        'loom_delivery_run_tail': loom_delivery_runs['delivery_runs'][-20:],
     }
 
 

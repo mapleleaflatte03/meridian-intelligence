@@ -117,6 +117,9 @@ class ServiceStateTests(unittest.TestCase):
             'summary': {'total_jobs': 0, 'queued_count': 0, 'claimed_count': 0, 'completed_count': 0, 'blocked_count': 0},
             'queue_paths': {'inspect': '/api/subscriptions/loom-delivery-jobs', 'activation': '/api/subscriptions/activate-from-preview'},
             'delivery_jobs': [],
+        }), mock.patch.object(service_state.subscription_service, 'loom_delivery_run_snapshot', return_value={
+            'summary': {'total_runs': 0, 'delivered_count': 0, 'running_count': 0, 'executed_count': 0, 'blocked_count': 0, 'queued_count': 0},
+            'delivery_runs': [],
         }):
             snap = service_state.subscription_snapshot('org_demo')
         self.assertEqual(snap['bound_org_id'], 'org_demo')
@@ -162,6 +165,7 @@ class ServiceStateTests(unittest.TestCase):
         self.assertEqual(snap['summary']['external_target_count'], 1)
         self.assertEqual(snap['loom_delivery_queue_summary']['total_jobs'], 0)
         self.assertEqual(snap['loom_delivery_queue_paths']['inspect'], '/api/subscriptions/loom-delivery-jobs')
+        self.assertEqual(snap['loom_delivery_run_summary']['total_runs'], 0)
 
     def test_accounting_snapshot_reports_owner_summary(self):
         with open(self._owner, 'w') as f:

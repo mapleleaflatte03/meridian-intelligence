@@ -4,6 +4,7 @@ import os
 import shutil
 import tempfile
 import unittest
+from unittest import mock
 
 import subscription_service
 
@@ -67,6 +68,7 @@ class SubscriptionServiceTests(unittest.TestCase):
         self.assertEqual(default_payload['_meta']['storage_model'], 'capsule_canonical_with_legacy_symlink')
         self.assertEqual(default_payload['_meta']['bound_org_id'], self.org_id)
         self.assertEqual(default_payload['loom_delivery_jobs'], {})
+        self.assertEqual(default_payload['loom_delivery_runs'], [])
 
         normalized = subscription_service._normalize_subscriptions(
             {
@@ -81,6 +83,7 @@ class SubscriptionServiceTests(unittest.TestCase):
         self.assertEqual(normalized['_meta']['storage_model'], 'capsule_canonical_with_legacy_symlink')
         self.assertEqual(normalized['_meta']['bound_org_id'], self.org_id)
         self.assertEqual(normalized['loom_delivery_jobs'], {})
+        self.assertEqual(normalized['loom_delivery_runs'], [])
 
     def test_create_trial_subscription_returns_active_record(self):
         result = subscription_service.create_subscription(
@@ -176,14 +179,31 @@ class SubscriptionServiceTests(unittest.TestCase):
             'ts': subscription_service.now_ts(),
         })
 
-        result = subscription_service.activate_subscription_from_preview(
-            preview,
-            telegram_id='800',
-            plan='premium-brief-weekly',
-            payment_ref='ref-activate',
-            org_id=self.org_id,
-            actor='user:admin',
-        )
+        with mock.patch.object(subscription_service, 'run_loom_delivery_job', return_value={
+            'job_id': 'loom_sub_activated',
+            'delivery_job': {
+                'job_id': 'loom_sub_activated',
+                'state': 'executing',
+                'delivery_status': 'running',
+            },
+            'run': {
+                'run_id': 'ldr_sub_activated',
+                'job_id': 'loom_sub_activated',
+                'state': 'executed',
+                'delivery_status': 'delivered',
+                'delivered': True,
+                'delivery_ref': 'loom_sub_activated',
+            },
+            'execution': {'ok': True, 'job_id': 'loom_sub_activated'},
+        }):
+            result = subscription_service.activate_subscription_from_preview(
+                preview,
+                telegram_id='800',
+                plan='premium-brief-weekly',
+                payment_ref='ref-activate',
+                org_id=self.org_id,
+                actor='user:admin',
+            )
 
         subscription = result['subscription']
         payload = subscription_service.load_subscriptions(self.org_id)
@@ -196,10 +216,66 @@ class SubscriptionServiceTests(unittest.TestCase):
         self.assertTrue(subscription['payment_verified'])
         self.assertEqual(subscription['activated_from_preview_id'], 'quote_pir_activate')
         self.assertEqual(payload['loom_delivery_jobs']['loom_%s' % subscription['id']]['state'], 'queued')
+        self.assertEqual(result['delivery_run']['state'], 'executed')
         self.assertEqual(subscription_service.active_delivery_targets(self.org_id), ['800'])
         self.assertEqual(queue_snapshot['summary']['total_jobs'], 1)
         self.assertEqual(queue_snapshot['summary']['queued_count'], 1)
         self.assertEqual(queue_snapshot['delivery_jobs'][0]['subscription_id'], subscription['id'])
+
+    def test_run_loom_delivery_job_records_executed_run(self):
+        payload = subscription_service.load_subscriptions(self.org_id)
+        payload['subscribers']['800'] = [{
+            'id': 'sub_activated',
+            'plan': 'premium-brief-weekly',
+            'price_usd': 2.99,
+            'started_at': subscription_service.now_ts(),
+            'status': 'active',
+            'payment_method': 'captured',
+            'payment_ref': 'ref-activate',
+            'payment_verified': True,
+            'payment_verified_at': subscription_service.now_ts(),
+            'payment_evidence': {'order_id': 'ord-activate'},
+            'email': 'jane@example.com',
+            'created_by': 'user:admin',
+            'telegram_id': '800',
+            'subscriber_id': '800',
+            'created_for': '800',
+        }]
+        payload['loom_delivery_jobs'] = {
+            'loom_sub_activated': {
+                'job_id': 'loom_sub_activated',
+                'subscription_id': 'sub_activated',
+                'preview_id': 'quote_pir_activate',
+                'telegram_id': '800',
+                'plan': 'premium-brief-weekly',
+                'state': 'queued',
+                'queued_at': '2026-03-25T00:00:00Z',
+                'attempts': 0,
+            },
+        }
+        subscription_service.save_subscriptions(payload, self.org_id)
+
+        def _run(cmd, capture_output, text, timeout, cwd, env):
+            if cmd[1:3] == ['service', 'status']:
+                return mock.Mock(returncode=0, stdout=json.dumps({'running': True, 'service_status': 'running', 'health': 'healthy', 'transport': 'http'}), stderr='')
+            if cmd[1:3] == ['capability', 'show']:
+                return mock.Mock(returncode=0, stdout=json.dumps({'enabled': True, 'verification_status': 'verified', 'promotion_state': 'promoted'}), stderr='')
+            if cmd[1:3] == ['service', 'submit']:
+                return mock.Mock(returncode=0, stdout=json.dumps({'job_id': 'loom-job-1'}), stderr='')
+            if cmd[1:3] == ['job', 'inspect']:
+                return mock.Mock(returncode=0, stdout=json.dumps({'job_status': 'completed', 'job_path': '/tmp/jobs/loom-job-1/job.json', 'worker_status': 'completed'}), stderr='')
+            raise AssertionError(cmd)
+
+        with mock.patch.dict(subscription_service.os.environ, {'MERIDIAN_LOOM_SUBSCRIPTION_DELIVERY_CAPABILITY': 'company.subscription.delivery.v0'}, clear=False), mock.patch.object(subscription_service.subprocess, 'run', side_effect=_run), mock.patch.object(subscription_service, '_load_json_file', return_value={'delivery_ref': 'loom-job-1'}):
+            result = subscription_service.run_loom_delivery_job('loom_sub_activated', org_id=self.org_id, actor='user:admin', timeout=5)
+
+        payload = subscription_service.load_subscriptions(self.org_id)
+        self.assertEqual(result['run']['state'], 'executed')
+        self.assertTrue(result['run']['delivered'])
+        self.assertEqual(payload['loom_delivery_jobs']['loom_sub_activated']['state'], 'executed')
+        self.assertEqual(payload['loom_delivery_runs'][0]['state'], 'executed')
+        self.assertEqual(payload['loom_delivery_runs'][0]['delivery_ref'], 'loom-job-1')
+        self.assertEqual(payload['delivery_log'][-1]['delivery_ref'], 'loom-job-1')
 
     def test_convert_trial_subscription_binds_payment_evidence(self):
         subscription_service.create_subscription('200', plan='trial', org_id=self.org_id)
