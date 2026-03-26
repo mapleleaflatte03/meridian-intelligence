@@ -1356,36 +1356,9 @@ def do_qa_verify_route(text: str, criteria: str = 'factual') -> dict:
         fallback_state = {
             'used': False,
             'from_runtime': 'loom',
-            'to_runtime': 'openclaw',
             'reason': '; '.join(loom_preflight.get('errors') or ['loom preflight failed']),
             'state': 'preflight_failed',
         }
-        if fallback_enabled:
-            result = _run_openclaw_agent('aegis', prompt, timeout=60)
-            fallback_state['used'] = True
-            fallback_state['result'] = 'completed' if result.get('ok') else 'failed'
-            if result.get('ok'):
-                result = {
-                    'criteria': criteria,
-                    'verification': result.get('content', ''),
-                    'agent': 'Aegis',
-                    'runtime': 'openclaw',
-                    'source': 'Meridian QA Pipeline',
-                }
-            else:
-                result = {
-                    'criteria': criteria,
-                    'runtime': 'openclaw',
-                    'error': result.get('error', 'OpenClaw runtime failed'),
-                }
-            return _with_qa_verify_cutover(
-                result,
-                requested_runtime,
-                'openclaw',
-                fallback_enabled,
-                fallback_state=fallback_state,
-                loom_preflight=loom_preflight,
-            )
         result = {
             'criteria': criteria,
             'runtime': 'loom',
@@ -1396,7 +1369,7 @@ def do_qa_verify_route(text: str, criteria: str = 'factual') -> dict:
             result,
             requested_runtime,
             'loom',
-            fallback_enabled,
+            False,
             fallback_state=fallback_state,
             loom_preflight=loom_preflight,
         )
@@ -1420,7 +1393,7 @@ def do_qa_verify_route(text: str, criteria: str = 'factual') -> dict:
             result,
             requested_runtime,
             'loom',
-            fallback_enabled,
+            False,
             loom_result=loom_result,
             loom_preflight=loom_preflight,
         )
@@ -1428,37 +1401,9 @@ def do_qa_verify_route(text: str, criteria: str = 'factual') -> dict:
     fallback_state = {
         'used': False,
         'from_runtime': 'loom',
-        'to_runtime': 'openclaw',
         'reason': loom_result.get('error', 'loom runtime failed'),
         'state': 'loom_failed',
     }
-    if fallback_enabled:
-        fallback_result = _run_openclaw_agent('aegis', prompt, timeout=60)
-        fallback_state['used'] = True
-        fallback_state['result'] = 'completed' if fallback_result.get('ok') else 'failed'
-        if fallback_result.get('ok'):
-            result = {
-                'criteria': criteria,
-                'verification': fallback_result.get('content', ''),
-                'agent': 'Aegis',
-                'runtime': 'openclaw',
-                'source': 'Meridian QA Pipeline',
-            }
-        else:
-            result = {
-                'criteria': criteria,
-                'runtime': 'openclaw',
-                'error': fallback_result.get('error', 'OpenClaw runtime failed'),
-            }
-        return _with_qa_verify_cutover(
-            result,
-            requested_runtime,
-            'openclaw',
-            fallback_enabled,
-            fallback_state=fallback_state,
-            loom_result=loom_result,
-            loom_preflight=loom_preflight,
-        )
 
     result = {
         'criteria': criteria,
@@ -1471,11 +1416,12 @@ def do_qa_verify_route(text: str, criteria: str = 'factual') -> dict:
         result,
         requested_runtime,
         'loom',
-        fallback_enabled,
+        False,
         fallback_state=fallback_state,
         loom_result=loom_result,
         loom_preflight=loom_preflight,
     )
+
 
 # ── MCP Server Setup ─────────────────────────────────────────────────────────
 
