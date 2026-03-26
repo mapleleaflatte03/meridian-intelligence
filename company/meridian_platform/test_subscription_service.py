@@ -97,6 +97,48 @@ class SubscriptionServiceTests(unittest.TestCase):
             'institution_owned_subscription_service',
         )
 
+    def test_create_draft_subscription_from_preview_records_a_draft_only(self):
+        preview = {
+            'preview_id': 'quote_pir_draft',
+            'pilot_request_id': 'pir_draft',
+            'name': 'Jane Doe',
+            'company': 'Acme',
+            'email': 'jane@example.com',
+            'telegram_handle': '@jane',
+            'requested_cadence': 'Weekly brief',
+            'requested_offer': 'manual_pilot',
+            'review_note': 'Draft the continuation offer without checkout claims',
+            'preview_truth_source': 'pilot_intake_review_and_published_plan_table_only',
+            'state': 'reviewed',
+            'plan_options': [
+                {
+                    'plan': 'premium-brief-weekly',
+                    'price_usd': 2.99,
+                    'duration_days': 7,
+                    'billing_type': 'recurring',
+                },
+            ],
+        }
+
+        result = subscription_service.create_draft_subscription_from_preview(
+            preview,
+            org_id=self.org_id,
+            actor='user:owner',
+        )
+
+        draft = result['draft_subscription']
+        summary = subscription_service.subscription_summary(self.org_id)
+        payload = subscription_service.load_subscriptions(self.org_id)
+
+        self.assertEqual(result['preview_id'], 'quote_pir_draft')
+        self.assertEqual(draft['draft_id'], 'draft_quote_pir_draft')
+        self.assertEqual(draft['status'], 'draft')
+        self.assertFalse(draft['payment_verified'])
+        self.assertEqual(payload['draft_subscriptions']['draft_quote_pir_draft']['preview_id'], 'quote_pir_draft')
+        self.assertEqual(summary['draft_subscription_count'], 1)
+        self.assertEqual(summary['subscriber_count'], 0)
+        self.assertEqual(summary['active_subscription_count'], 0)
+
     def test_convert_trial_subscription_binds_payment_evidence(self):
         subscription_service.create_subscription('200', plan='trial', org_id=self.org_id)
         self._append_tx({
@@ -175,6 +217,7 @@ class SubscriptionServiceTests(unittest.TestCase):
         self.assertEqual(summary['subscriber_count'], 2)
         self.assertEqual(summary['subscription_count'], 2)
         self.assertEqual(summary['active_subscription_count'], 2)
+        self.assertEqual(summary['draft_subscription_count'], 0)
         self.assertEqual(summary['verified_paid_subscription_count'], 1)
         self.assertEqual(summary['external_target_count'], 2)
 

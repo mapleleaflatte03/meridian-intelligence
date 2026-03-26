@@ -76,6 +76,36 @@ class SubscriptionPreviewQueueTests(unittest.TestCase):
         self.assertEqual(len(snap['subscription_previews']), 1)
         self.assertEqual(snap['subscription_previews'][0]['preview_id'], 'quote_pir_demo')
 
+    def test_mark_preview_drafted_surfaces_draft_status_without_checkout(self):
+        request = {
+            'request_id': 'pir_draft_queue',
+            'name': 'Jane Doe',
+            'company': 'Acme',
+            'reviewed_by': 'user_owner',
+        }
+        queued = subscription_preview_queue.queue_subscription_preview(
+            request,
+            org_id=self.org_id,
+            by='user_owner',
+            note='Draft the continuation offer',
+        )
+
+        updated = subscription_preview_queue.mark_preview_drafted(
+            queued['preview']['preview_id'],
+            'draft_quote_pir_draft_queue',
+            org_id=self.org_id,
+            by='user_owner',
+        )
+        snapshot = subscription_preview_queue.subscription_preview_queue_snapshot(self.org_id)
+
+        self.assertEqual(updated['preview']['draft_subscription_id'], 'draft_quote_pir_draft_queue')
+        self.assertEqual(updated['preview']['draft_state'], 'draft_created')
+        self.assertEqual(updated['summary']['drafted_count'], 1)
+        self.assertEqual(snapshot['summary']['drafted_count'], 1)
+        self.assertEqual(snapshot['subscription_previews'][0]['draft_subscription_id'], 'draft_quote_pir_draft_queue')
+        self.assertFalse(snapshot['subscription_previews'][0]['checkout_claimed'])
+        self.assertFalse(snapshot['subscription_previews'][0]['payment_capture_claimed'])
+
     def test_queue_preview_upserts_same_request_id(self):
         request = {
             'request_id': 'pir_repeat',

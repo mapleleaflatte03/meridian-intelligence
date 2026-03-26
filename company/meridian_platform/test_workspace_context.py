@@ -233,6 +233,7 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.assertTrue(permissions['/api/federation/execution-jobs/execute']['allowed'])
         self.assertEqual(permissions['/api/federation/execution-jobs/execute']['required_role'], 'admin')
         self.assertTrue(permissions['/api/subscriptions/add']['allowed'])
+        self.assertTrue(permissions['/api/subscriptions/draft-from-preview']['allowed'])
         self.assertTrue(permissions['/api/subscriptions/convert']['allowed'])
         self.assertTrue(permissions['/api/subscriptions/verify-payment']['allowed'])
         self.assertTrue(permissions['/api/subscriptions/remove']['allowed'])
@@ -249,6 +250,7 @@ class LiveWorkspaceContextTests(unittest.TestCase):
             'member',
         )
         self.assertEqual(permissions['/api/subscriptions/add']['required_role'], 'admin')
+        self.assertEqual(permissions['/api/subscriptions/draft-from-preview']['required_role'], 'admin')
         self.assertEqual(permissions['/api/subscriptions/convert']['required_role'], 'admin')
         self.assertEqual(permissions['/api/subscriptions/verify-payment']['required_role'], 'admin')
         self.assertEqual(permissions['/api/subscriptions/remove']['required_role'], 'admin')
@@ -649,6 +651,77 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.assertEqual(handler.response['status'], 201)
         self.assertEqual(handler.response['data']['request']['request_id'], 'pir_demo')
         self.assertEqual(handler.response['data']['summary']['total_requests'], 1)
+        self.assertEqual(result, handler.response)
+
+    def test_subscription_draft_from_preview_route_creates_status_surface(self):
+        calls = []
+        self.workspace._resolve_workspace_context = lambda: types.SimpleNamespace(org_id='org_founding', org={}, context_source='configured_org')
+
+        class PostHandler:
+            def __init__(self):
+                self.path = '/api/subscriptions/draft-from-preview'
+                self.headers = _Headers({'Content-Type': 'application/json'})
+                self.response = None
+
+            def _require_auth(self, path):
+                calls.append(('require_auth', path))
+                return True
+
+            def _json(self, data, status=200):
+                self.response = {'data': data, 'status': status}
+                return self.response
+
+            def _service_unavailable(self, message, is_api=False):
+                raise AssertionError(message)
+
+            def _session_claims_from_request(self, expected_org_id=None):
+                return None
+
+            def _read_body(self):
+                return {'preview_id': 'quote_pir_demo'}
+
+        with mock.patch.object(self.workspace.subscription_preview_queue, 'get_subscription_preview', return_value={
+            'preview_id': 'quote_pir_demo',
+            'pilot_request_id': 'pir_demo',
+            'state': 'reviewed',
+            'requested_offer': 'manual_pilot',
+            'preview_truth_source': 'pilot_intake_review_and_published_plan_table_only',
+        }), mock.patch.object(self.workspace.subscription_service, 'create_draft_subscription_from_preview', return_value={
+            'preview_id': 'quote_pir_demo',
+            'draft_subscription': {
+                'draft_id': 'draft_quote_pir_demo',
+                'preview_id': 'quote_pir_demo',
+                'pilot_request_id': 'pir_demo',
+                'status': 'draft',
+            },
+        }), mock.patch.object(self.workspace.subscription_preview_queue, 'mark_preview_drafted', return_value={
+            'preview': {
+                'preview_id': 'quote_pir_demo',
+                'pilot_request_id': 'pir_demo',
+                'draft_subscription_id': 'draft_quote_pir_demo',
+                'draft_state': 'draft_created',
+            },
+            'summary': {'total_previews': 1, 'drafted_count': 1},
+        }), mock.patch.object(self.workspace.service_state, 'subscription_snapshot', return_value={
+            'bound_org_id': 'org_founding',
+            'summary': {'subscriber_count': 0, 'draft_subscription_count': 1},
+        }), mock.patch.object(self.workspace, 'log_event', return_value='evt_demo'), mock.patch.object(self.workspace, '_resolve_auth_context', return_value={
+            'enabled': True,
+            'mode': 'credential_bound',
+            'org_id': 'org_founding',
+            'user_id': 'user_owner',
+            'role': 'owner',
+            'actor_id': 'user_owner',
+            'actor_source': 'test',
+            'session_id': 'sid_demo',
+        }):
+            handler = PostHandler()
+            result = self.workspace.WorkspaceHandler.do_POST(handler)
+        self.assertEqual(calls, [('require_auth', '/api/subscriptions/draft-from-preview')])
+        self.assertEqual(handler.response['status'], 200)
+        self.assertEqual(handler.response['data']['result']['draft_subscription']['status'], 'draft')
+        self.assertEqual(handler.response['data']['preview']['draft_subscription_id'], 'draft_quote_pir_demo')
+        self.assertEqual(handler.response['data']['subscription_preview_summary']['drafted_count'], 1)
         self.assertEqual(result, handler.response)
 
     def test_operator_pilot_intake_routes_expose_review_only_flow(self):

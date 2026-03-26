@@ -46,6 +46,7 @@ def now_dt():
 def _default_subscriptions(org_id=None):
     return {
         'subscribers': {},
+        'draft_subscriptions': {},
         'delivery_log': [],
         'updatedAt': now_ts(),
         '_meta': {
@@ -59,11 +60,63 @@ def _default_subscriptions(org_id=None):
     }
 
 
+def _normalize_draft_subscription(draft, org_id=None, existing=None):
+    draft = dict(draft or {})
+    existing = dict(existing or {})
+    draft_id = (draft.get('draft_id') or existing.get('draft_id') or '').strip()
+    if not draft_id:
+        draft_id = f"draft_{uuid.uuid4().hex[:12]}"
+
+    record = dict(existing)
+    record['draft_id'] = draft_id
+    record['preview_id'] = (draft.get('preview_id') or existing.get('preview_id') or '').strip()
+    record['pilot_request_id'] = (draft.get('pilot_request_id') or existing.get('pilot_request_id') or '').strip()
+    record['source_preview_state'] = (
+        draft.get('source_preview_state')
+        or existing.get('source_preview_state')
+        or ''
+    ).strip()
+    record['source_preview_truth_source'] = (
+        draft.get('source_preview_truth_source')
+        or existing.get('source_preview_truth_source')
+        or ''
+    ).strip()
+    record['requested_offer'] = (draft.get('requested_offer') or existing.get('requested_offer') or '').strip()
+    record['requested_cadence'] = (draft.get('requested_cadence') or existing.get('requested_cadence') or '').strip()
+    record['name'] = (draft.get('name') or existing.get('name') or '').strip()
+    record['company'] = (draft.get('company') or existing.get('company') or '').strip()
+    record['email'] = (draft.get('email') or existing.get('email') or '').strip()
+    record['telegram_handle'] = (draft.get('telegram_handle') or existing.get('telegram_handle') or '').strip()
+    record['plan_options'] = list(draft.get('plan_options') or existing.get('plan_options') or [])
+    record['plan'] = (draft.get('plan') or existing.get('plan') or '').strip()
+    record['price_usd'] = float(draft.get('price_usd', existing.get('price_usd', 0.0)) or 0.0)
+    record['status'] = (draft.get('status') or existing.get('status') or 'draft').strip() or 'draft'
+    record['drafted_at'] = (draft.get('drafted_at') or existing.get('drafted_at') or '').strip()
+    record['drafted_by'] = (draft.get('drafted_by') or existing.get('drafted_by') or '').strip()
+    record['draft_note'] = (draft.get('draft_note') or existing.get('draft_note') or '').strip()
+    record['subscription_id'] = (draft.get('subscription_id') or existing.get('subscription_id') or '').strip()
+    record['subscription_source'] = (
+        draft.get('subscription_source')
+        or existing.get('subscription_source')
+        or 'subscription_preview_queue'
+    ).strip()
+    record['subscription_status'] = (draft.get('subscription_status') or existing.get('subscription_status') or 'draft').strip() or 'draft'
+    record['payment_method'] = (draft.get('payment_method') or existing.get('payment_method') or 'draft').strip()
+    record['payment_ref'] = (draft.get('payment_ref') or existing.get('payment_ref') or '').strip()
+    record['payment_verified'] = bool(draft.get('payment_verified', existing.get('payment_verified', False)))
+    record['payment_verified_at'] = (draft.get('payment_verified_at') or existing.get('payment_verified_at') or '').strip()
+    record['payment_evidence'] = dict(draft.get('payment_evidence') or existing.get('payment_evidence') or {})
+    record['created_at'] = (draft.get('created_at') or existing.get('created_at') or now_ts()).strip()
+    record['updated_at'] = now_ts()
+    return record
+
+
 def _normalize_subscriptions(data, org_id=None):
     if not isinstance(data, dict):
         return _default_subscriptions(org_id)
     payload = dict(data)
     payload.setdefault('subscribers', {})
+    payload.setdefault('draft_subscriptions', {})
     payload.setdefault('delivery_log', [])
     payload.setdefault('updatedAt', now_ts())
     payload.setdefault('_meta', {})
@@ -73,6 +126,23 @@ def _normalize_subscriptions(data, org_id=None):
     payload['_meta']['storage_model'] = 'capsule_canonical_with_legacy_symlink'
     payload['_meta']['bound_org_id'] = org_id or payload['_meta'].get('bound_org_id', '')
     payload['_meta'].setdefault('internal_test_ids', [])
+    raw_drafts = payload.get('draft_subscriptions', {})
+    drafts = {}
+    if isinstance(raw_drafts, list):
+        for item in raw_drafts:
+            if isinstance(item, dict):
+                draft_id = (item.get('draft_id') or '').strip()
+                if draft_id:
+                    drafts[draft_id] = dict(item)
+    elif isinstance(raw_drafts, dict):
+        for draft_id, item in raw_drafts.items():
+            if isinstance(item, dict):
+                record = dict(item)
+                record['draft_id'] = record.get('draft_id') or draft_id
+                drafts[record['draft_id']] = record
+    for draft_id, record in list(drafts.items()):
+        drafts[draft_id] = _normalize_draft_subscription(record, org_id, existing=record)
+    payload['draft_subscriptions'] = drafts
     return payload
 
 
@@ -204,6 +274,56 @@ def _bind_payment_evidence(subscription, payment_ref=None, *, org_id=None):
         'amount_usd': float(evidence.get('amount', 0.0) or 0.0),
     }
     return evidence
+
+
+def create_draft_subscription_from_preview(preview, *, org_id=None, actor=''):
+    preview = dict(preview or {})
+    preview_id = (preview.get('preview_id') or '').strip()
+    if not preview_id:
+        raise ValueError('preview_id is required')
+
+    subscription = {
+        'draft_id': f"draft_{preview_id}",
+        'preview_id': preview_id,
+        'pilot_request_id': (preview.get('pilot_request_id') or '').strip(),
+        'source_preview_state': (preview.get('state') or preview.get('preview_state') or '').strip(),
+        'source_preview_truth_source': (preview.get('preview_truth_source') or '').strip(),
+        'requested_offer': (preview.get('requested_offer') or '').strip(),
+        'requested_cadence': (preview.get('requested_cadence') or '').strip(),
+        'name': (preview.get('name') or '').strip(),
+        'company': (preview.get('company') or '').strip(),
+        'email': (preview.get('email') or '').strip(),
+        'telegram_handle': (preview.get('telegram_handle') or '').strip(),
+        'plan_options': list(preview.get('plan_options') or []),
+        'plan': '',
+        'price_usd': 0.0,
+        'status': 'draft',
+        'drafted_at': now_ts(),
+        'drafted_by': actor or '',
+        'draft_note': (preview.get('review_note') or '').strip(),
+        'subscription_source': 'subscription_preview_queue',
+        'subscription_status': 'draft',
+        'payment_method': 'draft',
+        'payment_ref': '',
+        'payment_verified': False,
+        'payment_verified_at': '',
+        'payment_evidence': {},
+        'created_at': now_ts(),
+        'updated_at': now_ts(),
+    }
+
+    payload = load_subscriptions(org_id)
+    drafts = payload.setdefault('draft_subscriptions', {})
+    drafts[subscription['draft_id']] = _normalize_draft_subscription(
+        subscription,
+        org_id,
+        existing=drafts.get(subscription['draft_id'], {}),
+    )
+    save_subscriptions(payload, org_id)
+    return {
+        'preview_id': preview_id,
+        'draft_subscription': drafts[subscription['draft_id']],
+    }
 
 
 def active_delivery_targets(org_id=None, *, external_only=False):
@@ -476,6 +596,7 @@ def subscription_summary(org_id=None):
     rows = list(payload.get('subscribers', {}).values())
     all_subs = [sub for records in rows for sub in records]
     active = [sub for sub in all_subs if sub.get('status') == 'active']
+    draft_subscriptions = list(payload.get('draft_subscriptions', {}).values())
     verified = [
         sub for sub in active
         if sub.get('plan') != 'trial' and sub.get('payment_verified')
@@ -484,6 +605,7 @@ def subscription_summary(org_id=None):
         'subscriber_count': len(payload.get('subscribers', {})),
         'subscription_count': len(all_subs),
         'active_subscription_count': len(active),
+        'draft_subscription_count': len(draft_subscriptions),
         'verified_paid_subscription_count': len(verified),
         'delivery_log_count': len(payload.get('delivery_log', [])),
         'internal_test_id_count': len(payload.get('_meta', {}).get('internal_test_ids', [])),

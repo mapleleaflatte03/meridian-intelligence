@@ -107,6 +107,7 @@ class ServiceStateTests(unittest.TestCase):
             'subscriber_count': 2,
             'subscription_count': 3,
             'active_subscription_count': 2,
+            'draft_subscription_count': 1,
             'verified_paid_subscription_count': 1,
             'delivery_log_count': 2,
             'internal_test_id_count': 1,
@@ -141,12 +142,14 @@ class ServiceStateTests(unittest.TestCase):
         )
         self.assertEqual(snap['alias_registry']['compatibility_mode'], 'legacy_symlink')
         self.assertIn('/api/subscriptions/add', snap['mutation_paths'])
+        self.assertIn('/api/subscriptions/draft-from-preview', snap['mutation_paths'])
         self.assertIn('/api/subscriptions/convert', snap['mutation_paths'])
         self.assertIn('/api/subscriptions/verify-payment', snap['mutation_paths'])
         self.assertIn('/api/subscriptions/remove', snap['mutation_paths'])
         self.assertEqual(snap['summary']['subscriber_count'], 2)
         self.assertEqual(snap['summary']['subscription_count'], 3)
         self.assertEqual(snap['summary']['active_subscription_count'], 2)
+        self.assertEqual(snap['summary']['draft_subscription_count'], 1)
         self.assertEqual(snap['summary']['verified_paid_subscription_count'], 1)
         self.assertEqual(snap['summary']['delivery_log_count'], 2)
         self.assertEqual(snap['summary']['internal_test_id_count'], 1)

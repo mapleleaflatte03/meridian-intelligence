@@ -287,6 +287,7 @@ MUTATION_ROLE_REQUIREMENTS = {
     '/api/treasury/reserve-floor': 'owner',
     '/api/treasury/settlement-adapters/preflight': 'member',
     '/api/subscriptions/add': 'admin',
+    '/api/subscriptions/draft-from-preview': 'admin',
     '/api/subscriptions/convert': 'admin',
     '/api/subscriptions/verify-payment': 'admin',
     '/api/subscriptions/remove': 'admin',
@@ -4689,6 +4690,42 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                 return self._json({
                     'message': f"Subscription created: {subscription['id']}",
                     'result': result,
+                    'service_state': service_state.subscription_snapshot(org_id),
+                })
+
+            elif path == '/api/subscriptions/draft-from-preview':
+                preview_id = (body.get('preview_id') or '').strip()
+                preview = subscription_preview_queue.get_subscription_preview(preview_id, org_id=org_id)
+                result = subscription_service.create_draft_subscription_from_preview(
+                    preview,
+                    org_id=org_id,
+                    actor=by,
+                )
+                draft_subscription = result['draft_subscription']
+                preview_result = subscription_preview_queue.mark_preview_drafted(
+                    preview_id,
+                    draft_subscription['draft_id'],
+                    org_id=org_id,
+                    by=by,
+                )
+                log_event(
+                    org_id,
+                    by,
+                    'subscription_draft_created',
+                    outcome='success',
+                    resource=draft_subscription['draft_id'],
+                    details={
+                        'preview_id': preview_id,
+                        'pilot_request_id': draft_subscription.get('pilot_request_id', ''),
+                        'draft_status': draft_subscription.get('status', 'draft'),
+                    },
+                    session_id=_sid,
+                )
+                return self._json({
+                    'message': 'Draft subscription created from preview record; no checkout or payment capture claimed',
+                    'result': result,
+                    'preview': preview_result['preview'],
+                    'subscription_preview_summary': preview_result['summary'],
                     'service_state': service_state.subscription_snapshot(org_id),
                 })
 

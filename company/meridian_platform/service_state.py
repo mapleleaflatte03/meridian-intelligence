@@ -23,6 +23,7 @@ LEGACY_SUBSCRIPTIONS_FILE = os.path.join(WORKSPACE, 'company', 'subscriptions.js
 LEGACY_OWNER_LEDGER_FILE = os.path.join(WORKSPACE, 'company', 'owner_ledger.json')
 SUBSCRIPTIONS_MUTATION_PATHS = [
     '/api/subscriptions/add',
+    '/api/subscriptions/draft-from-preview',
     '/api/subscriptions/convert',
     '/api/subscriptions/verify-payment',
     '/api/subscriptions/set-email',
