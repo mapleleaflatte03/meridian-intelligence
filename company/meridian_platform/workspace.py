@@ -30,7 +30,8 @@ Endpoints:
   GET  /api/federation/execution-jobs → Receiver-side federated execution jobs
   GET  /api/federation/manifest   → Public host federation manifest
   GET  /api/federation/witness/archive → Witness-host archival evidence state
-  GET  /api/alerts               → Alert queue and delivery summary
+  GET  /api/alerts               → Alert queue, delivery, and dispatch summary
+  POST /api/alerts/dispatch      → Acknowledge queued alerts without claiming delivery
   GET  /api/runtime-proof         → Public live OpenClaw runtime proof receipt
   POST /api/authority/kill-switch → Engage/disengage kill switch
   POST /api/authority/approve     → Decide an approval
@@ -287,6 +288,7 @@ MUTATION_ROLE_REQUIREMENTS = {
     '/api/subscriptions/remove': 'admin',
     '/api/subscriptions/set-email': 'admin',
     '/api/subscriptions/record-delivery': 'admin',
+    '/api/alerts/dispatch': 'admin',
     '/api/accounting/expense': 'owner',
     '/api/accounting/reimburse': 'owner',
     '/api/accounting/draw': 'owner',
@@ -4757,6 +4759,35 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                     'message': f"Delivery recorded: {entry['telegram_id']}",
                     'entry': entry,
                     'service_state': service_state.subscription_snapshot(org_id),
+                })
+
+            elif path == '/api/alerts/dispatch':
+                limit = int(body.get('limit') or 20)
+                acknowledge_only = body.get('acknowledge_only')
+                if acknowledge_only is None:
+                    acknowledge_only = True
+                result = alerting.dispatch_queued_alerts(
+                    org_id,
+                    limit=limit,
+                    hook_name=(body.get('hook_name') or '').strip(),
+                    acknowledge_only=bool(acknowledge_only),
+                )
+                log_event(
+                    org_id,
+                    by,
+                    'alert_queue_dispatched',
+                    outcome='success',
+                    resource=str(result.get('dispatched_count', 0)),
+                    details={
+                        'dispatch_mode': result.get('dispatch_mode', ''),
+                        'acknowledged_count': result.get('acknowledged_count', 0),
+                        'pending_delivery_count': result.get('pending_delivery_count', 0),
+                    },
+                    session_id=_sid,
+                )
+                return self._json({
+                    'message': 'Alert queue acknowledged without claiming external delivery',
+                    'result': result,
                 })
 
             elif path == '/api/payouts/propose':

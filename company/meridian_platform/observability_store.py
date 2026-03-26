@@ -93,6 +93,20 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
     )
     conn.execute(
         """
+        CREATE TABLE IF NOT EXISTS slo_alert_dispatches (
+            id TEXT PRIMARY KEY,
+            timestamp TEXT NOT NULL,
+            org_id TEXT NOT NULL,
+            alert_event_id TEXT NOT NULL,
+            hook_name TEXT,
+            status TEXT NOT NULL,
+            acknowledged INTEGER NOT NULL,
+            details_json TEXT
+        )
+        """
+    )
+    conn.execute(
+        """
         CREATE TABLE IF NOT EXISTS slo_alert_state (
             org_id TEXT NOT NULL,
             policy_name TEXT NOT NULL,
@@ -113,6 +127,7 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
     conn.execute('CREATE INDEX IF NOT EXISTS idx_alert_org_time ON slo_alert_events(org_id, timestamp DESC)')
     conn.execute('CREATE INDEX IF NOT EXISTS idx_alert_policy_time ON slo_alert_events(policy_name, timestamp DESC)')
     conn.execute('CREATE INDEX IF NOT EXISTS idx_alert_delivery_org_time ON slo_alert_deliveries(org_id, timestamp DESC)')
+    conn.execute('CREATE INDEX IF NOT EXISTS idx_alert_dispatch_org_time ON slo_alert_dispatches(org_id, timestamp DESC)')
     conn.execute('CREATE INDEX IF NOT EXISTS idx_alert_state_org_policy ON slo_alert_state(org_id, policy_name, objective)')
 
 
@@ -213,6 +228,28 @@ def _write_alert_delivery_row(conn: sqlite3.Connection, delivery: dict[str, Any]
     )
 
 
+def _write_alert_dispatch_row(conn: sqlite3.Connection, dispatch: dict[str, Any]) -> None:
+    _ensure_schema(conn)
+    conn.execute(
+        """
+        INSERT OR REPLACE INTO slo_alert_dispatches (
+            id, timestamp, org_id, alert_event_id, hook_name, status,
+            acknowledged, details_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            dispatch.get('id', ''),
+            dispatch.get('timestamp', ''),
+            dispatch.get('org_id', ''),
+            dispatch.get('alert_event_id', ''),
+            dispatch.get('hook_name', ''),
+            dispatch.get('status', ''),
+            1 if dispatch.get('acknowledged') else 0,
+            json.dumps(dispatch.get('details') or {}, sort_keys=True),
+        ),
+    )
+
+
 def _write_alert_state_row(conn: sqlite3.Connection, state: dict[str, Any]) -> None:
     _ensure_schema(conn)
     conn.execute(
@@ -292,6 +329,17 @@ def write_slo_alert_delivery(log_path: str, delivery: dict[str, Any]) -> bool:
         return False
 
 
+def write_slo_alert_dispatch(log_path: str, dispatch: dict[str, Any]) -> bool:
+    db_path = db_path_for_log(log_path)
+    try:
+        with _connect(db_path) as conn:
+            _write_alert_dispatch_row(conn, dispatch)
+            conn.commit()
+        return True
+    except sqlite3.Error:
+        return False
+
+
 def upsert_slo_alert_state(log_path: str, state: dict[str, Any]) -> bool:
     db_path = db_path_for_log(log_path)
     try:
@@ -319,6 +367,7 @@ def db_status_for_log(log_path: str) -> dict[str, Any]:
             meter_count = conn.execute('SELECT COUNT(*) FROM metering_events').fetchone()[0]
             alert_count = conn.execute('SELECT COUNT(*) FROM slo_alert_events').fetchone()[0]
             alert_delivery_count = conn.execute('SELECT COUNT(*) FROM slo_alert_deliveries').fetchone()[0]
+            alert_dispatch_count = conn.execute('SELECT COUNT(*) FROM slo_alert_dispatches').fetchone()[0]
             alert_state_count = conn.execute('SELECT COUNT(*) FROM slo_alert_state').fetchone()[0]
         snapshot.update({
             'status': 'present',
@@ -328,6 +377,7 @@ def db_status_for_log(log_path: str) -> dict[str, Any]:
             'metering_events': int(meter_count or 0),
             'slo_alert_events': int(alert_count or 0),
             'slo_alert_deliveries': int(alert_delivery_count or 0),
+            'slo_alert_dispatches': int(alert_dispatch_count or 0),
             'slo_alert_state_rows': int(alert_state_count or 0),
         })
     except sqlite3.Error as exc:
@@ -534,6 +584,72 @@ def query_slo_alert_events(
             if status and event.get('status') != status:
                 continue
             if objective and event.get('objective') != objective:
+                continue
+            if since and event.get('timestamp', '') < since:
+                continue
+            results.append(event)
+    results.reverse()
+    return results[:limit]
+
+
+def query_slo_alert_dispatches(
+    log_path: str,
+    *,
+    org_id: str | None = None,
+    alert_event_id: str | None = None,
+    status: str | None = None,
+    since: str | None = None,
+    limit: int = 50,
+) -> list[dict[str, Any]]:
+    db_path = db_path_for_log(log_path)
+    if os.path.exists(db_path):
+        try:
+            clauses = []
+            params: list[Any] = []
+            if org_id:
+                clauses.append('org_id = ?')
+                params.append(org_id)
+            if alert_event_id:
+                clauses.append('alert_event_id = ?')
+                params.append(alert_event_id)
+            if status:
+                clauses.append('status = ?')
+                params.append(status)
+            if since:
+                clauses.append('timestamp >= ?')
+                params.append(since)
+            where = f"WHERE {' AND '.join(clauses)}" if clauses else ''
+            query = (
+                'SELECT id, timestamp, org_id, alert_event_id, hook_name, status, acknowledged, details_json '
+                f'FROM slo_alert_dispatches {where} '
+                'ORDER BY timestamp DESC, rowid DESC LIMIT ?'
+            )
+            params.append(limit)
+            with _connect(db_path) as conn:
+                _ensure_schema(conn)
+                rows = conn.execute(query, params).fetchall()
+            return [_row_to_event(row, details_key='details_json') for row in rows]
+        except sqlite3.Error:
+            pass
+    if not os.path.exists(log_path):
+        return []
+    results: list[dict[str, Any]] = []
+    with open(log_path) as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if event.get('record_type') and event.get('record_type') != 'dispatch':
+                continue
+            if org_id and event.get('org_id') != org_id:
+                continue
+            if alert_event_id and event.get('alert_event_id') != alert_event_id:
+                continue
+            if status and event.get('status') != status:
                 continue
             if since and event.get('timestamp', '') < since:
                 continue

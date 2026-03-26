@@ -159,6 +159,27 @@ def _event_delivery_summary(event: dict[str, Any], deliveries: list[dict[str, An
     }
 
 
+def _event_dispatch_summary(event: dict[str, Any], dispatches: list[dict[str, Any]]) -> dict[str, Any]:
+    latest_dispatch = dispatches[0] if dispatches else None
+    latest_status = str((latest_dispatch or {}).get('status', '') or '')
+    dispatched = bool((latest_dispatch or {}).get('acknowledged'))
+    if not dispatches:
+        dispatch_state = 'not_dispatched'
+    elif latest_status in HOOK_SUCCESS_STATUSES:
+        dispatch_state = 'delivered'
+    elif latest_status:
+        dispatch_state = latest_status
+    elif dispatched:
+        dispatch_state = 'acknowledged'
+    else:
+        dispatch_state = 'attempted'
+    return {
+        'dispatch_state': dispatch_state,
+        'dispatch_attempt_count': len(dispatches),
+        'latest_dispatch': latest_dispatch,
+    }
+
+
 def record_slo_alerts(
     evaluation: dict[str, Any],
     *,
@@ -294,26 +315,132 @@ def record_slo_alerts(
     }
 
 
+def _dispatch_record(org_id: str, alert_event_id: str, hook_name: str, result: Any, *, evaluated_at: str) -> dict[str, Any]:
+    normalized = _normalize_hook_result(result)
+    return {
+        'record_type': 'dispatch',
+        'id': f'sloalertdisp_{uuid.uuid4().hex[:12]}',
+        'timestamp': _now(),
+        'org_id': org_id,
+        'alert_event_id': alert_event_id,
+        'hook_name': hook_name,
+        'status': normalized['status'],
+        'acknowledged': True,
+        'evaluated_at': evaluated_at,
+        'details': normalized['details'],
+    }
+
+
+def dispatch_queued_alerts(
+    org_id: str,
+    *,
+    limit: int = 20,
+    delivery_hook: AlertHook | None = None,
+    hook_name: str = '',
+    acknowledge_only: bool = True,
+) -> dict[str, Any]:
+    queue_snapshot = alert_queue_snapshot(org_id, limit=limit)
+    queue_entries = queue_snapshot.get('queue', []) or []
+    dispatches: list[dict[str, Any]] = []
+    dispatched_entries = 0
+    skipped_existing_dispatches = 0
+    for entry in queue_entries:
+        if entry.get('delivery_state') in HOOK_SUCCESS_STATUSES:
+            continue
+        if int(entry.get('dispatch_attempt_count', 0) or 0) > 0:
+            skipped_existing_dispatches += 1
+            continue
+        event = entry.get('event') or {}
+        event_id = str(event.get('id', '') or entry.get('alert_event_id', '') or '')
+        if not event_id:
+            continue
+        resolved_hook_name = hook_name or (getattr(delivery_hook, '__name__', '') if delivery_hook is not None else '')
+        if acknowledge_only or delivery_hook is None:
+            dispatch_record = _dispatch_record(
+                org_id,
+                event_id,
+                resolved_hook_name,
+                {
+                    'status': 'acknowledged_pending',
+                    'acknowledged': True,
+                    'dispatch_mode': 'inspect_only',
+                    'delivery_state': entry.get('delivery_state', ''),
+                    'would_call_hook': delivery_hook is not None and not acknowledge_only,
+                },
+                evaluated_at=str(event.get('evaluated_at') or ''),
+            )
+        else:
+            try:
+                hook_result = delivery_hook(event)
+            except Exception as exc:  # pragma: no cover - exercised via tests
+                dispatch_record = _dispatch_record(
+                    org_id,
+                    event_id,
+                    resolved_hook_name,
+                    {'status': 'failed', 'error': str(exc), 'dispatch_mode': 'hook'},
+                    evaluated_at=str(event.get('evaluated_at') or ''),
+                )
+            else:
+                dispatch_record = _dispatch_record(
+                    org_id,
+                    event_id,
+                    resolved_hook_name,
+                    hook_result,
+                    evaluated_at=str(event.get('evaluated_at') or ''),
+                )
+        dispatches.append(dispatch_record)
+        dispatched_entries += 1
+        _persist_jsonl_record(dispatch_record)
+        observability_store.write_slo_alert_dispatch(ALERT_LOG_FILE, dispatch_record)
+    refreshed_queue = alert_queue_snapshot(org_id, limit=limit)
+    return {
+        'log_path': ALERT_LOG_FILE,
+        'org_id': org_id,
+        'limit': limit,
+        'dispatch_mode': 'inspect_only' if acknowledge_only or delivery_hook is None else 'hook',
+        'dispatched_count': dispatched_entries,
+        'acknowledged_count': dispatched_entries,
+        'skipped_existing_dispatch_count': skipped_existing_dispatches,
+        'queue_count': refreshed_queue.get('queue_count', 0),
+        'pending_delivery_count': refreshed_queue.get('pending_delivery_count', 0),
+        'delivered_count': refreshed_queue.get('delivered_count', 0),
+        'dispatches': dispatches,
+        'queue': refreshed_queue.get('queue', []),
+        'db': refreshed_queue.get('db', observability_store.db_status_for_log(ALERT_LOG_FILE)),
+    }
+
+
 def alert_queue_snapshot(org_id: str, *, limit: int = 20) -> dict[str, Any]:
     events = observability_store.query_slo_alert_events(ALERT_LOG_FILE, org_id=org_id, limit=limit)
     deliveries = observability_store.query_slo_alert_deliveries(ALERT_LOG_FILE, org_id=org_id, limit=limit * 5)
+    dispatches = observability_store.query_slo_alert_dispatches(ALERT_LOG_FILE, org_id=org_id, limit=limit * 5)
     deliveries_by_event: dict[str, list[dict[str, Any]]] = {}
     for delivery in deliveries:
         alert_event_id = str(delivery.get('alert_event_id', '') or '')
         deliveries_by_event.setdefault(alert_event_id, []).append(delivery)
+    dispatches_by_event: dict[str, list[dict[str, Any]]] = {}
+    for dispatch in dispatches:
+        alert_event_id = str(dispatch.get('alert_event_id', '') or '')
+        dispatches_by_event.setdefault(alert_event_id, []).append(dispatch)
     queue_entries = []
     for event in events:
         if not event.get('active'):
             continue
-        queue_entries.append(_event_delivery_summary(event, deliveries_by_event.get(str(event.get('id', '') or ''), [])))
+        event_id = str(event.get('id', '') or '')
+        entry = _event_delivery_summary(event, deliveries_by_event.get(event_id, []))
+        entry.update(_event_dispatch_summary(event, dispatches_by_event.get(event_id, [])))
+        queue_entries.append(entry)
     pending_entries = [entry for entry in queue_entries if entry['delivery_state'] not in HOOK_SUCCESS_STATUSES]
     delivered_entries = [entry for entry in queue_entries if entry['delivery_state'] in HOOK_SUCCESS_STATUSES]
+    acknowledged_entries = [entry for entry in queue_entries if entry['dispatch_state'] != 'not_dispatched']
     return {
         'log_path': ALERT_LOG_FILE,
         'org_id': org_id,
         'queue_count': len(queue_entries),
         'pending_delivery_count': len(pending_entries),
         'delivered_count': len(delivered_entries),
+        'acknowledged_count': len(acknowledged_entries),
+        'dispatch_attempt_count': sum(int(entry.get('dispatch_attempt_count', 0) or 0) for entry in queue_entries),
         'queue': queue_entries,
         'db': observability_store.db_status_for_log(ALERT_LOG_FILE),
     }

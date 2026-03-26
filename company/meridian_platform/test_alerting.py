@@ -193,6 +193,57 @@ class AlertingTests(unittest.TestCase):
         self.assertEqual(queue['queue'][0]['delivery_state'], 'dry_run')
         self.assertEqual(queue['queue'][0]['event']['objective'], 'audit_freshness')
 
+    def test_dispatch_queued_alerts_acknowledges_pending_queue_without_claiming_delivery(self):
+        evaluation = {
+            'policy_name': 'meridian_observability_slo_v1',
+            'evaluated_at': '2026-03-25T01:00:00Z',
+            'status': 'warning',
+            'objectives': [
+                {
+                    'name': 'audit_freshness',
+                    'status': 'warning',
+                    'message': 'Latest sample age is 7200s',
+                    'metric': 'audit.latest_at',
+                    'warning_after_seconds': 3600,
+                    'breach_after_seconds': 86400,
+                    'observed_seconds': 7200,
+                },
+            ],
+            'alerts': [
+                {
+                    'objective': 'audit_freshness',
+                    'status': 'warning',
+                    'message': 'Latest sample age is 7200s',
+                },
+            ],
+            'alert_count': 1,
+        }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            alert_path = os.path.join(tmp, 'slo_alert_log.jsonl')
+            with (
+                mock.patch.object(alerting, 'ALERT_LOG_FILE', alert_path),
+                mock.patch.object(alerting, '_now', return_value='2026-03-25T01:00:00Z'),
+            ):
+                alerting.record_slo_alerts(evaluation, org_id='org_demo')
+                result = alerting.dispatch_queued_alerts('org_demo')
+                queue = alerting.alert_queue_snapshot('org_demo')
+
+            dispatches = observability_store.query_slo_alert_dispatches(alert_path, org_id='org_demo')
+
+        self.assertEqual(result['dispatch_mode'], 'inspect_only')
+        self.assertEqual(result['dispatched_count'], 1)
+        self.assertEqual(result['acknowledged_count'], 1)
+        self.assertEqual(result['pending_delivery_count'], 1)
+        self.assertEqual(len(dispatches), 1)
+        self.assertEqual(dispatches[0]['status'], 'acknowledged_pending')
+        self.assertTrue(dispatches[0]['acknowledged'])
+        self.assertEqual(queue['queue_count'], 1)
+        self.assertEqual(queue['pending_delivery_count'], 1)
+        self.assertEqual(queue['acknowledged_count'], 1)
+        self.assertEqual(queue['queue'][0]['dispatch_state'], 'acknowledged_pending')
+        self.assertEqual(queue['queue'][0]['dispatch_attempt_count'], 1)
+
 
 if __name__ == '__main__':
     unittest.main()

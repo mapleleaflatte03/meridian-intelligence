@@ -2820,6 +2820,67 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.assertEqual(handler.response['data']['pending_delivery_count'], 1)
         self.assertEqual(result, handler.response)
 
+    def test_alerts_dispatch_route_acknowledges_queue_without_claiming_delivery(self):
+        calls = []
+
+        class FakeHandler:
+            def __init__(self):
+                self.path = '/api/alerts/dispatch'
+                self.headers = _Headers({'Content-Length': '0'})
+                self.response = None
+
+            def _require_auth(self, path):
+                calls.append(('require_auth', path))
+                return True
+
+            def _json(self, data, status=200):
+                self.response = {'data': data, 'status': status}
+                return self.response
+
+            def _service_unavailable(self, *args, **kwargs):
+                raise AssertionError('alerts dispatch route should return JSON')
+
+            def _session_claims_from_request(self, expected_org_id=None):
+                return None
+
+            def _read_body(self):
+                return {}
+
+        handler = FakeHandler()
+        with mock.patch.object(
+            self.workspace,
+            '_resolve_workspace_context',
+            return_value=types.SimpleNamespace(org_id='org_founding', org={}, context_source='configured_org'),
+        ), mock.patch.object(
+            self.workspace,
+            '_enforce_request_context',
+            return_value={'mode': 'process_bound'},
+        ), mock.patch.object(
+            self.workspace,
+            '_resolve_auth_context',
+            return_value={'enabled': True, 'role': 'owner'},
+        ), mock.patch.object(
+            self.workspace.alerting,
+            'dispatch_queued_alerts',
+            return_value={
+                'log_path': '/tmp/slo_alert_log.jsonl',
+                'org_id': 'org_founding',
+                'dispatch_mode': 'inspect_only',
+                'dispatched_count': 1,
+                'acknowledged_count': 1,
+                'pending_delivery_count': 1,
+                'delivered_count': 0,
+                'queue': [{'dispatch_state': 'acknowledged_pending'}],
+                'result': 'ignored',
+            },
+        ):
+            result = self.workspace.WorkspaceHandler.do_POST(handler)
+        self.assertEqual(calls, [('require_auth', '/api/alerts/dispatch')])
+        self.assertEqual(handler.response['status'], 200)
+        self.assertEqual(handler.response['data']['result']['dispatch_mode'], 'inspect_only')
+        self.assertEqual(handler.response['data']['result']['acknowledged_count'], 1)
+        self.assertEqual(result, handler.response)
+
     def test_runtime_proof_route_returns_live_runtime_snapshot(self):
         calls = []
 
