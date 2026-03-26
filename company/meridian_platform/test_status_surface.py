@@ -37,6 +37,11 @@ class StatusSurfaceTests(unittest.TestCase):
             with (
                 mock.patch.object(organizations, 'ORGS_FILE', orgs_path),
                 mock.patch.object(audit, 'AUDIT_FILE', audit_path),
+                mock.patch.object(
+                    status_surface,
+                    '_safe_capsule_path',
+                    side_effect=lambda org_id, filename: os.path.join(tmp, 'capsules', org_id, filename),
+                ),
             ):
                 snapshot = status_surface.persistence_snapshot('org_founding')
 
@@ -49,9 +54,11 @@ class StatusSurfaceTests(unittest.TestCase):
         self.assertIn('organizations.db', seam_names)
         self.assertIn('accounting.db', seam_names)
         self.assertIn('cases.db', seam_names)
+        self.assertIn('pilot_intake.json', seam_names)
         self.assertIn('accounting_service.py', seam_owners)
         self.assertIn('accounting_store.py', seam_owners)
         self.assertIn('cases_store.py', seam_owners)
+        self.assertIn('pilot_intake.py', seam_owners)
 
     def test_observability_snapshot_summarizes_file_backed_metrics(self):
         with tempfile.TemporaryDirectory() as tmp:

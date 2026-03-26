@@ -18,6 +18,7 @@ Endpoints:
   GET  /api/subscriptions         → Institution-owned subscription service state on the founding-locked host
   GET  /api/subscriptions/delivery-targets → Institution-owned delivery-target calculation on the founding-locked host
   GET  /api/accounting            → Institution-owned accounting owner-ledger state on the founding-locked host
+  GET  /api/pilot/intake          → Manual pilot intake queue snapshot on the founding-locked host
   GET  /api/payouts              → Payout proposals and summary
   GET  /api/court                 → Court records
   GET  /api/warrants              → Warrant records and summary
@@ -65,6 +66,7 @@ Endpoints:
   POST /api/subscriptions/remove  → Cancel active subscriptions for a Telegram user
   POST /api/subscriptions/set-email → Update subscription email metadata
   POST /api/subscriptions/record-delivery → Append a subscription delivery record
+  POST /api/pilot/intake         → Persist a public manual-pilot intake request
   POST /api/accounting/expense    → Record an owner-paid expense in the institution-owned ledger
   POST /api/accounting/reimburse  → Reimburse an owner-paid expense from treasury
   POST /api/accounting/draw       → Take an owner draw from treasury above reserve floor
@@ -196,6 +198,7 @@ import accounting_service
 import openclaw_runtime_proof
 import service_state
 import status_surface
+import pilot_intake
 import subscription_service
 from federation import (
     FederationAuthority,
@@ -3412,6 +3415,7 @@ def api_status(context_source='founding_default', institution_context=None):
         'service_state': {
             'subscriptions': service_state.subscription_snapshot(org_id),
             'accounting': service_state.accounting_snapshot(org_id),
+            'pilot_intake': service_state.pilot_intake_snapshot(org_id),
         },
         'persistence': status_surface.persistence_snapshot(org_id),
         'observability': status_surface.observability_snapshot(org_id),
@@ -4235,6 +4239,8 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
             })
         elif path == '/api/accounting':
             return self._json(service_state.accounting_snapshot(org_id))
+        elif path == '/api/pilot/intake':
+            return self._json(pilot_intake.queue_snapshot(org_id))
         elif path == '/api/payouts':
             host_identity, _admission_registry = _runtime_host_state(org_id)
             return self._json(_payout_snapshot(
@@ -4414,6 +4420,48 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                 return self._json({'error': str(e)}, 409)
             except FederationValidationError as e:
                 return self._json({'error': str(e)}, 403)
+            except RuntimeError as e:
+                return self._service_unavailable(str(e), is_api=True)
+            except ValueError as e:
+                return self._json({'error': str(e)}, 400)
+
+        if path == '/api/pilot/intake':
+            try:
+                inst_ctx = _resolve_workspace_context()
+                body = self._read_body()
+                result = pilot_intake.submit_pilot_request(
+                    body.get('name'),
+                    body.get('company'),
+                    email=body.get('email') or '',
+                    telegram_handle=body.get('telegram_handle') or '',
+                    requested_cadence=body.get('requested_cadence') or '',
+                    competitors=body.get('competitors') or [],
+                    topics=body.get('topics') or [],
+                    notes=body.get('notes') or '',
+                    source_page=body.get('source_page') or 'pilot.html',
+                    requested_offer=body.get('requested_offer') or 'manual_pilot',
+                    org_id=inst_ctx.org_id,
+                    submitted_by='public:intake',
+                )
+                log_event(
+                    inst_ctx.org_id,
+                    'public:intake',
+                    'pilot_intake_requested',
+                    resource=result['request']['request_id'],
+                    outcome='success',
+                    actor_type='external',
+                    details={
+                        'company': result['request'].get('company', ''),
+                        'contact_channel': result['request'].get('contact_channel', ''),
+                        'status': result['request'].get('status', ''),
+                        'source_page': result['request'].get('source_page', ''),
+                    },
+                )
+                return self._json({
+                    'message': 'Pilot intake request recorded',
+                    'request': result['request'],
+                    'summary': result['summary'],
+                }, 201)
             except RuntimeError as e:
                 return self._service_unavailable(str(e), is_api=True)
             except ValueError as e:

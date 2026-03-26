@@ -18,6 +18,7 @@ import organizations_store
 import observability_store
 import accounting_store
 import cases_store
+import pilot_intake
 import slo_policy
 import alerting
 
@@ -214,6 +215,11 @@ def persistence_snapshot(org_id=None):
             _safe_capsule_path(org_id, 'federation_inbox.json'),
             kind='json',
             owner='federation_inbox.py',
+        ),
+        _file_snapshot(
+            _safe_capsule_path(org_id, 'pilot_intake.json'),
+            kind='json',
+            owner='pilot_intake.py',
         ),
         orgs_db_snapshot,
         observability_db_snapshot,

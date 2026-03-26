@@ -23,6 +23,7 @@ class ServiceStateTests(unittest.TestCase):
         self._orig_legacy_owner = service_state.LEGACY_OWNER_LEDGER_FILE
         self._orig_workspace = service_state.WORKSPACE
         self._orig_subscription_summary = service_state.subscription_service.subscription_summary
+        self._orig_pilot_intake_snapshot = service_state.pilot_intake_snapshot
 
         service_state.subscriptions_path = lambda org_id=None: self._subs
         service_state.owner_ledger_path = lambda org_id=None: self._owner
@@ -73,6 +74,7 @@ class ServiceStateTests(unittest.TestCase):
         service_state.LEGACY_OWNER_LEDGER_FILE = self._orig_legacy_owner
         service_state.WORKSPACE = self._orig_workspace
         service_state.subscription_service.subscription_summary = self._orig_subscription_summary
+        service_state.pilot_intake_snapshot = self._orig_pilot_intake_snapshot
         shutil.rmtree(self._tmp, ignore_errors=True)
 
     def test_subscription_snapshot_reports_canonical_summary(self):
@@ -198,6 +200,48 @@ class ServiceStateTests(unittest.TestCase):
         self.assertEqual(snap['summary']['draws_taken_usd'], 0.25)
         self.assertEqual(snap['summary']['unreimbursed_expenses_usd'], 0.75)
         self.assertEqual(snap['summary']['entry_count'], 1)
+
+    def test_pilot_intake_snapshot_reports_request_queue(self):
+        service_state.pilot_intake_snapshot = lambda org_id=None: {
+            'bound_org_id': org_id,
+            'management_mode': 'manual_pilot_intake',
+            'mutation_enabled': True,
+            'mutation_disabled_reason': '',
+            'service_scope': 'manual_pilot_intake',
+            'boundary_name': 'pilot_intake',
+            'identity_model': 'public_submission',
+            'storage_model': 'capsule_canonical',
+            'request_paths': {
+                'submit': '/api/pilot/intake',
+                'inspect': '/api/pilot/intake',
+            },
+            'summary': {
+                'bound_org_id': org_id,
+                'total_requests': 1,
+                'requested_count': 1,
+                'reviewed_count': 0,
+                'contacted_count': 0,
+                'closed_count': 0,
+                'contactable_count': 1,
+                'latest_request_at': '2026-03-25T00:00:00Z',
+                'status_counts': {'requested': 1, 'reviewed': 0, 'contacted': 0, 'closed': 0},
+            },
+            'requests_tail': [{
+                'request_id': 'pir_demo',
+                'name': 'Jane Doe',
+                'company': 'Acme',
+                'status': 'requested',
+            }],
+            'meta': {'boundary_name': 'pilot_intake'},
+        }
+        snap = service_state.pilot_intake_snapshot('org_demo')
+        self.assertEqual(snap['bound_org_id'], 'org_demo')
+        self.assertEqual(snap['management_mode'], 'manual_pilot_intake')
+        self.assertTrue(snap['mutation_enabled'])
+        self.assertEqual(snap['identity_model'], 'public_submission')
+        self.assertEqual(snap['request_paths']['submit'], '/api/pilot/intake')
+        self.assertEqual(snap['summary']['total_requests'], 1)
+        self.assertEqual(snap['requests_tail'][0]['request_id'], 'pir_demo')
 
     def test_accounting_snapshot_backfills_owner_capital_from_treasury(self):
         with open(self._owner, 'w') as f:

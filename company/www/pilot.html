@@ -232,11 +232,55 @@
 
 <!-- ─── START ─── -->
 <h2>Start</h2>
-<div class="card text-center">
-  <p class="mb-lg">Start with a manual 7-day pilot. We scope your watchlist, send the first outputs personally, and only move to paid continuation if the signal is strong enough.</p>
-  <a class="cta cta-outline" href="mailto:nguyensimon186@gmail.com?subject=Meridian Pilot Interest">Email Us</a>
-  <a class="cta cta-outline" href="https://t.me/Enhanhsj">Telegram DM</a>
-  <a class="cta cta-primary" href="demo.html">See the Demo First</a>
+<div class="card">
+  <p class="mb-md">Start with a manual 7-day pilot. The form below writes a durable request into the pilot intake queue so the boundary stays inspectable while delivery remains manual.</p>
+  <form class="intake-form" data-pilot-intake-form action="/api/pilot/intake" method="post">
+    <div class="intake-grid">
+      <div class="intake-field">
+        <label for="pilot-name">Full name</label>
+        <input id="pilot-name" name="name" type="text" autocomplete="name" required>
+      </div>
+      <div class="intake-field">
+        <label for="pilot-company">Company</label>
+        <input id="pilot-company" name="company" type="text" autocomplete="organization" required>
+      </div>
+      <div class="intake-field">
+        <label for="pilot-email">Email</label>
+        <input id="pilot-email" name="email" type="email" autocomplete="email" placeholder="name@company.com">
+      </div>
+      <div class="intake-field">
+        <label for="pilot-telegram">Telegram handle</label>
+        <input id="pilot-telegram" name="telegram_handle" type="text" placeholder="@handle">
+      </div>
+      <div class="intake-field">
+        <label for="pilot-cadence">Requested cadence</label>
+        <input id="pilot-cadence" name="requested_cadence" type="text" placeholder="Daily alert, weekly brief">
+      </div>
+      <div class="intake-field">
+        <label for="pilot-competitors">Competitors</label>
+        <input id="pilot-competitors" name="competitors" type="text" placeholder="OpenAI, Anthropic, Mistral">
+      </div>
+      <div class="intake-field" style="grid-column: 1 / -1;">
+        <label for="pilot-topics">Topics</label>
+        <input id="pilot-topics" name="topics" type="text" placeholder="pricing, launches, API changes, deprecations">
+      </div>
+      <div class="intake-field" style="grid-column: 1 / -1;">
+        <label for="pilot-notes">Notes</label>
+        <textarea id="pilot-notes" name="notes" rows="4" placeholder="Tell us what would make the pilot useful."></textarea>
+      </div>
+    </div>
+    <input type="hidden" name="source_page" value="pilot.html">
+    <input type="hidden" name="requested_offer" value="manual_pilot">
+    <div class="intake-actions">
+      <button class="cta cta-primary" type="submit">Submit request</button>
+      <p class="intake-status" data-pilot-intake-status>Submitting creates a queue entry. It does not start automated delivery or payment.</p>
+    </div>
+  </form>
+  <div class="cta-row">
+    <a class="cta cta-outline" href="mailto:nguyensimon186@gmail.com?subject=Meridian Pilot Interest">Email Us</a>
+    <a class="cta cta-outline" href="https://t.me/Enhanhsj">Telegram DM</a>
+    <a class="cta cta-primary" href="demo.html">See the Demo First</a>
+  </div>
 </div>
 
 <p class="text-center mt-lg">

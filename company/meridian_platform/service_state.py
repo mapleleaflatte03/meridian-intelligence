@@ -12,6 +12,7 @@ from capsule import (
     subscriptions_path,
 )
 import accounting_store
+import pilot_intake
 import subscription_service
 
 
@@ -257,4 +258,23 @@ def accounting_snapshot(org_id=None):
         'meta': meta,
         'owner': payload.get('owner', ''),
         'entries_tail': payload.get('entries', [])[-20:],
+    }
+
+
+
+def pilot_intake_snapshot(org_id=None):
+    payload = pilot_intake.queue_snapshot(org_id)
+    return {
+        'bound_org_id': payload['bound_org_id'],
+        'management_mode': payload['management_mode'],
+        'mutation_enabled': payload['mutation_enabled'],
+        'mutation_disabled_reason': payload['mutation_disabled_reason'],
+        'service_scope': payload['service_scope'],
+        'boundary_name': payload['boundary_name'],
+        'identity_model': payload['identity_model'],
+        'storage_model': payload['storage_model'],
+        'request_paths': payload['request_paths'],
+        'summary': payload['summary'],
+        'requests_tail': payload['requests'][-20:],
+        'meta': payload['meta'],
     }

@@ -57,6 +57,7 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.orig_ensure_case_for_delivery_failure = self.workspace.cases.ensure_case_for_delivery_failure
         self.orig_subscription_snapshot = self.workspace.service_state.subscription_snapshot
         self.orig_accounting_snapshot = self.workspace.service_state.accounting_snapshot
+        self.orig_pilot_intake_snapshot = self.workspace.service_state.pilot_intake_snapshot
         self.orig_persistence_snapshot = self.workspace.status_surface.persistence_snapshot
         self.orig_observability_snapshot = self.workspace.status_surface.observability_snapshot
         self.orig_summarize_inbox_entries = self.workspace.summarize_inbox_entries
@@ -112,6 +113,7 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.workspace.cases.ensure_case_for_delivery_failure = self.orig_ensure_case_for_delivery_failure
         self.workspace.service_state.subscription_snapshot = self.orig_subscription_snapshot
         self.workspace.service_state.accounting_snapshot = self.orig_accounting_snapshot
+        self.workspace.service_state.pilot_intake_snapshot = self.orig_pilot_intake_snapshot
         self.workspace.status_surface.persistence_snapshot = self.orig_persistence_snapshot
         self.workspace.status_surface.observability_snapshot = self.orig_observability_snapshot
         self.workspace.summarize_inbox_entries = self.orig_summarize_inbox_entries
@@ -493,6 +495,131 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.assertEqual(status['agents'][0]['runtime_binding']['identity_model'], 'session')
         self.assertTrue(status['agents'][0]['runtime_binding']['runtime_registered'])
         self.assertEqual(status['agents'][0]['runtime_binding']['registration_status'], 'registered')
+
+
+    def test_api_status_exposes_pilot_intake_queue(self):
+        from runtime_host import default_host_identity
+        self.workspace._load_workspace_credentials = lambda: ('owner', 'secret', 'org_founding', 'user_owner')
+        self.workspace._get_founding_org = lambda: (
+            'org_founding',
+            {
+                'id': 'org_founding',
+                'slug': 'meridian',
+                'name': 'Meridian',
+                'owner_id': 'user_owner',
+                'members': [{'user_id': 'user_owner', 'role': 'owner'}],
+                'lifecycle_state': 'founding',
+                'policy_defaults': {},
+            },
+        )
+        self.workspace.load_registry = lambda: {'agents': {}}
+        self.workspace._load_queue = lambda org_id: {
+            'kill_switch': False,
+            'pending_approvals': {},
+            'delegations': {},
+        }
+        self.workspace.treasury_snapshot = lambda org_id: {}
+        self.workspace._phase_mod.evaluate = lambda org_id: (0, {'name': 'Founder-Backed Build'})
+        self.workspace._load_records = lambda org_id: {'violations': {}, 'appeals': {}}
+        self.workspace.list_warrants = lambda org_id=None, **_kwargs: []
+        self.workspace.commitments.commitment_summary = lambda org_id=None: {'total': 0, 'proposed': 0, 'accepted': 0, 'rejected': 0, 'breached': 0, 'settled': 0, 'delivery_refs_total': 0}
+        self.workspace.commitments.list_commitments = lambda org_id=None: []
+        self.workspace.cases.case_summary = lambda org_id=None: {'total': 0, 'open': 0, 'stayed': 0, 'resolved': 0}
+        self.workspace.cases.list_cases = lambda org_id=None: []
+        self.workspace.service_state.subscription_snapshot = lambda org_id=None: {
+            'bound_org_id': org_id,
+            'mutation_enabled': True,
+            'identity_model': 'session',
+            'summary': {'subscriber_count': 0, 'external_target_count': 0},
+        }
+        self.workspace.service_state.accounting_snapshot = lambda org_id=None: {
+            'bound_org_id': org_id,
+            'mutation_enabled': True,
+            'identity_model': 'session',
+            'summary': {'capital_contributed_usd': 0.0, 'unreimbursed_expenses_usd': 0.0},
+        }
+        self.workspace.service_state.pilot_intake_snapshot = lambda org_id=None: {
+            'bound_org_id': org_id,
+            'management_mode': 'manual_pilot_intake',
+            'mutation_enabled': True,
+            'identity_model': 'public_submission',
+            'summary': {'total_requests': 1, 'requested_count': 1},
+            'request_paths': {'submit': '/api/pilot/intake', 'inspect': '/api/pilot/intake'},
+        }
+        self.workspace.get_sprint_lead = lambda org_id: ('', 0)
+        self.workspace.get_pending_approvals = lambda org_id=None: []
+        self.workspace._ci_vertical_status = lambda reg, lead_id, org_id: {}
+        self.workspace.get_agent_remediation = lambda economy_key, reg, org_id=None: None
+        self.workspace.capsule_dir = lambda org_id: f'/tmp/capsules/{org_id}'
+        self.workspace.load_host_identity = lambda *args, **kwargs: default_host_identity(
+            host_id='host_live',
+            label='Meridian Live Host',
+            supported_boundaries=['workspace', 'cli', 'mcp_service'],
+        )
+        self.workspace.load_admission_registry = lambda *args, **kwargs: {
+            'source': 'derived_bound_default',
+            'host_id': 'host_live',
+            'institutions': {'org_founding': {'status': 'admitted'}},
+            'admitted_org_ids': ['org_founding'],
+        }
+        ctx = self.workspace._resolve_workspace_context()
+        status = self.workspace.api_status(institution_context=ctx)
+        self.assertIn('pilot_intake', status['service_state'])
+        self.assertEqual(status['service_state']['pilot_intake']['summary']['total_requests'], 1)
+        self.assertEqual(status['service_state']['pilot_intake']['request_paths']['submit'], '/api/pilot/intake')
+
+    def test_public_pilot_intake_post_records_request_without_auth_gate(self):
+        calls = []
+        self.workspace._resolve_workspace_context = lambda: types.SimpleNamespace(org_id='org_founding')
+
+        class FakeHandler:
+            def __init__(self):
+                self.path = '/api/pilot/intake'
+                self.headers = _Headers({'Content-Type': 'application/json'})
+                self.response = None
+
+            def _require_auth(self, path):
+                calls.append(('require_auth', path))
+                raise AssertionError('public intake route should not require auth')
+
+            def _read_body(self):
+                return {
+                    'name': 'Jane Doe',
+                    'company': 'Acme',
+                    'email': 'jane@example.com',
+                    'requested_cadence': 'Daily alert',
+                    'competitors': 'OpenAI, Anthropic',
+                    'topics': 'pricing, launches',
+                    'notes': 'Need watchlist coverage',
+                    'source_page': 'pilot.html',
+                    'requested_offer': 'manual_pilot',
+                }
+
+            def _json(self, data, status=200):
+                self.response = {'data': data, 'status': status}
+                return self.response
+
+            def _service_unavailable(self, message, is_api=False):
+                raise AssertionError(message)
+
+        with mock.patch.object(self.workspace.pilot_intake, 'submit_pilot_request', return_value={
+            'request': {
+                'request_id': 'pir_demo',
+                'company': 'Acme',
+                'contact_channel': 'email',
+                'status': 'requested',
+                'source_page': 'pilot.html',
+            },
+            'summary': {'total_requests': 1, 'requested_count': 1},
+        }), mock.patch.object(self.workspace, 'log_event', return_value='evt_demo'):
+            handler = FakeHandler()
+            result = self.workspace.WorkspaceHandler.do_POST(handler)
+
+        self.assertEqual(calls, [])
+        self.assertEqual(handler.response['status'], 201)
+        self.assertEqual(handler.response['data']['request']['request_id'], 'pir_demo')
+        self.assertEqual(handler.response['data']['summary']['total_requests'], 1)
+        self.assertEqual(result, handler.response)
 
     def test_api_status_reports_witness_read_only_host_management(self):
         from runtime_host import default_host_identity

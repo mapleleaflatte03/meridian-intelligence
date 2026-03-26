@@ -53,6 +53,8 @@ company/meridian_platform/agent_registry.json
 company/meridian_platform/audit_log.jsonl
 company/meridian_platform/metering.jsonl
 company/meridian_platform/slo_alert_log.jsonl
+company/meridian_platform/pilot_intake.json
+company/meridian_platform/.pilot_intake.lock
 company/meridian_platform/authority_queue.json
 company/meridian_platform/court_records.json
 company/meridian_platform/*.db
