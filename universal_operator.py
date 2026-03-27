@@ -31,6 +31,7 @@ LOOM_ORG_ID = os.environ.get("MERIDIAN_LOOM_ORG_ID", "org_51fcd87f")
 LOOM_AGENT_ID = os.environ.get("MERIDIAN_LOOM_AGENT_ID", "agent_atlas")
 MAX_STEPS = int(os.environ.get("MERIDIAN_OPERATOR_MAX_STEPS", "6"))
 REQUEST_TIMEOUT_SECONDS = int(os.environ.get("MERIDIAN_OPERATOR_TIMEOUT_SECONDS", "90"))
+CORTEX_MEMORY_PATH = "workspace/cortex_memory.json"
 RESET = "\033[0m"
 BOLD = "\033[1m"
 MAGENTA = "\033[35m"
@@ -44,7 +45,7 @@ ACTION_HEADING = "[🛠️ ACTING via LOOM WASM]"
 OBSERVATION_HEADING = "[👁️ OBSERVATION]"
 FINAL_HEADING = "[✅ FINAL ANSWER]"
 
-SYSTEM_PROMPT = textwrap.dedent(
+SYSTEM_PROMPT_TEMPLATE = textwrap.dedent(
     f"""
     You are Meridian Governed Operator.
 
@@ -71,6 +72,10 @@ SYSTEM_PROMPT = textwrap.dedent(
     - loom.system.info.v1 -> safe bounded host OS/hardware info. Payload shape: {{}}
     - loom.fs.read.v1 -> reads only allowed workspace/diagnostic files. Payload shape: {{"path": "workspace/example.txt"}}
     - loom.fs.write.v1 -> writes data to a file. Payload shape: {{"path": "workspace/file.txt", "content": "text"}}
+    - loom.memory.core.v1 -> persists stable user facts/preferences to workspace/cortex_memory.json. Payload shape: {{"memory_data": "{{\"key\": \"value\"}}"}}.
+
+    [CORE MEMORIES & USER PREFERENCES]
+    __CORE_MEMORY_BLOCK__
 
     Operating rules:
     - Use one tool call at a time.
@@ -78,6 +83,9 @@ SYSTEM_PROMPT = textwrap.dedent(
     - If an observation reports a failure, recover truthfully or finish truthfully.
     - Only provide final_answer when tool_call is null and the work is done.
     - Keep final answers short and factual.
+    - Use loom.memory.core.v1 when the user explicitly asks you to remember or update stable facts/preferences.
+    - memory_data must be a JSON string containing the updated key-value facts to store. Prefer clear keys such as identity, project, top_priority, preferences, and avoid generic keys like key or data.
+    - When asked questions explicitly about core memory, answer only from the memory block above unless the user asks you to update it.
     """
 ).strip()
 
@@ -113,6 +121,42 @@ def _pretty(value: Any) -> str:
     if isinstance(value, str):
         return value
     return json.dumps(value, indent=2, ensure_ascii=False, sort_keys=True)
+
+
+def _normalize_memory_object(candidate: Any) -> dict[str, Any]:
+    if isinstance(candidate, dict):
+        normalized = {str(key): value for key, value in candidate.items()}
+        if "key" in normalized and "identity" not in normalized:
+            normalized["identity"] = normalized.pop("key")
+        if "priority" in normalized and "top_priority" not in normalized:
+            normalized["top_priority"] = normalized.pop("priority")
+        return normalized
+    if isinstance(candidate, list):
+        return {"items": candidate}
+    text = str(candidate or "").strip()
+    if not text:
+        return {}
+    return {"notes": text}
+
+
+def _merge_memory(base: dict[str, Any], updates: dict[str, Any]) -> dict[str, Any]:
+    merged = dict(base)
+    for key, value in updates.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = _merge_memory(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def _build_system_prompt(core_memory: dict[str, Any]) -> str:
+    core_memory_block = json.dumps(
+        _normalize_memory_object(core_memory),
+        indent=2,
+        ensure_ascii=False,
+        sort_keys=True,
+    )
+    return SYSTEM_PROMPT_TEMPLATE.replace("__CORE_MEMORY_BLOCK__", core_memory_block)
 
 
 def _ensure_legacy_v1_adapter_alias() -> None:
@@ -191,9 +235,10 @@ def _valid_step_response(parsed: dict[str, Any] | None) -> bool:
     return True
 
 
-def _llm_step(goal: str, history: list[dict[str, Any]]) -> dict[str, Any]:
+def _llm_step(goal: str, history: list[dict[str, Any]], core_memory: dict[str, Any]) -> dict[str, Any]:
+    system_prompt = _build_system_prompt(core_memory)
     base_messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "system", "content": system_prompt},
         {
             "role": "user",
             "content": json.dumps(
@@ -215,7 +260,7 @@ def _llm_step(goal: str, history: list[dict[str, Any]]) -> dict[str, Any]:
     last_response = raw_response
     for _attempt in range(2):
         repair_messages = [
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": system_prompt},
             {
                 "role": "user",
                 "content": json.dumps(
@@ -280,6 +325,19 @@ def _normalize_tool_call(tool_call: Any) -> tuple[str, dict[str, Any]]:
                 or ""
             ).strip(),
         }
+    elif capability == "loom.memory.core.v1":
+        raw_memory = (
+            payload.get("memory_data")
+            or payload.get("memory")
+            or payload.get("facts")
+            or payload.get("data")
+            or {}
+        )
+        if isinstance(raw_memory, str):
+            memory_data = raw_memory.strip()
+        else:
+            memory_data = json.dumps(raw_memory, ensure_ascii=False, sort_keys=True)
+        payload = {"memory_data": memory_data}
     return capability, payload
 
 
@@ -340,7 +398,35 @@ def _mirror_fetch(url: str) -> dict[str, Any]:
         return {"ok": False, "error": f"{exc.__class__.__name__}: {exc}", "final_url": url}
 
 
-def _run_tool(capability: str, payload: dict[str, Any]) -> dict[str, Any]:
+def _run_tool(
+    capability: str,
+    payload: dict[str, Any],
+    *,
+    core_memory: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    if capability == "loom.memory.core.v1":
+        raw_memory = str(payload.get("memory_data") or "").strip()
+        try:
+            parsed_memory = json.loads(raw_memory) if raw_memory else {}
+        except json.JSONDecodeError:
+            parsed_memory = {"notes": raw_memory}
+        merged_memory = _merge_memory(
+            _normalize_memory_object(core_memory or {}),
+            _normalize_memory_object(parsed_memory),
+        )
+        write_payload = {
+            "path": CORTEX_MEMORY_PATH,
+            "content": json.dumps(merged_memory, indent=2, ensure_ascii=False, sort_keys=True),
+        }
+        observation = _run_tool("loom.fs.write.v1", write_payload, core_memory=core_memory)
+        observation["capability"] = capability
+        observation["payload"] = payload
+        observation["executed_capability"] = "loom.fs.write.v1"
+        observation["executed_payload"] = write_payload
+        observation["memory_path"] = CORTEX_MEMORY_PATH
+        observation["memory_state"] = merged_memory
+        return observation
+
     executed_capability = capability
     executed_payload = payload
     command = _loom_cli_prefix() + [
@@ -434,6 +520,20 @@ def _run_tool(capability: str, payload: dict[str, Any]) -> dict[str, Any]:
                 "note": str(host_response.get("note") or "").strip(),
                 "truncated": host_response.get("truncated"),
             }
+    elif capability == "loom.fs.write.v1":
+        host_response = worker_result.get("host_response_json", {})
+        if isinstance(host_response, str):
+            try:
+                host_response = json.loads(host_response)
+            except json.JSONDecodeError:
+                host_response = {}
+        if isinstance(host_response, dict):
+            observation["fs_write"] = {
+                "decision": host_response.get("decision"),
+                "path": str(host_response.get("path") or payload.get("path") or "").strip(),
+                "bytes_written": host_response.get("bytes_written"),
+                "note": str(host_response.get("note") or "").strip(),
+            }
     elif capability == "loom.fs.read.v1":
         host_response = worker_result.get("host_response_json", {})
         if isinstance(host_response, str):
@@ -454,6 +554,23 @@ def _run_tool(capability: str, payload: dict[str, Any]) -> dict[str, Any]:
     return observation
 
 
+def _load_core_memory() -> dict[str, Any]:
+    observation = _run_tool("loom.fs.read.v1", {"path": CORTEX_MEMORY_PATH})
+    if not observation.get("ok"):
+        return {}
+    fs_read = observation.get("fs_read")
+    if not isinstance(fs_read, dict):
+        return {}
+    content = str(fs_read.get("content") or "").strip()
+    if not content:
+        return {}
+    try:
+        parsed = json.loads(content)
+    except json.JSONDecodeError:
+        return {}
+    return _normalize_memory_object(parsed)
+
+
 def _history_observation(observation: dict[str, Any]) -> dict[str, Any]:
     history_view = {
         "ok": bool(observation.get("ok")),
@@ -468,8 +585,12 @@ def _history_observation(observation: dict[str, Any]) -> dict[str, Any]:
         history_view["mirror_fetch"] = observation.get("mirror_fetch")
     if "system_info" in observation:
         history_view["system_info"] = observation.get("system_info")
+    if "fs_write" in observation:
+        history_view["fs_write"] = observation.get("fs_write")
     if "fs_read" in observation:
         history_view["fs_read"] = observation.get("fs_read")
+    if "memory_state" in observation:
+        history_view["memory_state"] = observation.get("memory_state")
     worker_result = observation.get("worker_result")
     if isinstance(worker_result, dict):
         history_view["worker_result"] = {
@@ -498,13 +619,14 @@ def main(argv: list[str]) -> int:
 
     goal = argv[1]
     _ensure_legacy_v1_adapter_alias()
+    core_memory = _load_core_memory()
 
     _heading(USER_GOAL_HEADING, MAGENTA)
     print(goal)
 
     history: list[dict[str, Any]] = []
     for _step in range(1, MAX_STEPS + 1):
-        step = _llm_step(goal, history)
+        step = _llm_step(goal, history, core_memory)
         thought = str(step.get("thought") or "").strip() or "<none>"
         tool_call = step.get("tool_call")
         final_answer = step.get("final_answer")
@@ -517,9 +639,11 @@ def main(argv: list[str]) -> int:
             action = {"capability": capability, "payload": payload}
             _heading(ACTION_HEADING, GREEN)
             print(_pretty(action))
-            observation = _run_tool(capability, payload)
+            observation = _run_tool(capability, payload, core_memory=core_memory)
             _heading(OBSERVATION_HEADING, YELLOW)
             print(_pretty(observation))
+            if capability == "loom.memory.core.v1" and isinstance(observation.get("memory_state"), dict):
+                core_memory = _normalize_memory_object(observation.get("memory_state"))
             history.append({"role": "assistant_thought", "value": thought})
             history.append({"role": "assistant_tool_call", "value": action})
             history.append({"role": "tool_observation", "value": _history_observation(observation)})
