@@ -31,6 +31,59 @@ LOOM_ORG_ID = os.environ.get("MERIDIAN_LOOM_ORG_ID", "org_51fcd87f")
 LOOM_AGENT_ID = os.environ.get("MERIDIAN_LOOM_AGENT_ID", "agent_atlas")
 MAX_STEPS = int(os.environ.get("MERIDIAN_OPERATOR_MAX_STEPS", "6"))
 REQUEST_TIMEOUT_SECONDS = int(os.environ.get("MERIDIAN_OPERATOR_TIMEOUT_SECONDS", "90"))
+LOOM_RUNTIME_ROOT = Path(LOOM_ROOT)
+LOOM_WORKSPACE_ROOT = LOOM_RUNTIME_ROOT / "workspace"
+LOOM_DIAGNOSTIC_ROOTS = (
+    LOOM_RUNTIME_ROOT / "logs",
+    LOOM_RUNTIME_ROOT / "run",
+    LOOM_RUNTIME_ROOT / "state" / "runtime" / "jobs",
+)
+SYSTEM_INFO_SNIPPET = textwrap.dedent(
+    """
+    import json, os, platform
+
+    mem_total_kib = None
+    try:
+        with open('/proc/meminfo', encoding='utf-8') as handle:
+            for line in handle:
+                if line.startswith('MemTotal:'):
+                    mem_total_kib = int(line.split()[1])
+                    break
+    except OSError:
+        mem_total_kib = None
+
+    disk = os.statvfs('/')
+    payload = {
+        'hostname': platform.node(),
+        'os': platform.platform(),
+        'kernel': platform.release(),
+        'machine': platform.machine(),
+        'python_version': platform.python_version(),
+        'cpu_count': os.cpu_count(),
+        'memory_total_kib': mem_total_kib,
+        'root_disk_total_bytes': disk.f_frsize * disk.f_blocks,
+        'root_disk_free_bytes': disk.f_frsize * disk.f_bavail,
+    }
+    print(json.dumps(payload, sort_keys=True))
+    """
+).strip()
+FILE_READ_SNIPPET = textwrap.dedent(
+    """
+    import json, pathlib, sys
+
+    path = pathlib.Path(sys.argv[1])
+    text = path.read_text(encoding='utf-8')
+    limit = 4000
+    clipped = text[:limit]
+    payload = {
+        'resolved_path': str(path),
+        'content': clipped,
+        'truncated': len(text) > limit,
+        'bytes_read': len(text.encode('utf-8')),
+    }
+    print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
+    """
+).strip()
 
 RESET = "\033[0m"
 BOLD = "\033[1m"
@@ -69,6 +122,8 @@ SYSTEM_PROMPT = textwrap.dedent(
 
     Available Loom capabilities:
     - loom.browser.navigate.v1 -> fetches a URL. Payload shape: {{"url": "https://example.com"}}
+    - loom.system.info.v1 -> safe bounded host OS/hardware info. Payload shape: {{}}
+    - loom.fs.read.v1 -> reads only allowed workspace/diagnostic files. Payload shape: {{"path": "workspace/example.txt"}}
     - loom.fs.write.v1 -> writes data to a file. Payload shape: {{"path": "workspace/file.txt", "content": "text"}}
 
     Operating rules:
@@ -267,7 +322,66 @@ def _normalize_tool_call(tool_call: Any) -> tuple[str, dict[str, Any]]:
                 or ""
             ),
         }
+    elif capability == "loom.system.info.v1":
+        payload = {}
+    elif capability == "loom.fs.read.v1":
+        payload = {
+            "path": str(
+                payload.get("path")
+                or payload.get("file_path")
+                or payload.get("target_path")
+                or payload.get("file")
+                or ""
+            ).strip(),
+        }
     return capability, payload
+
+
+def _path_within_root(candidate: Path, root: Path) -> bool:
+    resolved_candidate = candidate.resolve()
+    resolved_root = root.resolve()
+    return resolved_candidate == resolved_root or resolved_root in resolved_candidate.parents
+
+
+def _resolve_readable_path(raw_path: str) -> Path:
+    requested = str(raw_path or "").strip()
+    if not requested:
+        raise ValueError("loom.fs.read.v1 requires a path")
+
+    path = Path(requested)
+    if path.is_absolute():
+        candidate = path.resolve()
+    elif path.parts and path.parts[0] == "workspace":
+        candidate = (LOOM_WORKSPACE_ROOT / path).resolve()
+    else:
+        candidate = (LOOM_RUNTIME_ROOT / path).resolve()
+
+    allowed_roots = (LOOM_WORKSPACE_ROOT, *LOOM_DIAGNOSTIC_ROOTS)
+    if any(_path_within_root(candidate, root) for root in allowed_roots):
+        return candidate
+    raise ValueError(f"loom.fs.read.v1 path is outside allowed roots: {requested}")
+
+
+def _translate_tool_request(capability: str, payload: dict[str, Any]) -> dict[str, Any]:
+    request: dict[str, Any] = {
+        "requested_capability": capability,
+        "requested_payload": payload,
+        "executed_capability": capability,
+        "executed_payload": payload,
+    }
+    if capability == "loom.system.info.v1":
+        request["executed_capability"] = "loom.terminal.exec.v1"
+        request["executed_payload"] = {
+            "argv": ["python3", "-c", SYSTEM_INFO_SNIPPET],
+        }
+    elif capability == "loom.fs.read.v1":
+        candidate = _resolve_readable_path(str(payload.get("path") or ""))
+        request["resolved_path"] = str(candidate)
+        request["executed_capability"] = "loom.terminal.exec.v1"
+        request["executed_payload"] = {
+            "argv": ["python3", "-c", FILE_READ_SNIPPET, str(candidate)],
+        }
+    return request
 
 
 def _load_json_file(path: str) -> dict[str, Any]:
@@ -327,6 +441,18 @@ def _mirror_fetch(url: str) -> dict[str, Any]:
 
 
 def _run_tool(capability: str, payload: dict[str, Any]) -> dict[str, Any]:
+    try:
+        translated = _translate_tool_request(capability, payload)
+    except Exception as exc:
+        return {
+            "ok": False,
+            "capability": capability,
+            "payload": payload,
+            "error": f"{exc.__class__.__name__}: {exc}",
+        }
+
+    executed_capability = str(translated["executed_capability"])
+    executed_payload = dict(translated["executed_payload"])
     command = _loom_cli_prefix() + [
         LOOM_BIN,
         "action",
@@ -338,9 +464,9 @@ def _run_tool(capability: str, payload: dict[str, Any]) -> dict[str, Any]:
         "--agent-id",
         LOOM_AGENT_ID,
         "--capability",
-        capability,
+        executed_capability,
         "--payload-json",
-        json.dumps(payload, ensure_ascii=False),
+        json.dumps(executed_payload, ensure_ascii=False),
         "--format",
         "json",
     ]
@@ -357,6 +483,8 @@ def _run_tool(capability: str, payload: dict[str, Any]) -> dict[str, Any]:
             "ok": False,
             "capability": capability,
             "payload": payload,
+            "executed_capability": executed_capability,
+            "executed_payload": executed_payload,
             "command": command,
             "error": f"{exc.__class__.__name__}: {exc}",
         }
@@ -374,11 +502,16 @@ def _run_tool(capability: str, payload: dict[str, Any]) -> dict[str, Any]:
         "ok": completed.returncode == 0,
         "capability": capability,
         "payload": payload,
+        "executed_capability": executed_capability,
+        "executed_payload": executed_payload,
         "command": command,
         "returncode": completed.returncode,
         "stdout": stdout_text,
         "stderr": stderr_text,
     }
+    resolved_path = translated.get("resolved_path")
+    if resolved_path:
+        observation["resolved_path"] = resolved_path
     if parsed_stdout:
         observation["parsed_stdout"] = parsed_stdout
 
@@ -403,6 +536,27 @@ def _run_tool(capability: str, payload: dict[str, Any]) -> dict[str, Any]:
             }
             if not observation["browser_view"]["title"] and not observation["browser_view"]["excerpt"]:
                 observation["mirror_fetch"] = _mirror_fetch(payload.get("url", ""))
+    elif capability in {"loom.system.info.v1", "loom.fs.read.v1"}:
+        host_response = worker_result.get("host_response_json", {})
+        if isinstance(host_response, str):
+            try:
+                host_response = json.loads(host_response)
+            except json.JSONDecodeError:
+                host_response = {}
+        if isinstance(host_response, dict):
+            stdout_value = str(host_response.get("stdout_utf8") or "").strip()
+            observation["terminal_exec"] = {
+                "decision": host_response.get("decision"),
+                "exit_code": host_response.get("exit_code"),
+                "timed_out": host_response.get("timed_out"),
+                "truncated": host_response.get("truncated"),
+                "stderr_utf8": str(host_response.get("stderr_utf8") or ""),
+            }
+            if stdout_value:
+                try:
+                    observation["translated_output"] = json.loads(stdout_value)
+                except json.JSONDecodeError:
+                    observation["translated_stdout"] = stdout_value[:4000]
 
     return observation
 
@@ -411,6 +565,7 @@ def _history_observation(observation: dict[str, Any]) -> dict[str, Any]:
     history_view = {
         "ok": bool(observation.get("ok")),
         "capability": observation.get("capability"),
+        "executed_capability": observation.get("executed_capability"),
         "returncode": observation.get("returncode"),
         "stderr": observation.get("stderr") or "",
     }
@@ -433,6 +588,12 @@ def _history_observation(observation: dict[str, Any]) -> dict[str, Any]:
             "worker_status": parsed_stdout.get("worker_status"),
             "worker_result_path": parsed_stdout.get("worker_result_path"),
         }
+    if "translated_output" in observation:
+        history_view["translated_output"] = observation.get("translated_output")
+    if "translated_stdout" in observation:
+        history_view["translated_stdout"] = observation.get("translated_stdout")
+    if "resolved_path" in observation:
+        history_view["resolved_path"] = observation.get("resolved_path")
     stdout = str(observation.get("stdout") or "").strip()
     if stdout and "browser_view" not in observation:
         history_view["stdout_excerpt"] = stdout[:500]
