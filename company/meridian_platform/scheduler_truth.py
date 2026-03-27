@@ -3,7 +3,7 @@
 Scheduler truth helper with explicit separation of concerns.
 
 `jobs.json` is configuration plus an embedded last-run cache. The per-job run
-logs under `~/.openclaw/cron/runs/*.jsonl` are the best source for the latest
+logs under `~/.meridian/cron/runs/*.jsonl` are the best source for the latest
 recorded execution. Current host runtime health is a separate live check.
 
 This helper reports those layers separately instead of flattening them into one
@@ -21,7 +21,7 @@ import os
 import subprocess
 
 
-CRON_DIR = os.path.expanduser('~/.openclaw/cron')
+CRON_DIR = os.path.expanduser('~/.meridian/cron')
 JOBS_FILE = os.path.join(CRON_DIR, 'jobs.json')
 RUNS_DIR = os.path.join(CRON_DIR, 'runs')
 

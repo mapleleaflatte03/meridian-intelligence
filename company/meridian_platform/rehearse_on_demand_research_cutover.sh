@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-WORKSPACE=${WORKSPACE:-/root/.openclaw/workspace}
+WORKSPACE=${WORKSPACE:-/root/.meridian/workspace}
 ENV_FILE=${ENV_FILE:-/etc/default/meridian-mcp-runtime}
 TOPIC_TEXT=${TOPIC_TEXT:-OpenAI pricing}
 TOPIC_URL=${TOPIC_URL:-https://app.welliam.codes/api/sample-brief}
@@ -48,7 +48,7 @@ import os
 import pathlib
 import sys
 
-workspace = pathlib.Path('/root/.openclaw/workspace')
+workspace = pathlib.Path('/root/.meridian/workspace')
 company_dir = workspace / 'company'
 if str(company_dir) not in sys.path:
     sys.path.insert(0, str(company_dir))
@@ -78,4 +78,4 @@ sudo -n env \
   MERIDIAN_LOOM_AGENT_ID="${MERIDIAN_LOOM_AGENT_ID:-agent_leviathann}" \
   MERIDIAN_LOOM_SERVICE_TOKEN="${MERIDIAN_LOOM_SERVICE_TOKEN:-${LOOM_SERVICE_TOKEN:-}}" \
   LOOM_SERVICE_TOKEN="${LOOM_SERVICE_TOKEN:-${MERIDIAN_LOOM_SERVICE_TOKEN:-}}" \
-  python3 /root/.openclaw/workspace/company/meridian_platform/readiness.py --json
+  python3 /root/.meridian/workspace/company/meridian_platform/readiness.py --json

@@ -25,7 +25,7 @@ class OpenClawRuntimeProofTests(unittest.TestCase):
 Telegram: ok (@eggsama_bot) (1599ms)
 Agents: main (default), atlas, sentinel, forge, quill, aegis, pulse
 Heartbeat interval: 30m (main)
-Session store (main): /root/.openclaw/agents/main/sessions/sessions.json (25 entries)
+Session store (main): /root/.meridian/agents/main/sessions/sessions.json (25 entries)
 - agent:main:main (3m ago)
 - agent:main:cron:abc123 (85m ago)
 """
@@ -91,7 +91,7 @@ Session store (main): /root/.openclaw/agents/main/sessions/sessions.json (25 ent
 Telegram: ok (@eggsama_bot) (1599ms)
 Agents: main (default), atlas, sentinel
 Heartbeat interval: 30m (main)
-Session store (main): /root/.openclaw/agents/main/sessions/sessions.json (25 entries)
+Session store (main): /root/.meridian/agents/main/sessions/sessions.json (25 entries)
 """,
             )
 
