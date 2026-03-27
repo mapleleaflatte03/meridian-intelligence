@@ -104,6 +104,9 @@ Run:
 
 When workspace credentials are configured, the dashboard and JSON API are
 owner-authenticated with HTTP Basic auth.
+
+Route backbone: see app.py for the public intelligence surface, runtime
+boundaries, and mutation-role map.
 """
 import argparse
 import base64
@@ -188,6 +191,12 @@ from court import (file_violation, resolve_violation,
                    file_appeal, decide_appeal, auto_review,
                    get_restrictions, remediate, _load_records)
 from session import SessionAuthority
+from app import (
+    PUBLIC_UNAUTHENTICATED_PATHS,
+    SUPPORTED_RUNTIME_BOUNDARIES,
+    WORKSPACE_MUTATION_ROLE_REQUIREMENTS,
+    is_workspace_protected_path,
+)
 from warrants import (
     list_warrants,
     get_warrant,
@@ -263,68 +272,7 @@ ROLE_RANK = {
     'owner': 3,
 }
 
-MUTATION_ROLE_REQUIREMENTS = {
-    '/api/authority/kill-switch': 'admin',
-    '/api/authority/approve': 'admin',
-    '/api/authority/request': 'member',
-    '/api/authority/delegate': 'admin',
-    '/api/authority/revoke': 'admin',
-    '/api/court/file': 'member',
-    '/api/court/resolve': 'admin',
-    '/api/court/appeal': 'member',
-    '/api/court/decide-appeal': 'admin',
-    '/api/court/auto-review': 'admin',
-    '/api/court/remediate': 'admin',
-    '/api/warrants/issue': 'admin',
-    '/api/warrants/approve': 'admin',
-    '/api/warrants/stay': 'admin',
-    '/api/warrants/revoke': 'admin',
-    '/api/commitments/propose': 'admin',
-    '/api/commitments/accept': 'admin',
-    '/api/commitments/reject': 'admin',
-    '/api/commitments/breach': 'admin',
-    '/api/commitments/settle': 'admin',
-    '/api/cases/open': 'admin',
-    '/api/cases/stay': 'admin',
-    '/api/cases/resolve': 'admin',
-    '/api/federation/execution-jobs/execute': 'admin',
-    '/api/treasury/contribute': 'owner',
-    '/api/treasury/reserve-floor': 'owner',
-    '/api/treasury/settlement-adapters/preflight': 'member',
-    '/api/subscriptions/add': 'admin',
-    '/api/subscriptions/draft-from-preview': 'admin',
-    '/api/subscriptions/activate-from-preview': 'admin',
-    '/api/subscriptions/loom-delivery-jobs/run': 'admin',
-    '/api/subscriptions/convert': 'admin',
-    '/api/subscriptions/verify-payment': 'admin',
-    '/api/subscriptions/remove': 'admin',
-    '/api/subscriptions/set-email': 'admin',
-    '/api/subscriptions/record-delivery': 'admin',
-    '/api/alerts/dispatch': 'admin',
-    '/api/accounting/expense': 'owner',
-    '/api/accounting/reimburse': 'owner',
-    '/api/accounting/draw': 'owner',
-    '/api/payouts/propose': 'member',
-    '/api/payouts/submit': 'member',
-    '/api/payouts/review': 'admin',
-    '/api/payouts/approve': 'owner',
-    '/api/payouts/open-dispute-window': 'owner',
-    '/api/payouts/reject': 'admin',
-    '/api/payouts/cancel': 'member',
-    '/api/payouts/execute': 'owner',
-    '/api/admission/admit': 'owner',
-    '/api/admission/suspend': 'owner',
-    '/api/admission/revoke': 'owner',
-    '/api/federation/send': 'admin',
-    '/api/federation/peers/upsert': 'owner',
-    '/api/federation/peers/refresh': 'owner',
-    '/api/federation/peers/suspend': 'owner',
-    '/api/federation/peers/revoke': 'owner',
-    '/api/institution/charter': 'admin',
-    '/api/institution/lifecycle': 'owner',
-    '/api/session/issue': 'member',
-    '/api/session/revoke': 'admin',
-}
+MUTATION_ROLE_REQUIREMENTS = WORKSPACE_MUTATION_ROLE_REQUIREMENTS
 
 
 def _load_workspace_credentials():
@@ -389,15 +337,7 @@ def _resolve_workspace_context():
 def _runtime_host_state(bound_org_id):
     host_identity = load_host_identity(
         RUNTIME_HOST_IDENTITY_FILE,
-        supported_boundaries=[
-            'workspace',
-            'cli',
-            'federation_gateway',
-            'mcp_service',
-            'payment_monitor',
-            'subscriptions',
-            'accounting',
-        ],
+        supported_boundaries=SUPPORTED_RUNTIME_BOUNDARIES,
         fallback_label='Meridian Live Host',
         fallback_federation=False,
     )
@@ -1041,15 +981,7 @@ def _control_plane_notice_validation_peer_registry(bound_org_id, envelope):
         return None
     host_identity = load_host_identity(
         RUNTIME_HOST_IDENTITY_FILE,
-        supported_boundaries=[
-            'workspace',
-            'cli',
-            'federation_gateway',
-            'mcp_service',
-            'payment_monitor',
-            'subscriptions',
-            'accounting',
-        ],
+        supported_boundaries=SUPPORTED_RUNTIME_BOUNDARIES,
     )
     registry = load_peer_registry(
         FEDERATION_PEERS_FILE,
@@ -4104,8 +4036,7 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
 
     def _require_auth(self, path):
         # Session validate is a passive introspection endpoint — the token is the proof.
-        protected = (path == '/' or path.startswith('/workspace') or path.startswith('/api/')) \
-            and path not in ('/api/session/validate', '/api/federation/manifest', '/api/runtime-proof')
+        protected = is_workspace_protected_path(path)
         if not protected:
             return True
         if self._is_authorized():

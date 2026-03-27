@@ -1,0 +1,114 @@
+#!/usr/bin/env python3
+"""Technical backbone for the Meridian public intelligence surface.
+
+This module keeps the obvious surface contract for the live workspace together:
+- public GET/POST routes for the intelligence surface
+- the runtime service boundaries, including the MCP service boundary
+- the mutation-role map enforced by the workspace handler
+"""
+
+PUBLIC_SURFACE_GET_ROUTES = (
+    ('/', 'Dashboard HTML'),
+    ('/api/status', 'Full system snapshot'),
+    ('/api/context', 'Bound institution/runtime context'),
+    ('/api/subscriptions', 'Subscription service state'),
+    ('/api/pilot/intake', 'Public pilot intake queue snapshot'),
+    ('/api/federation/manifest', 'Public host federation manifest'),
+    ('/api/runtime-proof', 'Public live OpenClaw runtime proof receipt'),
+)
+
+PUBLIC_SURFACE_POST_ROUTES = (
+    ('/api/pilot/intake', 'Public pilot intake submission'),
+    ('/api/subscriptions/checkout-capture', 'Customer-initiated captured checkout activation'),
+    ('/api/federation/receive', 'Inbound federation envelope validation/receipt'),
+)
+
+PUBLIC_UNAUTHENTICATED_PATHS = (
+    '/api/session/validate',
+    '/api/federation/manifest',
+    '/api/runtime-proof',
+)
+
+SUPPORTED_RUNTIME_BOUNDARIES = (
+    'workspace',
+    'cli',
+    'federation_gateway',
+    'mcp_service',
+    'payment_monitor',
+    'subscriptions',
+    'accounting',
+)
+
+WORKSPACE_MUTATION_ROLE_REQUIREMENTS = {
+    '/api/authority/kill-switch': 'admin',
+    '/api/authority/approve': 'admin',
+    '/api/authority/request': 'member',
+    '/api/authority/delegate': 'admin',
+    '/api/authority/revoke': 'admin',
+    '/api/court/file': 'member',
+    '/api/court/resolve': 'admin',
+    '/api/court/appeal': 'member',
+    '/api/court/decide-appeal': 'admin',
+    '/api/court/auto-review': 'admin',
+    '/api/court/remediate': 'admin',
+    '/api/warrants/issue': 'admin',
+    '/api/warrants/approve': 'admin',
+    '/api/warrants/stay': 'admin',
+    '/api/warrants/revoke': 'admin',
+    '/api/commitments/propose': 'admin',
+    '/api/commitments/accept': 'admin',
+    '/api/commitments/reject': 'admin',
+    '/api/commitments/breach': 'admin',
+    '/api/commitments/settle': 'admin',
+    '/api/cases/open': 'admin',
+    '/api/cases/stay': 'admin',
+    '/api/cases/resolve': 'admin',
+    '/api/federation/execution-jobs/execute': 'admin',
+    '/api/treasury/contribute': 'owner',
+    '/api/treasury/reserve-floor': 'owner',
+    '/api/treasury/settlement-adapters/preflight': 'member',
+    '/api/subscriptions/add': 'admin',
+    '/api/subscriptions/draft-from-preview': 'admin',
+    '/api/subscriptions/activate-from-preview': 'admin',
+    '/api/subscriptions/loom-delivery-jobs/run': 'admin',
+    '/api/subscriptions/convert': 'admin',
+    '/api/subscriptions/verify-payment': 'admin',
+    '/api/subscriptions/remove': 'admin',
+    '/api/subscriptions/set-email': 'admin',
+    '/api/subscriptions/record-delivery': 'admin',
+    '/api/alerts/dispatch': 'admin',
+    '/api/accounting/expense': 'owner',
+    '/api/accounting/reimburse': 'owner',
+    '/api/accounting/draw': 'owner',
+    '/api/payouts/propose': 'member',
+    '/api/payouts/submit': 'member',
+    '/api/payouts/review': 'admin',
+    '/api/payouts/approve': 'owner',
+    '/api/payouts/open-dispute-window': 'owner',
+    '/api/payouts/reject': 'admin',
+    '/api/payouts/cancel': 'member',
+    '/api/payouts/execute': 'owner',
+    '/api/admission/admit': 'owner',
+    '/api/admission/suspend': 'owner',
+    '/api/admission/revoke': 'owner',
+    '/api/federation/send': 'admin',
+    '/api/federation/peers/upsert': 'owner',
+    '/api/federation/peers/refresh': 'owner',
+    '/api/federation/peers/suspend': 'owner',
+    '/api/federation/peers/revoke': 'owner',
+    '/api/institution/charter': 'admin',
+    '/api/institution/lifecycle': 'owner',
+    '/api/session/issue': 'member',
+    '/api/session/revoke': 'admin',
+}
+
+
+def is_workspace_protected_path(path):
+    return (
+        (path == '/' or path.startswith('/workspace') or path.startswith('/api/'))
+        and path not in PUBLIC_UNAUTHENTICATED_PATHS
+    )
+
+
+def required_mutation_role(path):
+    return WORKSPACE_MUTATION_ROLE_REQUIREMENTS.get(path, 'admin')
