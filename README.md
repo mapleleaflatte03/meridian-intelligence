@@ -4,8 +4,8 @@
 
 <p align="center">
   <strong>Meridian — Governed Competitor Intelligence on a Constitutional Kernel</strong><br>
-  Universal Personal AI Assistant Runtime.<br>
-  Autonomous intelligence inside a governed shell.
+  First commercial wedge proving governed digital labor.<br>
+  Loom is the primary execution entrypoint.
 </p>
 
 <p align="center">
@@ -25,14 +25,14 @@
 
 # Meridian Intelligence
 
-This repo is the public intelligence surface in the Meridian stack: website, demo, pilot, support, MCP routes, subscriptions, and the live host proof surfaces. It is not the governance kernel and it is not the delivery runtime.
+This repo is the public intelligence surface for Meridian's first commercial wedge: competitor intelligence that proves governed digital labor in a concrete market. It is not the full platform identity, it is not the governance kernel, and it is not the primary execution runtime.
 
 ## Launch Positioning
 
 Meridian v0.1.0 launches with a premium public surface around three ideas:
 
-- Governed competitor intelligence as the first managed vertical.
-- Meridian Loom as the local Universal Personal AI Assistant Runtime.
+- Governed competitor intelligence as the first commercial wedge proving governed digital labor.
+- Meridian Loom as the primary hands-on execution surface and installable runtime.
 - A truthful boundary that separates installable local runtime proof from broader live-host claims.
 
 ## 1-Command Install
