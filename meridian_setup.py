@@ -31,8 +31,8 @@ def main() -> int:
     print()
     llm_base_url = _prompt(f"LLM Base URL [default: {DEFAULT_LLM_BASE_URL}]: ", DEFAULT_LLM_BASE_URL)
     llm_model = _prompt(f"LLM Model Name [default: {DEFAULT_LLM_MODEL}]: ", DEFAULT_LLM_MODEL)
-    llm_api_key = input("LLM API Key (Leave blank if using local GPU): " ).strip()
-    telegram_bot_token = input("Telegram Bot Token (Leave blank to skip): " ).strip()
+    llm_api_key = input("LLM API Key (Leave blank if using local GPU): ").strip()
+    telegram_bot_token = input("Telegram Bot Token (Leave blank to skip): ").strip()
     allowed_origin = _prompt(
         f"Allowed Web Frontend Origin for CORS [default: {DEFAULT_ALLOWED_ORIGIN}]: ",
         DEFAULT_ALLOWED_ORIGIN,
@@ -50,9 +50,9 @@ def main() -> int:
     print()
     print(f"Meridian configuration saved to {path}.")
     print("Startup guidance:")
-    print('- Run python3 universal_operator.py "<your goal>"')
-    print('- Run python3 local_daemon.py to expose the local HTTP bridge')
-    print('- Run python3 telegram_daemon.py to start the Telegram bridge')
+    print('- Run python3 meridian_gateway.py')
+    print('- Web requests are served on http://127.0.0.1:8266 when the gateway is running')
+    print('- Telegram routing is enabled automatically when a bot token is configured')
     return 0
 
 
