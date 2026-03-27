@@ -16,9 +16,12 @@ from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
 
+from meridian_config import load_config
 
-LLM_BASE_URL = os.environ.get("LLM_BASE_URL", "http://127.0.0.1:11434/v1/chat/completions")
-LLM_MODEL = os.environ.get("LLM_MODEL", "gpt-3.5-turbo")
+
+LLM_BASE_URL = ""
+LLM_MODEL = ""
+LLM_API_KEY = ""
 LOOM_BIN = os.environ.get(
     "MERIDIAN_LOOM_BIN",
     "/home/ubuntu/.local/share/meridian-loom/current/bin/loom",
@@ -38,6 +41,7 @@ MAGENTA = "\033[35m"
 CYAN = "\033[36m"
 GREEN = "\033[32m"
 YELLOW = "\033[33m"
+RED = "\033[31m"
 
 USER_GOAL_HEADING = "[👤 USER GOAL]"
 THOUGHT_HEADING = "[🤔 THOUGHT]"
@@ -115,6 +119,26 @@ class _TitleParser(HTMLParser):
 
 def _heading(text: str, color: str) -> None:
     print(f"{BOLD}{color}{text}{RESET}")
+
+
+def _load_runtime_config_or_exit() -> dict[str, Any]:
+    global LLM_BASE_URL, LLM_MODEL, LLM_API_KEY
+    try:
+        config = load_config(required=True)
+    except FileNotFoundError:
+        print(f"{BOLD}{RED}Configuration missing. Run python3 meridian_setup.py first.{RESET}", file=sys.stderr)
+        raise SystemExit(1)
+    except Exception as exc:
+        print(f"{BOLD}{RED}Failed to load meridian_config.json: {exc}{RESET}", file=sys.stderr)
+        raise SystemExit(1)
+
+    LLM_BASE_URL = str(config.get("llm_base_url") or "").strip()
+    LLM_MODEL = str(config.get("llm_model") or "").strip()
+    LLM_API_KEY = str(config.get("llm_api_key") or "").strip()
+    if not LLM_BASE_URL or not LLM_MODEL:
+        print(f"{BOLD}{RED}Invalid meridian_config.json. Run python3 meridian_setup.py to repair it.{RESET}", file=sys.stderr)
+        raise SystemExit(1)
+    return config
 
 
 def _pretty(value: Any) -> str:
@@ -205,7 +229,7 @@ def _chat(messages: list[dict[str, str]], timeout: int = REQUEST_TIMEOUT_SECONDS
         method="POST",
         headers={
             "Content-Type": "application/json",
-            "Authorization": f"Bearer {os.environ.get('OPENAI_API_KEY', 'meridian-local-key')}",
+            "Authorization": f"Bearer {LLM_API_KEY or 'meridian-local-key'}",
         },
         data=json.dumps(
             {
@@ -618,6 +642,7 @@ def main(argv: list[str]) -> int:
         return 2
 
     goal = argv[1]
+    _load_runtime_config_or_exit()
     _ensure_legacy_v1_adapter_alias()
     core_memory = _load_core_memory()
 

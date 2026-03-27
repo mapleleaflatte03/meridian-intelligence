@@ -86,3 +86,4 @@ company/payment_monitor.py
 company/gen_sample_brief.py
 company/send_email.py
 company/revenue_dashboard.py
+meridian_config.json

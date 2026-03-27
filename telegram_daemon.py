@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import json
-import os
 import re
 import subprocess
 import sys
@@ -14,22 +13,35 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
-BOT_TOKEN_ENV = "TELEGRAM_BOT_TOKEN"
+from meridian_config import load_config
+
 GET_UPDATES_TIMEOUT_SECONDS = 30
 LOOP_RETRY_DELAY_SECONDS = 2
 MAX_MESSAGE_CHARS = 4000
 FINAL_HEADING = "[✅ FINAL ANSWER]"
 POGE_PREFIX = "[🛡️ PoGE PROTOCOL]"
-MISSING_TOKEN_LINE = "[📡 MERIDIAN TELEGRAM LINK] TELEGRAM_BOT_TOKEN not found. Messenger bridge inactive."
+MISSING_TOKEN_LINE = "[📡 MERIDIAN TELEGRAM LINK] telegram_bot_token not found in meridian_config.json. Messenger bridge inactive."
 WORKSPACE_DIR = Path(__file__).resolve().parent
-ANSI_MAGENTA = "\033[35m"
-ANSI_BOLD = "\033[1m"
-ANSI_RESET = "\033[0m"
-ANSI_RE = re.compile(r"\x1B\[[0-?]*[ -/]*[@-~]")
+ANSI_MAGENTA = "[35m"
+ANSI_BOLD = "[1m"
+ANSI_RESET = "[0m"
+ANSI_RE = re.compile(r"\[[0-?]*[ -/]*[@-~]")
 
 
-def _print_missing_token_notice() -> None:
-    print(f"{ANSI_BOLD}{ANSI_MAGENTA}{MISSING_TOKEN_LINE}{ANSI_RESET}")
+def _load_telegram_token_or_notice() -> str:
+    try:
+        config = load_config(required=True)
+    except FileNotFoundError:
+        _print_missing_token_notice("[📡 MERIDIAN TELEGRAM LINK] Configuration missing. Run python3 meridian_setup.py first.")
+        return ""
+    except Exception as exc:
+        _print_missing_token_notice(f"[📡 MERIDIAN TELEGRAM LINK] Failed to load meridian_config.json: {exc}")
+        return ""
+    return str(config.get("telegram_bot_token") or "").strip()
+
+
+def _print_missing_token_notice(message: str = MISSING_TOKEN_LINE) -> None:
+    print(f"{ANSI_BOLD}{ANSI_MAGENTA}{message}{ANSI_RESET}")
 
 
 def _strip_ansi(text: str) -> str:
@@ -140,7 +152,7 @@ def _process_message(token: str, message: dict[str, Any]) -> None:
 
 
 def main() -> int:
-    token = os.environ.get(BOT_TOKEN_ENV, "").strip()
+    token = _load_telegram_token_or_notice()
     if not token:
         _print_missing_token_notice()
         return 0

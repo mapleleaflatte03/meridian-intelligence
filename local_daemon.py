@@ -5,14 +5,32 @@ from __future__ import annotations
 
 import json
 import subprocess
+import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+from meridian_config import load_config
 
 HOST = "127.0.0.1"
 PORT = 8266
-ALLOWED_ORIGIN = "https://app.welliam.codes"
 WORKSPACE_DIR = Path(__file__).resolve().parent
+ALLOWED_ORIGIN = ""
+
+
+def _load_allowed_origin_or_exit() -> str:
+    try:
+        config = load_config(required=True)
+    except FileNotFoundError:
+        print("Configuration missing. Run python3 meridian_setup.py first.", file=sys.stderr)
+        raise SystemExit(1)
+    except Exception as exc:
+        print(f"Failed to load meridian_config.json: {exc}", file=sys.stderr)
+        raise SystemExit(1)
+    origin = str(config.get("allowed_origin") or "").strip()
+    if not origin:
+        print("allowed_origin is missing in meridian_config.json. Run python3 meridian_setup.py to repair it.", file=sys.stderr)
+        raise SystemExit(1)
+    return origin
 
 
 class LocalDaemonHandler(BaseHTTPRequestHandler):
@@ -98,6 +116,8 @@ class LocalDaemonHandler(BaseHTTPRequestHandler):
 
 
 def main() -> int:
+    global ALLOWED_ORIGIN
+    ALLOWED_ORIGIN = _load_allowed_origin_or_exit()
     server = ThreadingHTTPServer((HOST, PORT), LocalDaemonHandler)
     print(f"Local daemon listening on http://{HOST}:{PORT}", flush=True)
     try:
