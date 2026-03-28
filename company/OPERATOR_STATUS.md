@@ -12,15 +12,15 @@ It is not promotional copy. Every claim is tagged verified, inferred, or unknown
 
 | Component | Status | Source |
 |-----------|--------|--------|
-| Agent runtime | HEALTHY — `openclaw health` OK and 3/3 PONG verified at closeout; this host is still a single-host OpenClaw proof surface, and Loom is live only for `intelligence_on_demand_research` | `openclaw health`, `openclaw agent --agent main --message "respond with PONG" --timeout 15000` |
+| Agent runtime | HEALTHY — `loom doctor` OK and the Loom service-state probe verified healthy at closeout; this host remains a single-host Loom proof surface with bounded compatibility paths | `loom health --format json`, `loom service status --format json` |
 | Live route cutover | VERIFIED — `intelligence_on_demand_research` is the only Loom-owned cutover on this host; fallback is disabled | `readiness.py --json`, live route checks |
-| Runtime proof receipt | VERIFIED — public `GET /api/runtime-proof` now turns the host's OpenClaw health, canonical `PONG`, runtime inventory, and governed-agent alignment into a structured proof receipt | localhost GET to `http://127.0.0.1:18901/api/runtime-proof` |
+| Runtime proof receipt | VERIFIED — public `GET /api/runtime-proof` now turns the host's Loom health, canonical Loom service-state probe, runtime inventory, and governed-agent alignment into a structured proof receipt | localhost GET to `http://127.0.0.1:18901/api/runtime-proof` |
 | Night-shift pipeline | BLOCKED — treasury $48 below reserve floor | `ci_vertical.py preflight` |
 | Constitutional preflight | BLOCKED — treasury $48 below reserve floor | `treasury.py runway` |
 | Channel delivery (@MeridianIntelligence) | NOT RUNNING — no new briefs (treasury-blocked) | preflight output |
 | Premium delivery (@eggsama_bot) | NOT RUNNING — no new briefs (treasury-blocked) | preflight output |
 | Workspace runtime-core surface | VERIFIED — `/api/context` and `/api/status` expose host identity, boundary registry, admission truth, runtime binding truth, and federation-gateway state for founding Meridian | authenticated probes to `http://127.0.0.1:18901/api/context`, `/api/status`, `/api/admission`, and `/api/federation` |
-| Public host receipt | VERIFIED — unauthenticated `GET /api/federation/manifest` is the live OpenClaw host proof surface; it returns the founding host's federation manifest and stays honest about `founding_locked` / federation-disabled live state | unauthenticated localhost GET to `http://127.0.0.1:18901/api/federation/manifest` |
+| Public host receipt | VERIFIED — unauthenticated `GET /api/federation/manifest` is the live Loom host proof surface; it returns the founding host's federation manifest and stays honest about `founding_locked` / federation-disabled live state | unauthenticated localhost GET to `http://127.0.0.1:18901/api/federation/manifest` |
 | Admission mutation boundary | VERIFIED — live `POST /api/admission/admit` fails closed with `founding_locked` semantics | authenticated localhost POST to `http://127.0.0.1:18901/api/admission/admit` with a non-founding org |
 | Settlement verifier gate | VERIFIED — `/api/treasury/settlement-adapters` and `/api/treasury/settlement-adapters/preflight` expose verifier mode, readiness, accepted attestation types, and fail-closed blockers for non-ledger adapters | authenticated localhost GET/POST to the treasury adapter endpoints |
 | Trial reminders | Would run for 2 active IDs (owner test accounts) | subscriptions state via founding capsule alias |
@@ -54,13 +54,13 @@ It is not promotional copy. Every claim is tagged verified, inferred, or unknown
 **Status:** RESOLVED 2026-03-20
 
 The `deactivated_workspace` error was caused by upstream OpenAI Codex workspace state.
-Owner re-ran `openclaw models auth login --provider openai-codex` and the upstream
+Owner re-ran `refreshed host Codex auth and reran Loom route verification` and the upstream
 `deactivated_workspace` error disappeared. Host-level verification at closeout now
-shows `openclaw health` returning OK and the canonical PONG probe succeeding 3/3.
-Some embedded state inside `~/.openclaw/cron/jobs.json` still carries old
+shows `loom doctor` returning OK and the Loom service-state probe succeeding at closeout.
+Some embedded state inside `~/.meridian/cron/jobs.json` still carries old
 `deactivated_workspace` strings. Treat `jobs.json` as schedule config plus an
 embedded last-run cache. Use `company/meridian_platform/scheduler_truth.py` and
-the per-job run logs under `~/.openclaw/cron/runs/` for scheduler truth instead
+the per-job run logs under `~/.meridian/cron/runs/` for scheduler truth instead
 of trusting jobs.json state blindly.
 
 ---
@@ -70,9 +70,9 @@ of trusting jobs.json state blindly.
 **Status:** RESOLVED 2026-03-20
 
 Current direct checks pass on the host:
-- `openclaw health` → OK
-- `openclaw agent --agent main --message "respond with PONG" --timeout 15000`
-  → `PONG` (verified 3/3 back-to-back)
+- `loom doctor` → OK
+- `loom service status --format json`
+  → running/healthy (verified at closeout)
 
 This confirms the runtime is no longer blocked by workspace deactivation and is
 healthy enough to remove the engineering runtime blocker from closeout.
@@ -202,7 +202,7 @@ hidden singleton file paths.
 ## What Is Healthy (Verified)
 
 - Codebase intact, no corruption
-- Agent runtime healthy: `openclaw health` OK and canonical PONG verified 3/3 at closeout
+- Agent runtime healthy: `loom doctor` OK and the Loom service-state probe verified healthy at closeout
 - Constitutional primitives (institution, agents, authority, court) initialized and enforced
 - Website accessible: app.welliam.codes (index.html, pilot.html, demo.html)
 - Public Telegram channel @MeridianIntelligence exists

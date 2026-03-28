@@ -1,16 +1,18 @@
 #!/usr/bin/env python3
 """
-Live-only OpenClaw deployment proof helpers.
+Live-only Loom deployment proof helpers.
 
 This module intentionally stays read-only. It maps governed Meridian agent
-records to live OpenClaw handles and parses `openclaw health` output into a
-structured proof object for the current single-host deployment.
+records to live Loom handles and parses Loom JSON health and service surfaces
+into a structured proof object for the current single-host deployment.
 """
 from __future__ import annotations
 
 import datetime as _dt
+import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 from typing import Any, Dict, Iterable, List, Mapping, Optional
@@ -27,17 +29,15 @@ from agent_registry import load_registry, normalize_agent_record  # noqa: E402
 
 
 AGENT_HANDLE_FIELDS = ('economy_key', 'name', 'id')
-DEFAULT_HEALTH_COMMAND = ['openclaw', 'health']
-DEFAULT_PONG_COMMAND = [
-    'openclaw',
-    'agent',
-    '--agent',
-    'main',
-    '--message',
-    'respond with PONG',
-    '--timeout',
-    '15000',
-]
+_HEALTH_AGENT_RE = re.compile(r'^Agents:\s*(?P<agents>.+)$')
+_HEALTH_HEARTBEAT_RE = re.compile(r'^Heartbeat interval:\s*(?P<interval>.+?)(?:\s+\((?P<primary>[^)]+)\))?$')
+_HEALTH_SESSION_RE = re.compile(r'^Session store \((?P<agent>[^)]+)\):\s*(?P<path>.+?)\s+\((?P<count>\d+)\s+entries?\)$')
+_HEALTH_SESSION_ENTRY_RE = re.compile(r'^-?\s*(?P<agent>[^:]+):(?P<scope>[^:]+):(?P<session>[^ ]+)\s+\((?P<age>[^)]+)\)$')
+_HEALTH_TELEGRAM_RE = re.compile(
+    r'^Telegram:\s*(?P<status>[^()]+?)'
+    r'(?:\s+\((?P<detail1>[^)]+)\))?'
+    r'(?:\s+\((?P<detail2>[^)]+)\))?$'
+)
 
 
 def _now() -> str:
@@ -64,7 +64,40 @@ def _agent_handle(agent: Mapping[str, Any]) -> str:
     return ''
 
 
-def map_governed_agents_to_openclaw_handles(
+def _loom_bin() -> str:
+    candidates = [
+        (os.environ.get('MERIDIAN_LOOM_BIN') or '').strip(),
+        '/home/ubuntu/.local/share/meridian-loom/current/bin/loom',
+        '/root/.local/share/meridian-loom/current/bin/loom',
+        shutil.which('loom') or '',
+    ]
+    for candidate in candidates:
+        if candidate and os.path.exists(candidate):
+            return candidate
+    return candidates[0] or 'loom'
+
+
+def _loom_root() -> str:
+    candidates = [
+        (os.environ.get('MERIDIAN_LOOM_ROOT') or '').strip(),
+        '/home/ubuntu/.local/share/meridian-loom/runtime/default',
+        '/root/.local/share/meridian-loom/runtime/default',
+    ]
+    for candidate in candidates:
+        if candidate and os.path.exists(candidate):
+            return candidate
+    return candidates[0] or '/home/ubuntu/.local/share/meridian-loom/runtime/default'
+
+
+def _health_command() -> List[str]:
+    return [_loom_bin(), 'health', '--root', _loom_root(), '--format', 'json']
+
+
+def _service_probe_command() -> List[str]:
+    return [_loom_bin(), 'service', 'status', '--root', _loom_root(), '--format', 'json']
+
+
+def map_governed_agents_to_loom_handles(
     agents: Optional[Iterable[Mapping[str, Any]]] = None,
 ) -> List[Dict[str, Any]]:
     if agents is None:
@@ -80,23 +113,12 @@ def map_governed_agents_to_openclaw_handles(
             'agent_name': normalized.get('name'),
             'org_id': normalized.get('org_id'),
             'role': normalized.get('role'),
-            'openclaw_handle': handle,
+            'loom_handle': handle,
             'runtime_binding': dict(normalized.get('runtime_binding') or {}),
-            'has_openclaw_handle': bool(handle),
+            'has_loom_handle': bool(handle),
             'handle_source': 'economy_key' if (normalized.get('economy_key') or '').strip() else 'name',
         })
     return mapped
-
-
-_HEALTH_AGENT_RE = re.compile(r'^Agents:\s*(?P<agents>.+)$')
-_HEALTH_HEARTBEAT_RE = re.compile(r'^Heartbeat interval:\s*(?P<interval>.+?)(?:\s+\((?P<primary>[^)]+)\))?$')
-_HEALTH_SESSION_RE = re.compile(r'^Session store \((?P<agent>[^)]+)\):\s*(?P<path>.+?)\s+\((?P<count>\d+)\s+entries?\)$')
-_HEALTH_PONG_RE = re.compile(r'^-?\s*(?P<agent>[^:]+):(?P<scope>[^:]+):(?P<session>[^ ]+)\s+\((?P<age>[^)]+)\)$')
-_HEALTH_TELEGRAM_RE = re.compile(
-    r'^Telegram:\s*(?P<status>[^()]+?)'
-    r'(?:\s+\((?P<detail1>[^)]+)\))?'
-    r'(?:\s+\((?P<detail2>[^)]+)\))?$'
-)
 
 
 def _split_csv_agents(raw: str) -> List[Dict[str, Any]]:
@@ -117,10 +139,11 @@ def _split_csv_agents(raw: str) -> List[Dict[str, Any]]:
     return agents
 
 
-def parse_openclaw_health(output: str) -> Dict[str, Any]:
+def _parse_loom_health_lines(output: str) -> Dict[str, Any]:
     lines = [line.rstrip() for line in (output or '').splitlines() if line.strip()]
     proof = {
         'checked_at': _now(),
+        'status': 'unknown',
         'raw_line_count': len(lines),
         'telegram': {'status': None, 'detail': None, 'ok': False},
         'agents': [],
@@ -164,7 +187,7 @@ def parse_openclaw_health(output: str) -> Dict[str, Any]:
             })
             continue
 
-        session_entry = _HEALTH_PONG_RE.match(line)
+        session_entry = _HEALTH_SESSION_ENTRY_RE.match(line)
         if session_entry:
             proof['sessions'].append({
                 'agent': session_entry.group('agent').strip(),
@@ -178,6 +201,76 @@ def parse_openclaw_health(output: str) -> Dict[str, Any]:
     proof['session_total'] = sum(item['entries'] for item in proof['session_stores'])
     proof['agent_count'] = len(proof['agents'])
     return proof
+
+
+def _extract_check(payload: Mapping[str, Any], label: str) -> Mapping[str, Any]:
+    for item in payload.get('checks') or []:
+        if isinstance(item, Mapping) and item.get('label') == label:
+            return item
+    return {}
+
+
+def _parse_agent_runtime_detail(detail: str) -> List[Dict[str, Any]]:
+    match = re.search(r'agents=([^ ]+)', detail or '')
+    if not match:
+        return []
+    handles = [item.strip() for item in match.group(1).split(',') if item.strip()]
+    return [
+        {'name': handle, 'role': None, 'handle': handle, 'is_default': handle == 'leviathann'}
+        for handle in handles
+    ]
+
+
+def _parse_loom_health_json(output: str) -> Dict[str, Any]:
+    payload = json.loads(output)
+    if isinstance(payload, list):
+        payload = {'status': 'unknown', 'checks': payload}
+    if not isinstance(payload, dict):
+        raise ValueError('loom health payload must be a JSON object')
+
+    agent_runtime = _extract_check(payload, 'agent_runtime')
+    channel_runtime = _extract_check(payload, 'channel_runtime')
+    session_runtime = _extract_check(payload, 'session_provenance')
+
+    agents = _parse_agent_runtime_detail((agent_runtime.get('detail') or '').strip())
+    channel_detail = (channel_runtime.get('detail') or '').strip()
+    channel_handles = []
+    channel_match = re.search(r'channels=([^ ]+)', channel_detail)
+    if channel_match:
+        channel_handles = [item.strip() for item in channel_match.group(1).split(',') if item.strip()]
+    enabled_match = re.search(r'enabled=(\d+)', channel_detail)
+    enabled_count = int(enabled_match.group(1)) if enabled_match else 0
+    session_match = re.search(r'total=(\d+)', (session_runtime.get('detail') or '').strip())
+    session_total = int(session_match.group(1)) if session_match else 0
+
+    return {
+        'checked_at': _now(),
+        'status': (payload.get('status') or 'unknown').strip().lower(),
+        'raw_line_count': 0,
+        'telegram': {
+            'status': 'enabled' if 'telegram' in channel_handles else 'disabled',
+            'detail': channel_detail or None,
+            'ok': 'telegram' in channel_handles and enabled_count >= 2,
+        },
+        'agents': agents,
+        'heartbeat': {'interval': None, 'primary_agent': None},
+        'session_stores': [],
+        'sessions': [],
+        'raw': payload,
+        'health_ok': (payload.get('status') or '').strip().lower() == 'healthy',
+        'session_total': session_total,
+        'agent_count': len(agents),
+    }
+
+
+def parse_loom_health(output: str) -> Dict[str, Any]:
+    raw = (output or '').strip()
+    if raw.startswith('{') or raw.startswith('['):
+        try:
+            return _parse_loom_health_json(raw)
+        except (json.JSONDecodeError, ValueError):
+            pass
+    return _parse_loom_health_lines(output)
 
 
 def _run_command(command: List[str], timeout: int) -> Dict[str, Any]:
@@ -206,57 +299,89 @@ def _run_command(command: List[str], timeout: int) -> Dict[str, Any]:
     }
 
 
-def collect_openclaw_runtime_proof(
+def _parse_service_probe(stdout: str) -> Dict[str, Any]:
+    raw = (stdout or '').strip()
+    if not raw:
+        return {'ok': False, 'service_status': '', 'health': '', 'transport': '', 'running': False}
+    payload = json.loads(raw)
+    if not isinstance(payload, dict):
+        raise ValueError('loom service status payload must be a JSON object')
+    return {
+        'ok': bool(payload.get('running')) and payload.get('service_status') == 'running' and payload.get('health') == 'healthy',
+        'service_status': payload.get('service_status', ''),
+        'health': payload.get('health', ''),
+        'transport': payload.get('transport', ''),
+        'running': bool(payload.get('running')),
+    }
+
+
+def collect_loom_runtime_proof(
     *,
     health_output: Optional[str] = None,
     health_command: Optional[List[str]] = None,
     agents: Optional[Iterable[Mapping[str, Any]]] = None,
-    include_pong: bool = False,
-    pong_command: Optional[List[str]] = None,
+    include_service_probe: bool = False,
+    service_probe_command: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     health_probe = None
     if health_output is None:
-        health_probe = _run_command(health_command or DEFAULT_HEALTH_COMMAND, timeout=20)
+        health_probe = _run_command(health_command or _health_command(), timeout=20)
         health_output = health_probe['stdout']
 
-    health = parse_openclaw_health(health_output)
-    mapped_agents = map_governed_agents_to_openclaw_handles(agents=agents)
+    health = parse_loom_health(health_output)
+    mapped_agents = map_governed_agents_to_loom_handles(agents=agents)
     health_handles = {agent.get('handle') for agent in health.get('agents', []) if agent.get('handle')}
     mapped_handles = {
-        entry['openclaw_handle']
+        entry['loom_handle']
         for entry in mapped_agents
-        if entry.get('openclaw_handle')
+        if entry.get('loom_handle')
     }
-    pong_probe = {
+    service_probe = {
         'checked': False,
         'ok': False,
         'output': '',
         'stderr': '',
-        'command': list(pong_command or DEFAULT_PONG_COMMAND),
+        'command': list(service_probe_command or _service_probe_command()),
+        'service_status': '',
+        'health': '',
+        'transport': '',
     }
-    if include_pong:
-        probe = _run_command(pong_command or DEFAULT_PONG_COMMAND, timeout=25)
-        pong_probe = {
+    if include_service_probe:
+        probe = _run_command(service_probe_command or _service_probe_command(), timeout=20)
+        try:
+            parsed = _parse_service_probe(probe['stdout']) if probe['ok'] else {
+                'ok': False,
+                'service_status': '',
+                'health': '',
+                'transport': '',
+                'running': False,
+            }
+        except (json.JSONDecodeError, ValueError):
+            parsed = {'ok': False, 'service_status': '', 'health': '', 'transport': '', 'running': False}
+        service_probe = {
             'checked': True,
-            'ok': probe['ok'] and probe['stdout'] == 'PONG',
+            'ok': bool(parsed.get('ok')),
             'output': probe['stdout'],
             'stderr': probe['stderr'],
             'command': probe['command'],
+            'service_status': parsed.get('service_status', ''),
+            'health': parsed.get('health', ''),
+            'transport': parsed.get('transport', ''),
         }
 
     return {
-        'runtime_id': 'openclaw_compatible',
-        'proof_type': 'live_single_host_openclaw_deployment',
+        'runtime_id': 'loom_native',
+        'proof_type': 'live_single_host_loom_deployment',
         'checked_at': _now(),
         'health': health,
         'health_probe': health_probe or {
-            'command': list(health_command or DEFAULT_HEALTH_COMMAND),
+            'command': list(health_command or _health_command()),
             'ok': True,
             'returncode': 0,
             'stdout': health_output,
             'stderr': '',
         },
-        'pong_probe': pong_probe,
+        'service_probe': service_probe,
         'governed_agents': mapped_agents,
         'handle_overlap': sorted(health_handles & mapped_handles),
         'handle_gap': sorted(mapped_handles - health_handles),
@@ -270,20 +395,27 @@ def collect_openclaw_runtime_proof(
     }
 
 
-def public_openclaw_runtime_receipt(
+def public_loom_runtime_receipt(
     proof: Mapping[str, Any],
     *,
     bound_org_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     health = dict(proof.get('health') or {})
     governed_agents = list(proof.get('governed_agents') or [])
+    service_probe = dict(proof.get('service_probe') or {})
+    runtime_health = {
+        'status': health.get('status', 'unknown'),
+        'health_ok': bool(health.get('health_ok')),
+        'service_probe_ok': bool(service_probe.get('ok')),
+    }
     return {
-        'runtime_id': proof.get('runtime_id', 'openclaw_compatible'),
-        'proof_type': proof.get('proof_type', 'live_single_host_openclaw_deployment'),
+        'runtime_id': proof.get('runtime_id', 'loom_native'),
+        'proof_type': proof.get('proof_type', 'live_single_host_loom_deployment'),
         'checked_at': proof.get('checked_at', _now()),
         'bound_org_id': bound_org_id,
         'deployment_truth': dict(proof.get('deployment_truth') or {}),
         'health': {
+            'status': health.get('status', 'unknown'),
             'health_ok': bool(health.get('health_ok')),
             'telegram_ok': bool((health.get('telegram') or {}).get('ok')),
             'agent_count': health.get('agent_count', 0),
@@ -292,10 +424,14 @@ def public_openclaw_runtime_receipt(
             'primary_agent': (health.get('heartbeat') or {}).get('primary_agent'),
             'session_total': health.get('session_total', 0),
         },
-        'pong_probe': {
-            'checked': bool((proof.get('pong_probe') or {}).get('checked')),
-            'ok': bool((proof.get('pong_probe') or {}).get('ok')),
-            'output': (proof.get('pong_probe') or {}).get('output', ''),
+        'runtime_health': runtime_health,
+        'service_probe': {
+            'checked': bool(service_probe.get('checked')),
+            'ok': bool(service_probe.get('ok')),
+            'status': service_probe.get('service_status', ''),
+            'health': service_probe.get('health', ''),
+            'transport': service_probe.get('transport', ''),
+            'output': service_probe.get('output', ''),
         },
         'governed_agents': [
             {
@@ -303,7 +439,7 @@ def public_openclaw_runtime_receipt(
                 'agent_name': entry.get('agent_name'),
                 'org_id': entry.get('org_id'),
                 'role': entry.get('role'),
-                'openclaw_handle': entry.get('openclaw_handle'),
+                'loom_handle': entry.get('loom_handle'),
                 'handle_source': entry.get('handle_source'),
                 'runtime_binding': {
                     'runtime_id': ((entry.get('runtime_binding') or {}).get('runtime_id', '')),
@@ -325,15 +461,14 @@ def public_openclaw_runtime_receipt(
 def main(argv: Optional[List[str]] = None) -> int:
     argv = list(argv or sys.argv[1:])
     if '--json' in argv:
-        import json
-
-        proof = collect_openclaw_runtime_proof()
+        proof = collect_loom_runtime_proof()
         print(json.dumps(proof, indent=2, sort_keys=True))
         return 0
 
-    proof = collect_openclaw_runtime_proof()
+    proof = collect_loom_runtime_proof(include_service_probe=True)
     print(f"Checked at: {proof['checked_at']}")
     print(f"Health OK: {proof['health']['health_ok']}")
+    print(f"Service probe OK: {proof['service_probe']['ok']}")
     print(f"Agents mapped: {len(proof['governed_agents'])}")
     print(f"Handle overlap: {', '.join(proof['handle_overlap']) or 'none'}")
     return 0

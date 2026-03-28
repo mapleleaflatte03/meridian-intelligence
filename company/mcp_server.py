@@ -37,6 +37,7 @@ import json
 import logging
 import os
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -50,11 +51,11 @@ from brief_quality import analyze_brief
 MCP_SERVER_FILE = os.path.abspath(__file__)
 COMPANY_DIR = os.path.dirname(MCP_SERVER_FILE)
 WORKSPACE = os.path.dirname(COMPANY_DIR)
-OPENCLAW_HOME = os.path.dirname(WORKSPACE)
+MERIDIAN_HOME = os.path.dirname(WORKSPACE)
 NIGHT_SHIFT_DIR = os.path.join(WORKSPACE, 'night-shift')
 ECONOMY_DIR = os.path.join(WORKSPACE, 'economy')
 PLATFORM_DIR = os.path.join(COMPANY_DIR, 'meridian_platform')
-WALLET_FILE = os.path.join(OPENCLAW_HOME, 'credentials', 'base_wallet.json')
+WALLET_FILE = os.path.join(MERIDIAN_HOME, 'credentials', 'base_wallet.json')
 MCP_SETTLEMENT_LOG = os.path.join(COMPANY_DIR, 'mcp_settlements.jsonl')
 MCP_SETTLEMENT_LOCK = os.path.join(COMPANY_DIR, '.mcp_settlement.lock')
 
@@ -131,7 +132,7 @@ logger = logging.getLogger('meridian.mcp')
 
 def _normalize_runtime(runtime: str) -> str:
     runtime = (runtime or '').strip().lower()
-    return 'loom' if runtime == 'loom' else 'openclaw'
+    return 'loom' if runtime in {'loom', ''} else 'legacy'
 
 
 def _env_truthy(name: str, default: bool = False) -> bool:
@@ -146,7 +147,7 @@ def _intelligence_exec_runtime(tool: str | None = None) -> str:
         scoped = os.environ.get(f'MERIDIAN_INTELLIGENCE_{tool.upper()}_RUNTIME')
         if scoped:
             return _normalize_runtime(scoped)
-    return _normalize_runtime(os.environ.get('MERIDIAN_INTELLIGENCE_EXEC_RUNTIME') or 'openclaw')
+    return _normalize_runtime(os.environ.get('MERIDIAN_INTELLIGENCE_EXEC_RUNTIME') or 'loom')
 
 
 def _intelligence_route_runtime(route: str, tool: str | None = None) -> str:
@@ -161,14 +162,28 @@ def _intelligence_route_fallback(route: str, default: bool = False) -> bool:
 
 
 def _loom_bin() -> str:
-    return (
-        os.environ.get('MERIDIAN_LOOM_BIN')
-        or '/root/.local/share/meridian-loom/current/bin/loom'
-    ).strip()
+    candidates = [
+        (os.environ.get('MERIDIAN_LOOM_BIN') or '').strip(),
+        '/home/ubuntu/.local/share/meridian-loom/current/bin/loom',
+        '/root/.local/share/meridian-loom/current/bin/loom',
+        shutil.which('loom') or '',
+    ]
+    for candidate in candidates:
+        if candidate and os.path.exists(candidate):
+            return candidate
+    return candidates[0] or 'loom'
 
 
 def _loom_root() -> str:
-    return (os.environ.get('MERIDIAN_LOOM_ROOT') or '/root/.local/share/meridian-loom/runtime/default').strip()
+    candidates = [
+        (os.environ.get('MERIDIAN_LOOM_ROOT') or '').strip(),
+        '/home/ubuntu/.local/share/meridian-loom/runtime/default',
+        '/root/.local/share/meridian-loom/runtime/default',
+    ]
+    for candidate in candidates:
+        if candidate and os.path.exists(candidate):
+            return candidate
+    return candidates[0] or '/home/ubuntu/.local/share/meridian-loom/runtime/default'
 
 
 def _loom_agent_id() -> str:
@@ -198,7 +213,7 @@ def _load_json_file(path: str, default=None):
         return json.load(f)
 
 
-def _openclaw_response_content(stdout: str):
+def _legacy_response_content(stdout: str):
     try:
         response = json.loads(stdout)
         return response.get('response', response.get('message', stdout))
@@ -206,7 +221,7 @@ def _openclaw_response_content(stdout: str):
         return stdout
 
 
-def _run_openclaw_agent(agent: str, prompt: str, timeout: int) -> dict:
+def _run_legacy_agent(agent: str, prompt: str, timeout: int) -> dict:
     try:
         result = subprocess.run(
             ['openclaw', 'agent', '--agent', agent, '--message', prompt, '--json'],
@@ -215,27 +230,27 @@ def _run_openclaw_agent(agent: str, prompt: str, timeout: int) -> dict:
         if result.returncode != 0:
             return {
                 'ok': False,
-                'runtime': 'openclaw',
+                'runtime': 'legacy',
                 'agent': agent,
-                'error': f'OpenClaw agent returned error: {result.stderr[:500]}',
+                'error': f'Legacy agent returned error: {result.stderr[:500]}',
             }
         return {
             'ok': True,
-            'runtime': 'openclaw',
+            'runtime': 'legacy',
             'agent': agent,
-            'content': _openclaw_response_content(result.stdout),
+            'content': _legacy_response_content(result.stdout),
         }
     except subprocess.TimeoutExpired:
         return {
             'ok': False,
-            'runtime': 'openclaw',
+            'runtime': 'legacy',
             'agent': agent,
-            'error': f'OpenClaw agent timed out ({timeout}s limit)',
+            'error': f'Legacy agent timed out ({timeout}s limit)',
         }
     except Exception as exc:
         return {
             'ok': False,
-            'runtime': 'openclaw',
+            'runtime': 'legacy',
             'agent': agent,
             'error': str(exc),
         }
@@ -353,12 +368,14 @@ def _normalize_loom_import_metadata(capability_payload: dict) -> dict:
         unsupported_reasons.append(f'import_provenance={import_provenance}')
     if normalized_worker_entry and worker_entry and worker_entry != normalized_worker_entry:
         unsupported_reasons.append(f'worker_entry={worker_entry}')
-    if source_kind and source_kind not in {'openclaw_workspace_skill', 'openclaw_plugin_skill', 'openclaw_plugin_packaged_skill'}:
+    legacy_source_kind_map = {'openclaw_workspace_skill': 'legacy_workspace_skill', 'openclaw_plugin_skill': 'legacy_plugin_skill', 'openclaw_plugin_packaged_skill': 'legacy_plugin_packaged_skill'}
+    source_kind = legacy_source_kind_map.get(source_kind, source_kind)
+    if source_kind and source_kind not in {'loom_workspace_skill', 'loom_plugin_skill', 'loom_plugin_packaged_skill', 'legacy_workspace_skill', 'legacy_plugin_skill', 'legacy_plugin_packaged_skill'}:
         unsupported_reasons.append(f'source_kind={source_kind}')
 
     supported = not unsupported_reasons
     return {
-        'subset': 'openclaw_plugin_skill_subset',
+        'subset': 'loom_plugin_skill_subset',
         'supported': supported,
         'unsupported_reasons': unsupported_reasons,
         'unsupported_reason': '; '.join(unsupported_reasons) if unsupported_reasons else '',
@@ -1159,22 +1176,22 @@ def get_weekly_digest() -> dict:
     }
 
 
-def _run_openclaw_on_demand_research(topic: str, depth: str, prompt: str) -> dict:
-    result = _run_openclaw_agent('atlas', prompt, timeout=120)
+def _run_legacy_on_demand_research(topic: str, depth: str, prompt: str) -> dict:
+    result = _run_legacy_agent('atlas', prompt, timeout=120)
     if result.get('ok'):
         return {
             'topic': topic,
             'depth': depth,
             'research': result.get('content', ''),
             'agent': 'Atlas',
-            'runtime': 'openclaw',
+            'runtime': 'legacy',
             'source': 'Meridian Research Pipeline',
         }
     return {
         'topic': topic,
         'depth': depth,
-        'runtime': 'openclaw',
-        'error': result.get('error', 'OpenClaw runtime failed'),
+        'runtime': 'legacy',
+        'error': result.get('error', 'Legacy runtime failed'),
     }
 
 
@@ -1211,7 +1228,7 @@ def do_on_demand_research(topic: str, depth: str = 'standard') -> dict:
     if _intelligence_exec_runtime('research') == 'loom':
         result, _ = _run_loom_on_demand_research(topic, depth, prompt)
         return result
-    return _run_openclaw_on_demand_research(topic, depth, prompt)
+    return _run_legacy_on_demand_research(topic, depth, prompt)
 
 
 def do_on_demand_research_route(topic: str, depth: str = 'standard') -> dict:
@@ -1221,8 +1238,8 @@ def do_on_demand_research_route(topic: str, depth: str = 'standard') -> dict:
 
     if requested_runtime != 'loom':
         fallback_enabled = _intelligence_route_fallback('on_demand_research', default=False)
-        result = _run_openclaw_on_demand_research(topic, depth, prompt)
-        return _with_on_demand_research_cutover(result, requested_runtime, 'openclaw', fallback_enabled)
+        result = _run_legacy_on_demand_research(topic, depth, prompt)
+        return _with_on_demand_research_cutover(result, requested_runtime, 'legacy', fallback_enabled)
 
     loom_preflight = _loom_research_preflight(_loom_research_capability())
     if not loom_preflight.get('ok'):
@@ -1307,19 +1324,19 @@ def do_qa_verify(text: str, criteria: str = 'factual') -> dict:
             'error': loom_result.get('error', 'Loom runtime failed'),
         }
 
-    result = _run_openclaw_agent('aegis', prompt, timeout=60)
+    result = _run_legacy_agent('aegis', prompt, timeout=60)
     if result.get('ok'):
         return {
             'criteria': criteria,
             'verification': result.get('content', ''),
             'agent': 'Aegis',
-            'runtime': 'openclaw',
+            'runtime': 'legacy',
             'source': 'Meridian QA Pipeline',
         }
     return {
         'criteria': criteria,
-        'runtime': 'openclaw',
-        'error': result.get('error', 'OpenClaw runtime failed'),
+        'runtime': 'legacy',
+        'error': result.get('error', 'Legacy runtime failed'),
     }
 
 
@@ -1334,22 +1351,22 @@ def do_qa_verify_route(text: str, criteria: str = 'factual') -> dict:
     )
 
     if requested_runtime != 'loom':
-        result = _run_openclaw_agent('aegis', prompt, timeout=60)
+        result = _run_legacy_agent('aegis', prompt, timeout=60)
         if result.get('ok'):
             result = {
                 'criteria': criteria,
                 'verification': result.get('content', ''),
                 'agent': 'Aegis',
-                'runtime': 'openclaw',
+                'runtime': 'legacy',
                 'source': 'Meridian QA Pipeline',
             }
         else:
             result = {
                 'criteria': criteria,
-                'runtime': 'openclaw',
-                'error': result.get('error', 'OpenClaw runtime failed'),
+                'runtime': 'legacy',
+                'error': result.get('error', 'Legacy runtime failed'),
             }
-        return _with_qa_verify_cutover(result, requested_runtime, 'openclaw', fallback_enabled)
+        return _with_qa_verify_cutover(result, requested_runtime, 'legacy', fallback_enabled)
 
     loom_preflight = _loom_qa_preflight(_loom_qa_capability())
     if not loom_preflight.get('ok'):

@@ -346,7 +346,7 @@ class SubscriptionServiceTests(unittest.TestCase):
                 return mock.Mock(returncode=0, stdout=json.dumps({'job_id': 'loom-job-1'}), stderr='')
             if cmd[1:3] == ['job', 'inspect']:
                 return mock.Mock(returncode=0, stdout=json.dumps({'job_status': 'completed', 'job_path': '/tmp/jobs/loom-job-1/job.json', 'worker_status': 'completed'}), stderr='')
-            if cmd[:3] == ['openclaw', 'message', 'send']:
+            if cmd[1:3] == ['channel', 'send']:
                 return mock.Mock(returncode=0, stdout='telegram delivered', stderr='')
             if len(cmd) > 1 and cmd[1].endswith('send_email.py'):
                 return mock.Mock(returncode=0, stdout='email delivered', stderr='')

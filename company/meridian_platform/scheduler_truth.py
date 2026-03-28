@@ -66,7 +66,7 @@ def latest_run_entry(job_id):
 def _runtime_ok():
     try:
         result = subprocess.run(
-            ['openclaw', 'health'],
+            ['loom', 'doctor', '--format', 'json'],
             capture_output=True,
             text=True,
             timeout=20,
@@ -176,7 +176,7 @@ def job_view(job, runtime_ok=False):
         'schedule_config': _schedule_config(job),
         'latest_run': latest_run,
         'current_runtime': {
-            'openclaw_health_ok': runtime_ok,
+            'loom_health_ok': runtime_ok,
         },
         'contradictions': _contradictions(job, latest_run),
         'note': note,
@@ -187,7 +187,7 @@ def all_job_truth():
     runtime_ok = _runtime_ok()
     return {
         'current_runtime': {
-            'openclaw_health_ok': runtime_ok,
+            'loom_health_ok': runtime_ok,
         },
         'jobs': [job_view(job, runtime_ok=runtime_ok) for job in load_jobs()],
     }
@@ -219,7 +219,7 @@ def _print_table(rows, runtime_ok):
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Canonical scheduler truth from OpenClaw run logs')
+    parser = argparse.ArgumentParser(description='Canonical scheduler truth from Meridian run logs')
     parser.add_argument('--job', help='Job name or id')
     parser.add_argument('--json', action='store_true', help='Output JSON')
     args = parser.parse_args()
@@ -236,9 +236,9 @@ def main():
         print(json.dumps(data, indent=2))
     else:
         if isinstance(data, dict) and 'jobs' in data:
-            _print_table(data['jobs'], data['current_runtime']['openclaw_health_ok'])
+            _print_table(data['jobs'], data['current_runtime']['loom_health_ok'])
         else:
-            _print_table([data], data['current_runtime']['openclaw_health_ok'])
+            _print_table([data], data['current_runtime']['loom_health_ok'])
 
 
 if __name__ == '__main__':

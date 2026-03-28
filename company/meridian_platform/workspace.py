@@ -35,7 +35,7 @@ Endpoints:
   GET  /api/federation/witness/archive → Witness-host archival evidence state
   GET  /api/alerts               → Alert queue, delivery, and dispatch summary
   POST /api/alerts/dispatch      → Acknowledge queued alerts without claiming delivery
-  GET  /api/runtime-proof         → Public live OpenClaw runtime proof receipt
+  GET  /api/runtime-proof         → Public live Loom runtime proof receipt
   POST /api/authority/kill-switch → Engage/disengage kill switch
   POST /api/authority/approve     → Decide an approval
   POST /api/authority/request     → Request approval
@@ -209,7 +209,7 @@ from warrants import (
 import commitments
 import cases
 import accounting_service
-import openclaw_runtime_proof
+import loom_runtime_proof
 import service_state
 import status_surface
 import pilot_intake
@@ -3363,7 +3363,7 @@ def api_status(context_source='founding_default', institution_context=None):
         'observability': status_surface.observability_snapshot(org_id),
         'runtime_proof': {
             'route': '/api/runtime-proof',
-            'runtime_id': 'openclaw_compatible',
+            'runtime_id': 'loom_native',
             'proof_mode': 'live_host_runtime_probe',
         },
         'ci_vertical': _ci_vertical_status(reg, lead_id, org_id),
@@ -4233,9 +4233,9 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
         elif path == '/api/alerts':
             return self._json(alerting.alert_queue_snapshot(org_id))
         elif path == '/api/runtime-proof':
-            proof = openclaw_runtime_proof.collect_openclaw_runtime_proof(include_pong=True)
+            proof = loom_runtime_proof.collect_loom_runtime_proof(include_service_probe=True)
             return self._json(
-                openclaw_runtime_proof.public_openclaw_runtime_receipt(
+                loom_runtime_proof.public_loom_runtime_receipt(
                     proof,
                     bound_org_id=org_id,
                 )

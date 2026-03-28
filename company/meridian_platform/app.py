@@ -14,7 +14,7 @@ PUBLIC_SURFACE_GET_ROUTES = (
     ('/api/subscriptions', 'Subscription service state'),
     ('/api/pilot/intake', 'Public pilot intake queue snapshot'),
     ('/api/federation/manifest', 'Public host federation manifest'),
-    ('/api/runtime-proof', 'Public live OpenClaw runtime proof receipt'),
+    ('/api/runtime-proof', 'Public live Loom runtime proof receipt'),
 )
 
 PUBLIC_SURFACE_POST_ROUTES = (

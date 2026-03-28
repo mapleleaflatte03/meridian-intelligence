@@ -28,7 +28,7 @@ import ops_meridian_golden_path as golden
 
 WORKSPACE = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_URL = "https://en.wikipedia.org/wiki/WebAssembly"
-LEGACY_ALIAS_PATH = "/tmp/meridian-kernel/kernel/adapters/openclaw_compatible.py"
+LEGACY_ALIAS_PATH = "/opt/meridian-kernel/kernel/adapters/legacy_v1_compatible.py"
 LEGACY_ADAPTER_PATH = "/tmp/meridian-kernel/kernel/adapters/legacy_v1_compatible.py"
 LOOM_WORKSPACE_ROOT = os.path.join(engine.DIRECT_LOOM_ROOT, "workspace")
 COMPETITOR_BRIEF_PATH = os.path.join(LOOM_WORKSPACE_ROOT, "competitor_brief.md")

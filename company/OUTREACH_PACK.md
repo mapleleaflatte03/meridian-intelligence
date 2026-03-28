@@ -254,7 +254,7 @@ Do not start with the OSS repo unless they specifically care about the kernel.
 Before you promise anything time-sensitive:
 
 ```bash
-cd /root/.openclaw/workspace
+cd /root/.meridian/workspace
 python3 company/meridian_platform/readiness.py
 ```
 

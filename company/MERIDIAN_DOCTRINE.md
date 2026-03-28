@@ -10,7 +10,7 @@ What Meridian is trying to become is more serious:
 
 **a founder-led company building an open constitutional kernel, with a long-term goal of governed contributor payouts backed by real treasury rules.**
 
-Live runtime boundary: OpenClaw backs the broader system today. Loom is live only for `intelligence_on_demand_research`. See [OPEN_SOURCE_BOUNDARY](www/OPEN_SOURCE_BOUNDARY.html).
+Live runtime boundary: Meridian Loom is the primary runtime. Legacy runtime paths remain for backward compatibility on routes not yet migrated to Loom-native dispatch. See [OPEN_SOURCE_BOUNDARY](www/OPEN_SOURCE_BOUNDARY.html).
 
 ---
 

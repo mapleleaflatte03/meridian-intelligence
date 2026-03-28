@@ -69,7 +69,7 @@ Some of those surfaces are live local primitives today. Others remain declared o
 - The public web surface, pilot flow, support path, and live host truth pages.
 - Competitor intelligence as the first managed vertical.
 - Loom as the installable local runtime surface with a Mantis-branded CLI and installer.
-- A bounded live-host stance: OpenClaw still backs the broader system, while Loom route proof remains explicit and narrow.
+- A bounded live-host stance: Meridian Loom is the primary runtime, with legacy paths remaining for routes not yet migrated to Loom-native dispatch.
 
 ## What Is Not Claimed
 
@@ -191,7 +191,7 @@ Constitutional 3-ledger internal economy:
 
 ## Tech Stack
 
-- **Runtime:** [OpenClaw](https://github.com/openclaw/openclaw) — agent execution, cron, sessions
+- **Runtime:** [Meridian Loom](https://github.com/mapleleaflatte03/meridian-loom) — primary execution surface for agent execution, capability dispatch, sessions
 - **Platform:** Python 3.10, JSON state files, JSONL audit/metering logs
 - **Proxy:** Caddy (auto-TLS)
 - **Payments:** [x402](https://x402.org) + USDC on Base L2
@@ -199,4 +199,4 @@ Constitutional 3-ledger internal economy:
 
 ---
 
-*Governance kernel for managed digital labor. Built on OpenClaw runtime. Running since 2026-03-15.*
+*Governance kernel for managed digital labor. Built on Meridian Loom runtime. Running since 2026-03-15.*

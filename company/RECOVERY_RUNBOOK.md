@@ -9,13 +9,13 @@
 
 Two blockers currently matter:
 
-1. ~~**OpenAI Codex workspace deactivated**~~ — **RESOLVED** 2026-03-20. Owner re-ran `openclaw models auth login --provider openai-codex`. Agent health verified 3/3 PONG.
-2. ~~**Runtime instability**~~ — **RESOLVED AT CLOSEOUT**. Host-level verification now shows `openclaw health` OK and the canonical PONG probe returning `PONG` 3/3 back-to-back.
+1. ~~**OpenAI Codex workspace deactivated**~~ — **RESOLVED** 2026-03-20. Owner refreshed host Codex auth and re-ran Loom route verification. Agent health and the Loom service-state probe now verify cleanly.
+2. ~~**Runtime instability**~~ — **RESOLVED AT CLOSEOUT**. Host-level verification now shows `loom health --format json` healthy and `loom service status --format json` reporting a running service probe.
 3. **Treasury below reserve floor** — $2.00 cash vs $50.00 reserve floor = $-48.00 runway, blocking all budget-gated pipeline phases
 
 One-command status check:
 ```bash
-cd /root/.openclaw/workspace
+cd /home/ubuntu/.meridian/workspace
 python3 company/meridian_platform/readiness.py
 ```
 
@@ -41,9 +41,8 @@ python3 company/meridian_platform/readiness.py
 No active engineering blocker is verified at closeout. The runtime check that was previously
 failing now passes on the host:
 
-- `openclaw health` → OK
-- `openclaw agent --agent main --message "respond with PONG" --timeout 15000`
-  → `PONG` (verified 3/3 back-to-back)
+- `loom health --format json` → healthy
+- `loom service status --format json` → running/healthy
 
 The remaining operational blocker is owner-side treasury policy, not engineering breakage.
 
@@ -51,7 +50,7 @@ The remaining operational blocker is owner-side treasury policy, not engineering
 
 ### ~~Action 1: Reactivate OpenAI Codex Workspace~~ — DONE
 
-Resolved 2026-03-20. Owner re-ran `openclaw models auth login --provider openai-codex`.
+Resolved 2026-03-20. Owner re-ran `refreshed host Codex auth and reran Loom route verification`.
 This removed the upstream `deactivated_workspace` blocker and the runtime is now verified
 healthy at closeout time.
 
@@ -63,7 +62,7 @@ healthy at closeout time.
 
 **Option A — Recapitalize (add real money):**
 ```bash
-cd /root/.openclaw/workspace
+cd /home/ubuntu/.meridian/workspace
 python3 company/meridian_platform/treasury.py contribute \
   --amount 50 --note "operator recapitalization for pipeline restart" --by owner
 ```
@@ -71,7 +70,7 @@ This brings treasury to $52, clearing the $50 floor ($2 runway).
 
 **Option B — Lower reserve floor for pre-revenue mode:**
 ```bash
-cd /root/.openclaw/workspace
+cd /home/ubuntu/.meridian/workspace
 python3 company/meridian_platform/treasury.py set-reserve-floor \
   --amount 0 --note "pre-revenue operating mode — no external customers yet" --by owner
 ```
@@ -81,7 +80,7 @@ This is a policy decision. It allows the pipeline to run on any treasury balance
 ```bash
 python3 company/meridian_platform/ci_vertical.py preflight
 ```
-Expected: `PREFLIGHT: OK`
+Expected: `PREFLIGHT: OK` with Loom health and service-state probes still healthy
 
 ---
 
@@ -91,10 +90,10 @@ Run these in order to confirm the system is fully operational:
 
 ```bash
 # Step 1: Workspace health
-openclaw agent --agent main --message "respond with PONG" --timeout 15000
+loom service status --format json
 
 # Step 2: Preflight check
-cd /root/.openclaw/workspace
+cd /home/ubuntu/.meridian/workspace
 python3 company/meridian_platform/ci_vertical.py preflight
 
 # Step 3: Dry-run delivery wiring check
@@ -108,14 +107,14 @@ python3 company/channel_deliver.py --dry-run --skip-preflight
 # After one successful pipeline cycle creates a fresh brief, rerun these commands.
 
 # Step 4: Trigger one controlled pipeline cycle
-openclaw cron run "7274a600-3588-430d-807c-4286bff20f5a" --timeout 60000
+loom schedule run-due "7274a600-3588-430d-807c-4286bff20f5a" --timeout 60000
 
 # Step 5: Wait for pipeline to complete (jobs run on schedule)
 # Or manually trigger each stage:
-openclaw cron run "50390799-0f7d-4a62-9c88-52e8290d2604" --timeout 120000  # research
-openclaw cron run "c48e2244-e47d-47e7-9bc4-ad053ba4f8c1" --timeout 120000  # write
-openclaw cron run "2581a129-4735-4c3e-a0ec-924689dcda39" --timeout 120000  # qa
-openclaw cron run "25911223-5a4a-44ae-a089-c1d8527e4e58" --timeout 120000  # deliver
+loom schedule run-due "50390799-0f7d-4a62-9c88-52e8290d2604" --timeout 120000  # research
+loom schedule run-due "c48e2244-e47d-47e7-9bc4-ad053ba4f8c1" --timeout 120000  # write
+loom schedule run-due "2581a129-4735-4c3e-a0ec-924689dcda39" --timeout 120000  # qa
+loom schedule run-due "25911223-5a4a-44ae-a089-c1d8527e4e58" --timeout 120000  # deliver
 ```
 
 ---
@@ -124,7 +123,7 @@ openclaw cron run "25911223-5a4a-44ae-a089-c1d8527e4e58" --timeout 120000  # del
 
 | Check | Expected |
 |-------|----------|
-| `openclaw agent --agent main --message "respond with PONG" --timeout 15000` | Agent responds cleanly (no gateway 1006, no embedded timeout) |
+| `loom service status --format json` | Agent responds cleanly (no gateway 1006, no embedded timeout) |
 | `python3 company/meridian_platform/ci_vertical.py preflight` | `PREFLIGHT: OK` |
 | `python3 company/meridian_platform/treasury.py runway` | `Runway: $X.XX` (positive number) |
 | `ls night-shift/brief-YYYY-MM-DD.md` | File exists after one pipeline cycle |
@@ -137,7 +136,7 @@ openclaw cron run "25911223-5a4a-44ae-a089-c1d8527e4e58" --timeout 120000  # del
 
 ## What Is Healthy (Verified 2026-03-20)
 
-- All local services running: caddy, meridian-workspace, soncompany-mcp, openclaw-do-proxy
+- All local services running: caddy, meridian-workspace, soncompany-mcp, Loom local control plane
 - Website serving at https://app.welliam.codes (200 OK)
 - Workspace dashboard + API: responding after owner auth
 - Workspace API endpoints: 401 without owner credentials

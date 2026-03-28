@@ -51,18 +51,21 @@ mcp_server = _load_module(os.path.join(COMPANY_DIR, 'mcp_server.py'), 'company_m
 
 
 class McpRuntimeAdapterTests(unittest.TestCase):
-    def test_research_defaults_to_openclaw(self):
-        stdout = json.dumps({'response': 'openclaw research result'})
-        completed = mock.Mock(returncode=0, stdout=stdout, stderr='')
-        with mock.patch.dict(os.environ, {}, clear=False):
-            with mock.patch.object(mcp_server.subprocess, 'run', return_value=completed) as run_mock:
-                result = mcp_server.do_on_demand_research('OpenAI pricing', 'quick')
+    def test_research_defaults_to_loom(self):
+        submit = mock.Mock(returncode=0, stdout=json.dumps({'job_id': 'job-default'}), stderr='')
+        inspect = mock.Mock(returncode=0, stdout=json.dumps({'job_status': 'completed'}), stderr='')
+        worker_result = {'summary': 'fallback summary', 'skill_output': {'research': 'loom default result'}}
+        env = {'MERIDIAN_LOOM_RESEARCH_CAPABILITY': 'company.research.v0', 'MERIDIAN_LOOM_SERVICE_TOKEN': 'loom-local-token'}
+        with mock.patch.dict(os.environ, env, clear=False):
+            with mock.patch.object(mcp_server.subprocess, 'run', side_effect=[submit, inspect]) as run_mock:
+                with mock.patch.object(mcp_server, '_load_json_file', return_value=worker_result):
+                    with mock.patch.object(mcp_server.time, 'sleep', return_value=None):
+                        result = mcp_server.do_on_demand_research('OpenAI pricing', 'quick')
 
-        self.assertEqual(result['runtime'], 'openclaw')
-        self.assertEqual(result['research'], 'openclaw research result')
-        self.assertEqual(result['agent'], 'Atlas')
-        command = run_mock.call_args.args[0]
-        self.assertEqual(command[:4], ['openclaw', 'agent', '--agent', 'atlas'])
+        self.assertEqual(result['runtime'], 'loom')
+        self.assertEqual(result['research'], 'loom default result')
+        submit_cmd = next(call.args[0] for call in run_mock.call_args_list if '--payload-json' in call.args[0])
+        self.assertEqual(submit_cmd[1:3], ['service', 'submit'])
 
     def test_research_uses_loom_when_enabled(self):
         submit = mock.Mock(returncode=0, stdout=json.dumps({'job_id': 'job-123'}), stderr='')
@@ -176,23 +179,23 @@ class McpRuntimeAdapterTests(unittest.TestCase):
         self.assertEqual(payload['url'], 'https://duckduckgo.com/html/?q=OpenAI+pricing')
         self.assertEqual(payload['urls'], ['https://duckduckgo.com/html/?q=OpenAI+pricing'])
 
-    def test_on_demand_research_route_override_openclaw_beats_global_loom(self):
-        stdout = json.dumps({'response': 'openclaw route result'})
+    def test_on_demand_research_route_override_legacy_beats_global_loom(self):
+        stdout = json.dumps({'response': 'legacy route result'})
         completed = mock.Mock(returncode=0, stdout=stdout, stderr='')
         env = {
             'MERIDIAN_INTELLIGENCE_RESEARCH_RUNTIME': 'loom',
-            'MERIDIAN_INTELLIGENCE_ON_DEMAND_RESEARCH_RUNTIME': 'openclaw',
+            'MERIDIAN_INTELLIGENCE_ON_DEMAND_RESEARCH_RUNTIME': 'legacy',
         }
         with mock.patch.dict(os.environ, env, clear=False):
             with mock.patch.object(mcp_server.subprocess, 'run', return_value=completed):
                 result = mcp_server.do_on_demand_research_route('OpenAI pricing', 'quick')
 
-        self.assertEqual(result['runtime'], 'openclaw')
-        self.assertEqual(result['route_cutover']['requested_runtime'], 'openclaw')
-        self.assertEqual(result['route_cutover']['selected_runtime'], 'openclaw')
+        self.assertEqual(result['runtime'], 'legacy')
+        self.assertEqual(result['route_cutover']['requested_runtime'], 'legacy')
+        self.assertEqual(result['route_cutover']['selected_runtime'], 'legacy')
         self.assertFalse(result['route_cutover']['fallback_enabled'])
-        self.assertIn('requested=openclaw', result['route_cutover']['transcript'])
-        self.assertIn('selected=openclaw', result['route_cutover']['transcript'])
+        self.assertIn('requested=legacy', result['route_cutover']['transcript'])
+        self.assertIn('selected=legacy', result['route_cutover']['transcript'])
 
     def test_on_demand_research_route_uses_loom_with_cutover_metadata(self):
         service_status = mock.Mock(
@@ -331,7 +334,7 @@ class McpRuntimeAdapterTests(unittest.TestCase):
                 'runtime_lane': 'python_host_process/imported_workspace_skill',
                 'dependency_mode': 'workspace_host_python',
                 'import_provenance': 'clawfamily_skill_contract_v0/workspace_python_entrypoint',
-                'source_kind': 'openclaw_workspace_skill',
+                'source_kind': 'legacy_workspace_skill',
                 'source_manifest': '/home/ubuntu/.meridian/workspace/skills/safe-web-research/SKILL.md',
                 'source_path': '/home/ubuntu/.meridian/workspace/skills/safe-web-research',
                 'env_contract': 'host python3 + source skill root /home/ubuntu/.meridian/workspace/skills/safe-web-research + wrapper workers/python/imported-clawskill-safe-web-research-v0.py',
@@ -345,9 +348,9 @@ class McpRuntimeAdapterTests(unittest.TestCase):
         self.assertTrue(preflight['ok'])
         normalized = preflight['normalized_import_metadata']
         self.assertTrue(normalized['supported'])
-        self.assertEqual(normalized['subset'], 'openclaw_plugin_skill_subset')
+        self.assertEqual(normalized['subset'], 'loom_plugin_skill_subset')
         self.assertEqual(normalized['skill_slug'], 'safe-web-research')
-        self.assertEqual(normalized['source_kind'], 'openclaw_workspace_skill')
+        self.assertEqual(normalized['source_kind'], 'legacy_workspace_skill')
         self.assertEqual(normalized['source_manifest'], '/home/ubuntu/.meridian/workspace/skills/safe-web-research/SKILL.md')
         self.assertEqual(normalized['source_path'], '/home/ubuntu/.meridian/workspace/skills/safe-web-research')
         self.assertEqual(normalized['worker_kind'], 'python')
@@ -384,7 +387,7 @@ class McpRuntimeAdapterTests(unittest.TestCase):
                 'runtime_lane': 'python_host_process/legacy_skill',
                 'dependency_mode': 'workspace_host_python',
                 'import_provenance': 'clawfamily_skill_contract_v0/workspace_python_entrypoint',
-                'source_kind': 'openclaw_workspace_skill',
+                'source_kind': 'legacy_workspace_skill',
                 'source_manifest': '/home/ubuntu/.meridian/workspace/skills/safe-web-research/SKILL.md',
                 'source_path': '/home/ubuntu/.meridian/workspace/skills/safe-web-research',
                 'env_contract': 'host python3 + source skill root /home/ubuntu/.meridian/workspace/skills/safe-web-research + wrapper workers/python/imported-clawskill-safe-web-research-v0-extra.py',
@@ -400,18 +403,19 @@ class McpRuntimeAdapterTests(unittest.TestCase):
         self.assertIn('runtime_lane=python_host_process/legacy_skill', normalized['unsupported_reasons'])
         self.assertIn('loom imported skill subset unsupported:', preflight['errors'][0])
 
-    def test_qa_defaults_to_openclaw_when_only_research_runtime_is_loom(self):
-        stdout = json.dumps({'response': 'openclaw qa result'})
-        completed = mock.Mock(returncode=0, stdout=stdout, stderr='')
-        env = {'MERIDIAN_INTELLIGENCE_RESEARCH_RUNTIME': 'loom'}
+    def test_qa_defaults_to_loom_when_no_qa_override_is_set(self):
+        submit = mock.Mock(returncode=0, stdout=json.dumps({'job_id': 'job-qa-default'}), stderr='')
+        inspect = mock.Mock(returncode=0, stdout=json.dumps({'job_status': 'completed'}), stderr='')
+        worker_result = {'summary': 'PASS', 'skill_output': {'verification': 'PASS with confidence 88'}}
+        env = {'MERIDIAN_INTELLIGENCE_RESEARCH_RUNTIME': 'loom', 'MERIDIAN_LOOM_QA_CAPABILITY': 'company.qa.v0', 'MERIDIAN_LOOM_SERVICE_TOKEN': 'loom-local-token'}
         with mock.patch.dict(os.environ, env, clear=False):
-            with mock.patch.object(mcp_server.subprocess, 'run', return_value=completed) as run_mock:
-                result = mcp_server.do_qa_verify('text to verify', 'factual')
+            with mock.patch.object(mcp_server.subprocess, 'run', side_effect=[submit, inspect]):
+                with mock.patch.object(mcp_server, '_load_json_file', return_value=worker_result):
+                    with mock.patch.object(mcp_server.time, 'sleep', return_value=None):
+                        result = mcp_server.do_qa_verify('text to verify', 'factual')
 
-        self.assertEqual(result['runtime'], 'openclaw')
-        self.assertEqual(result['verification'], 'openclaw qa result')
-        command = run_mock.call_args.args[0]
-        self.assertEqual(command[:4], ['openclaw', 'agent', '--agent', 'aegis'])
+        self.assertEqual(result['runtime'], 'loom')
+        self.assertIn('PASS', result['verification'])
 
     def test_qa_uses_loom_when_enabled(self):
         submit = mock.Mock(returncode=0, stdout=json.dumps({'job_id': 'job-qa'}), stderr='')
@@ -437,24 +441,24 @@ class McpRuntimeAdapterTests(unittest.TestCase):
         self.assertEqual(result['verification'], 'PASS with confidence 92')
 
 
-    def test_qa_route_override_openclaw_beats_global_loom(self):
-        stdout = json.dumps({'response': 'openclaw qa route result'})
+    def test_qa_route_override_legacy_beats_global_loom(self):
+        stdout = json.dumps({'response': 'legacy qa route result'})
         completed = mock.Mock(returncode=0, stdout=stdout, stderr='')
         env = {
             'MERIDIAN_INTELLIGENCE_QA_RUNTIME': 'loom',
-            'MERIDIAN_INTELLIGENCE_QA_VERIFY_RUNTIME': 'openclaw',
+            'MERIDIAN_INTELLIGENCE_QA_VERIFY_RUNTIME': 'legacy',
         }
         with mock.patch.dict(os.environ, env, clear=False):
             with mock.patch.object(mcp_server.subprocess, 'run', return_value=completed):
                 result = mcp_server.do_qa_verify_route('text to verify', 'factual')
 
-        self.assertEqual(result['runtime'], 'openclaw')
-        self.assertEqual(result['verification'], 'openclaw qa route result')
-        self.assertEqual(result['route_cutover']['requested_runtime'], 'openclaw')
-        self.assertEqual(result['route_cutover']['selected_runtime'], 'openclaw')
+        self.assertEqual(result['runtime'], 'legacy')
+        self.assertEqual(result['verification'], 'legacy qa route result')
+        self.assertEqual(result['route_cutover']['requested_runtime'], 'legacy')
+        self.assertEqual(result['route_cutover']['selected_runtime'], 'legacy')
         self.assertFalse(result['route_cutover']['fallback_enabled'])
-        self.assertIn('requested=openclaw', result['route_cutover']['transcript'])
-        self.assertIn('selected=openclaw', result['route_cutover']['transcript'])
+        self.assertIn('requested=legacy', result['route_cutover']['transcript'])
+        self.assertIn('selected=legacy', result['route_cutover']['transcript'])
 
     def test_qa_route_uses_loom_with_cutover_metadata(self):
         service_status = mock.Mock(

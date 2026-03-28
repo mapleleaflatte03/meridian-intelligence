@@ -8,7 +8,7 @@ State lives in:
 
 CLI:
 ```bash
-cd /root/.openclaw/workspace
+cd /root/.meridian/workspace
 
 python3 company/lead_tracker.py init
 python3 company/lead_tracker.py summary

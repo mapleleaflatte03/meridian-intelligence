@@ -556,15 +556,19 @@ def _dispatch_telegram_delivery(telegram_id, message, *, timeout):
     try:
         result = subprocess.run(
             [
-                'openclaw',
-                'message',
+                _loom_bin(),
+                'channel',
                 'send',
+                '--root',
+                _loom_root(),
                 '--channel',
                 'telegram',
-                '--target',
+                '--recipient',
                 target,
-                '--message',
+                '--text',
                 message,
+                '--format',
+                'json',
             ],
             capture_output=True,
             text=True,

@@ -13,6 +13,7 @@ import importlib.util
 import json
 import os
 import shlex
+import shutil
 import subprocess
 import sys
 
@@ -110,14 +111,65 @@ def _founding_org_id():
     return None
 
 
-def _pong_ok(result):
+def _parse_json_output(result):
+    if not result.get('ok'):
+        return None
+    raw = (result.get('stdout') or '').strip()
+    if not raw:
+        return None
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+
+
+def _preferred_loom_bin(runtime_env=None):
+    env = runtime_env or os.environ
+    candidates = [
+        (env.get('MERIDIAN_LOOM_BIN') or '').strip(),
+        '/home/ubuntu/.local/share/meridian-loom/current/bin/loom',
+        '/root/.local/share/meridian-loom/current/bin/loom',
+        shutil.which('loom') or '',
+    ]
+    for candidate in candidates:
+        if candidate and os.path.exists(candidate):
+            return candidate
+    return candidates[0] or 'loom'
+
+
+def _preferred_loom_root(runtime_env=None):
+    env = runtime_env or os.environ
+    candidates = [
+        (env.get('MERIDIAN_LOOM_ROOT') or '').strip(),
+        '/home/ubuntu/.local/share/meridian-loom/runtime/default',
+        '/root/.local/share/meridian-loom/runtime/default',
+    ]
+    for candidate in candidates:
+        if candidate and os.path.exists(candidate):
+            return candidate
+    return candidates[0] or '/home/ubuntu/.local/share/meridian-loom/runtime/default'
+
+
+def _loom_cmd(runtime_env, *parts):
+    return [_preferred_loom_bin(runtime_env), *parts, '--root', _preferred_loom_root(runtime_env), '--format', 'json']
+
+
+def _health_ok(result):
+    payload = _parse_json_output(result) or {}
+    status = (payload.get('status') or '').strip().lower()
+    return status == 'healthy'
+
+
+def _service_probe_ok(result):
+    payload = _parse_json_output(result)
+    if isinstance(payload, dict):
+        return bool(payload.get('running')) and payload.get('service_status') == 'running' and payload.get('health') == 'healthy'
     if not result["ok"]:
         return False
     lines = [line.strip() for line in result["stdout"].splitlines() if line.strip()]
     if not lines:
         return False
-    # The agent wrapper can emit chatter before the terminal success marker.
-    return lines[-1] in {"PONG", "HEARTBEAT_OK"}
+    return lines[-1] in {"SERVICE_OK", "HEARTBEAT_OK"}
 
 
 def _runtime_env_defaults():
@@ -198,13 +250,13 @@ def _route_cutovers():
     runtime_env = _runtime_env_defaults()
     route_override = runtime_env.get('MERIDIAN_INTELLIGENCE_ON_DEMAND_RESEARCH_RUNTIME')
     research_runtime = runtime_env.get('MERIDIAN_INTELLIGENCE_RESEARCH_RUNTIME')
-    exec_runtime = runtime_env.get('MERIDIAN_INTELLIGENCE_EXEC_RUNTIME') or 'openclaw'
+    exec_runtime = runtime_env.get('MERIDIAN_INTELLIGENCE_EXEC_RUNTIME') or 'loom'
     requested_runtime = _mcp_mod._normalize_runtime(route_override or research_runtime or exec_runtime)
     fallback_enabled = (runtime_env.get('MERIDIAN_INTELLIGENCE_ON_DEMAND_RESEARCH_ALLOW_FALLBACK') or '').strip().lower() in {'1', 'true', 'yes', 'on'}
     capability_name = (runtime_env.get('MERIDIAN_LOOM_RESEARCH_CAPABILITY') or '').strip()
     route = {
         'route': 'intelligence_on_demand_research',
-        'owner': 'loom' if requested_runtime == 'loom' else 'openclaw',
+        'owner': 'loom' if requested_runtime == 'loom' else 'legacy',
         'requested_runtime': requested_runtime,
         'runtime_source': 'route_override' if route_override else 'research_runtime_inherit',
         'fallback_enabled': fallback_enabled,
@@ -213,7 +265,7 @@ def _route_cutovers():
     transcript_bits = [
         'route=intelligence_on_demand_research',
         f'requested={requested_runtime}',
-        f"owner={'loom' if requested_runtime == 'loom' else 'openclaw'}",
+        f"owner={'loom' if requested_runtime == 'loom' else 'legacy'}",
         f"fallback={'on' if fallback_enabled else 'off'}",
         f"source={'route_override' if route_override else 'research_runtime_inherit'}",
     ]
@@ -253,11 +305,9 @@ def _route_cutovers():
 
 def collect():
     org_id = _founding_org_id()
-    runtime_health = _run(["openclaw", "health"], timeout=20)
-    pong = _run(
-        ["openclaw", "agent", "--agent", "main", "--message", "respond with PONG", "--timeout", "15000"],
-        timeout=25,
-    )
+    runtime_env = _runtime_env_defaults()
+    runtime_health = _run(_loom_cmd(runtime_env, 'health'), timeout=20)
+    service_probe = _run(_loom_cmd(runtime_env, 'service', 'status'), timeout=20)
     preflight = _run([sys.executable, CI_VERTICAL_PY, "preflight"], timeout=20)
     treasury = treasury_snapshot(org_id)
     phase_num, phase_details = _phase_mod.evaluate(org_id)
@@ -266,8 +316,8 @@ def collect():
     persistence = status_surface.persistence_snapshot(org_id)
     observability = status_surface.observability_snapshot(org_id)
 
-    pong_ok = _pong_ok(pong)
-    runtime_ok = runtime_health["ok"] and pong_ok
+    service_probe_ok = _service_probe_ok(service_probe)
+    runtime_ok = _health_ok(runtime_health) and service_probe_ok
     preflight_ok = preflight["ok"]
     treasury_blocked = not treasury.get("above_reserve", False)
 
@@ -288,11 +338,11 @@ def collect():
         "checked_at": dt.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
         "verdict": verdict,
         "runtime": {
-            "health_ok": runtime_health["ok"],
-            "pong_ok": pong_ok,
-            "pong_output": pong["stdout"],
+            "health_ok": _health_ok(runtime_health),
+            "service_probe_ok": service_probe_ok,
+            "service_probe_output": service_probe["stdout"],
             "health_stderr": runtime_health["stderr"],
-            "pong_stderr": pong["stderr"],
+            "service_probe_stderr": service_probe["stderr"],
         },
         "treasury": {
             "balance_usd": round(treasury["balance_usd"], 2),
@@ -330,7 +380,11 @@ def print_report(report):
     print("")
     print(
         "Runtime: "
-        + ("OK" if report["runtime"]["health_ok"] and report["runtime"]["pong_ok"] else "BLOCKED")
+        + ("OK" if report["runtime"]["health_ok"] and report["runtime"]["service_probe_ok"] else "BLOCKED")
+    )
+    print(
+        "Runtime control probe: "
+        + ("OK" if report["runtime"]["service_probe_ok"] else "BLOCKED")
     )
     print(
         "Treasury: "
@@ -436,7 +490,7 @@ def print_report(report):
         )
 
     if report["verdict"] == "ENGINEERING_BLOCKED_RUNTIME":
-        print("Next action: stabilize runtime before attempting pipeline execution.")
+        print("Next action: clear Loom health or service-state blockers before attempting pipeline execution.")
     elif report["verdict"] == "OWNER_BLOCKED_TREASURY":
         print(
             "Next action: owner must recapitalize treasury or lower reserve floor before any budget-gated phase can run."

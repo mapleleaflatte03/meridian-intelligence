@@ -1,0 +1,166 @@
+#!/usr/bin/env python3
+import importlib.util
+import json
+import pathlib
+import unittest
+from unittest import mock
+
+
+THIS_DIR = pathlib.Path(__file__).resolve().parent
+MODULE_PATH = THIS_DIR / 'loom_runtime_proof.py'
+
+
+def _load_module(name, path):
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+proof = _load_module('meridian_loom_runtime_proof_test', MODULE_PATH)
+
+
+class LoomRuntimeProofTests(unittest.TestCase):
+    def test_parse_loom_health_extracts_structured_runtime_state(self):
+        output = json.dumps({
+            'status': 'healthy',
+            'checks': [
+                {'level': 'OK', 'label': 'agent_runtime', 'detail': 'profiles=7 agents=leviathann,atlas,quill memory_ready=7/7 session_ready=7/7'},
+                {'level': 'OK', 'label': 'channel_runtime', 'detail': 'total=2 enabled=2 ingress=0 delivery_path=/tmp inbox_path=/tmp channels=web_api,telegram'},
+                {'level': 'OK', 'label': 'session_provenance', 'detail': 'total=3 sessions=telegram:founder,web_api:owner,web_api:demo'},
+            ],
+        })
+        parsed = proof.parse_loom_health(output)
+
+        self.assertTrue(parsed['health_ok'])
+        self.assertEqual(parsed['status'], 'healthy')
+        self.assertTrue(parsed['telegram']['ok'])
+        self.assertEqual(parsed['agent_count'], 3)
+        self.assertEqual(parsed['agents'][0]['handle'], 'leviathann')
+        self.assertEqual(parsed['session_total'], 3)
+
+    def test_map_governed_agents_uses_runtime_binding_truth(self):
+        agents = [
+            {
+                'id': 'agent_main',
+                'org_id': 'org_1',
+                'name': 'Leviathann',
+                'economy_key': 'main',
+                'runtime_binding': {'runtime_id': 'loom_native'},
+            },
+            {
+                'id': 'agent_writer',
+                'org_id': 'org_1',
+                'name': 'Release Writer',
+                'economy_key': '',
+                'runtime_binding': {'runtime_id': 'loom_native'},
+            },
+        ]
+
+        mapped = proof.map_governed_agents_to_loom_handles(agents)
+        self.assertEqual(mapped[0]['loom_handle'], 'main')
+        self.assertEqual(mapped[0]['handle_source'], 'economy_key')
+        self.assertEqual(mapped[1]['loom_handle'], 'release_writer')
+        self.assertEqual(mapped[1]['handle_source'], 'name')
+        self.assertTrue(mapped[0]['has_loom_handle'])
+        self.assertEqual(mapped[0]['runtime_binding']['runtime_id'], 'loom_native')
+
+    def test_collect_loom_runtime_proof_combines_health_and_registry_truth(self):
+        service_status = json.dumps({
+            'running': True,
+            'service_status': 'running',
+            'health': 'healthy',
+            'transport': 'socket+http',
+        })
+        with mock.patch.object(proof, 'load_registry', return_value={
+            'agents': {
+                'agent_main': {
+                    'id': 'agent_main',
+                    'org_id': 'org_1',
+                    'name': 'Leviathann',
+                    'economy_key': 'main',
+                    'runtime_binding': {'runtime_id': 'loom_native'},
+                },
+                'agent_atlas': {
+                    'id': 'agent_atlas',
+                    'org_id': 'org_1',
+                    'name': 'Atlas',
+                    'economy_key': 'atlas',
+                    'runtime_binding': {'runtime_id': 'loom_native'},
+                },
+            }
+        }), mock.patch.object(proof, '_run_command', return_value={
+            'command': ['loom', 'service', 'status', '--format', 'json'],
+            'ok': True,
+            'returncode': 0,
+            'stdout': service_status,
+            'stderr': '',
+        }):
+            result = proof.collect_loom_runtime_proof(
+                health_output=json.dumps({
+                    'status': 'healthy',
+                    'checks': [
+                        {'level': 'OK', 'label': 'agent_runtime', 'detail': 'profiles=7 agents=main,atlas,sentinel memory_ready=7/7 session_ready=7/7'},
+                        {'level': 'OK', 'label': 'channel_runtime', 'detail': 'total=2 enabled=2 ingress=0 delivery_path=/tmp inbox_path=/tmp channels=web_api,telegram'},
+                        {'level': 'OK', 'label': 'session_provenance', 'detail': 'total=0 sessions=(none)'},
+                    ],
+                }),
+                include_service_probe=True,
+                service_probe_command=['loom', 'service', 'status', '--format', 'json'],
+            )
+
+        self.assertEqual(result['proof_type'], 'live_single_host_loom_deployment')
+        self.assertTrue(result['health']['health_ok'])
+        self.assertEqual(result['governed_agents'][0]['loom_handle'], 'main')
+        self.assertEqual(result['handle_overlap'], ['atlas', 'main'])
+        self.assertEqual(result['handle_gap'], [])
+        self.assertEqual(result['deployment_truth']['scope'], 'single_host')
+        self.assertFalse(result['deployment_truth']['generic_runtime_claim'])
+        self.assertEqual(result['runtime_id'], 'loom_native')
+
+    def test_public_receipt_filters_runtime_proof_for_public_route(self):
+        receipt = proof.public_loom_runtime_receipt({
+            'runtime_id': 'loom_native',
+            'proof_type': 'live_single_host_loom_deployment',
+            'checked_at': '2026-03-22T00:00:00Z',
+            'deployment_truth': {'scope': 'single_host', 'generic_runtime_claim': False},
+            'health': {
+                'status': 'healthy',
+                'health_ok': True,
+                'telegram': {'ok': True},
+                'agent_count': 2,
+                'agents': [{'handle': 'main'}, {'handle': 'atlas'}],
+                'heartbeat': {'interval': None, 'primary_agent': None},
+                'session_total': 0,
+            },
+            'service_probe': {'checked': True, 'ok': True, 'output': 'service running', 'service_status': 'running', 'health': 'healthy', 'transport': 'socket+http'},
+            'governed_agents': [
+                {
+                    'agent_id': 'agent_main',
+                    'agent_name': 'Leviathann',
+                    'org_id': 'org_1',
+                    'role': 'manager',
+                    'loom_handle': 'main',
+                    'handle_source': 'economy_key',
+                    'runtime_binding': {
+                        'runtime_id': 'loom_native',
+                        'runtime_registered': True,
+                        'registration_status': 'registered',
+                        'bound_org_id': 'org_1',
+                    },
+                }
+            ],
+            'handle_overlap': ['main'],
+            'handle_gap': [],
+        }, bound_org_id='org_1')
+
+        self.assertEqual(receipt['runtime_id'], 'loom_native')
+        self.assertTrue(receipt['runtime_health']['health_ok'])
+        self.assertTrue(receipt['runtime_health']['service_probe_ok'])
+        self.assertEqual(receipt['service_probe']['status'], 'running')
+        self.assertEqual(receipt['health']['agent_handles'], ['main', 'atlas'])
+        self.assertEqual(receipt['governed_agents'][0]['runtime_binding']['runtime_id'], 'loom_native')
+
+
+if __name__ == '__main__':
+    unittest.main()

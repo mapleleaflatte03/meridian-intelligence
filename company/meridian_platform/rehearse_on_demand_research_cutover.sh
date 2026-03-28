@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-WORKSPACE=${WORKSPACE:-/root/.meridian/workspace}
+WORKSPACE=${WORKSPACE:-/home/ubuntu/.meridian/workspace}
 ENV_FILE=${ENV_FILE:-/etc/default/meridian-mcp-runtime}
 TOPIC_TEXT=${TOPIC_TEXT:-OpenAI pricing}
 TOPIC_URL=${TOPIC_URL:-https://app.welliam.codes/api/sample-brief}
@@ -34,8 +34,8 @@ run_case() {
     MERIDIAN_INTELLIGENCE_ON_DEMAND_RESEARCH_RUNTIME="$route_runtime" \
     MERIDIAN_INTELLIGENCE_ON_DEMAND_RESEARCH_ALLOW_FALLBACK="$fallback" \
     MERIDIAN_LOOM_RESEARCH_CAPABILITY="$capability" \
-    MERIDIAN_LOOM_BIN="${MERIDIAN_LOOM_BIN:-/root/.local/share/meridian-loom/current/bin/loom}" \
-    MERIDIAN_LOOM_ROOT="${MERIDIAN_LOOM_ROOT:-/root/.local/share/meridian-loom/runtime/default}" \
+    MERIDIAN_LOOM_BIN="${MERIDIAN_LOOM_BIN:-/home/ubuntu/.local/share/meridian-loom/current/bin/loom}" \
+    MERIDIAN_LOOM_ROOT="${MERIDIAN_LOOM_ROOT:-/home/ubuntu/.local/share/meridian-loom/runtime/default}" \
     MERIDIAN_LOOM_AGENT_ID="${MERIDIAN_LOOM_AGENT_ID:-agent_leviathann}" \
     MERIDIAN_LOOM_SERVICE_TOKEN="${MERIDIAN_LOOM_SERVICE_TOKEN:-${LOOM_SERVICE_TOKEN:-}}" \
     LOOM_SERVICE_TOKEN="${LOOM_SERVICE_TOKEN:-${MERIDIAN_LOOM_SERVICE_TOKEN:-}}" \
@@ -48,7 +48,7 @@ import os
 import pathlib
 import sys
 
-workspace = pathlib.Path('/root/.meridian/workspace')
+workspace = pathlib.Path('/home/ubuntu/.meridian/workspace')
 company_dir = workspace / 'company'
 if str(company_dir) not in sys.path:
     sys.path.insert(0, str(company_dir))
@@ -65,17 +65,17 @@ INNER_PY
 }
 
 export CUTOVER_DEPTH=quick
-run_case off_path openclaw 0 "${MERIDIAN_LOOM_RESEARCH_CAPABILITY:-clawskill.safe-web-research.v0}" "$TOPIC_TEXT"
+run_case off_path legacy 0 "${MERIDIAN_LOOM_RESEARCH_CAPABILITY:-clawskill.safe-web-research.v0}" "$TOPIC_TEXT"
 run_case loom_on_path loom 0 "${MERIDIAN_LOOM_RESEARCH_CAPABILITY:-clawskill.safe-web-research.v0}" "$TOPIC_URL"
 run_case rollback_path loom 1 "missing.capability.v0" "$TOPIC_TEXT"
 
 sudo -n env \
-  MERIDIAN_INTELLIGENCE_ON_DEMAND_RESEARCH_RUNTIME="${MERIDIAN_INTELLIGENCE_ON_DEMAND_RESEARCH_RUNTIME:-openclaw}" \
+  MERIDIAN_INTELLIGENCE_ON_DEMAND_RESEARCH_RUNTIME="${MERIDIAN_INTELLIGENCE_ON_DEMAND_RESEARCH_RUNTIME:-legacy}" \
   MERIDIAN_INTELLIGENCE_ON_DEMAND_RESEARCH_ALLOW_FALLBACK="${MERIDIAN_INTELLIGENCE_ON_DEMAND_RESEARCH_ALLOW_FALLBACK:-0}" \
   MERIDIAN_LOOM_RESEARCH_CAPABILITY="${MERIDIAN_LOOM_RESEARCH_CAPABILITY:-clawskill.safe-web-research.v0}" \
-  MERIDIAN_LOOM_BIN="${MERIDIAN_LOOM_BIN:-/root/.local/share/meridian-loom/current/bin/loom}" \
-  MERIDIAN_LOOM_ROOT="${MERIDIAN_LOOM_ROOT:-/root/.local/share/meridian-loom/runtime/default}" \
+  MERIDIAN_LOOM_BIN="${MERIDIAN_LOOM_BIN:-/home/ubuntu/.local/share/meridian-loom/current/bin/loom}" \
+  MERIDIAN_LOOM_ROOT="${MERIDIAN_LOOM_ROOT:-/home/ubuntu/.local/share/meridian-loom/runtime/default}" \
   MERIDIAN_LOOM_AGENT_ID="${MERIDIAN_LOOM_AGENT_ID:-agent_leviathann}" \
   MERIDIAN_LOOM_SERVICE_TOKEN="${MERIDIAN_LOOM_SERVICE_TOKEN:-${LOOM_SERVICE_TOKEN:-}}" \
   LOOM_SERVICE_TOKEN="${LOOM_SERVICE_TOKEN:-${MERIDIAN_LOOM_SERVICE_TOKEN:-}}" \
-  python3 /root/.meridian/workspace/company/meridian_platform/readiness.py --json
+  python3 /home/ubuntu/.meridian/workspace/company/meridian_platform/readiness.py --json

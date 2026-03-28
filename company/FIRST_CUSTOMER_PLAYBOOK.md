@@ -147,7 +147,7 @@ Red flags:
 Track every real prospect in:
 
 ```bash
-cd /root/.openclaw/workspace
+cd /root/.meridian/workspace
 python3 company/lead_tracker.py summary
 ```
 
@@ -180,7 +180,7 @@ Never say:
 Before promising anything time-sensitive:
 
 ```bash
-cd /root/.openclaw/workspace
+cd /root/.meridian/workspace
 python3 company/meridian_platform/readiness.py
 ```
 

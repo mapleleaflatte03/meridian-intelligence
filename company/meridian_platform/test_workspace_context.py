@@ -504,9 +504,9 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.assertIn('federation', status['runtime_core'])
         self.assertFalse(status['runtime_core']['federation']['enabled'])
         self.assertEqual(status['runtime_proof']['route'], '/api/runtime-proof')
-        self.assertEqual(status['runtime_proof']['runtime_id'], 'openclaw_compatible')
-        self.assertEqual(status['agents'][0]['runtime_binding']['runtime_id'], 'openclaw_compatible')
-        self.assertEqual(status['agents'][0]['runtime_binding']['runtime_label'], 'OpenClaw-Compatible Runtime')
+        self.assertEqual(status['runtime_proof']['runtime_id'], 'loom_native')
+        self.assertEqual(status['agents'][0]['runtime_binding']['runtime_id'], 'loom_native')
+        self.assertEqual(status['agents'][0]['runtime_binding']['runtime_label'], 'Meridian Loom Runtime')
         self.assertEqual(status['agents'][0]['runtime_binding']['bound_org_id'], 'org_founding')
         self.assertEqual(status['agents'][0]['runtime_binding']['context_source'], 'agent_registry')
         self.assertEqual(status['agents'][0]['runtime_binding']['boundary_name'], 'workspace')
@@ -3675,11 +3675,11 @@ class LiveWorkspaceContextTests(unittest.TestCase):
             return_value={'enabled': True, 'role': 'owner'},
         ), mock.patch.object(
             self.workspace,
-            'openclaw_runtime_proof',
+            'loom_runtime_proof',
             types.SimpleNamespace(
-                collect_openclaw_runtime_proof=lambda include_pong=False: {
-                    'runtime_id': 'openclaw_compatible',
-                    'proof_type': 'live_single_host_openclaw_deployment',
+                collect_loom_runtime_proof=lambda include_service_probe=False: {
+                    'runtime_id': 'loom_native',
+                    'proof_type': 'live_single_host_loom_deployment',
                     'checked_at': '2026-03-22T00:00:00Z',
                     'deployment_truth': {'scope': 'single_host', 'generic_runtime_claim': False},
                     'health': {
@@ -3690,15 +3690,15 @@ class LiveWorkspaceContextTests(unittest.TestCase):
                         'heartbeat': {'interval': '30m', 'primary_agent': 'main'},
                         'telegram': {'ok': True},
                     },
-                    'pong_probe': {'checked': True, 'ok': True, 'output': 'PONG'},
+                    'service_probe': {'checked': True, 'ok': True, 'output': 'service running', 'status': 'running', 'health': 'healthy', 'transport': 'socket+http'},
                     'governed_agents': [],
                     'handle_overlap': ['main'],
                     'handle_gap': [],
                 },
-                public_openclaw_runtime_receipt=lambda proof, bound_org_id=None: {
-                    'runtime_id': 'openclaw_compatible',
+                public_loom_runtime_receipt=lambda proof, bound_org_id=None: {
+                    'runtime_id': 'loom_native',
                     'bound_org_id': bound_org_id,
-                    'runtime_health': {'health_ok': True, 'pong_ok': True},
+                    'runtime_health': {'health_ok': True, 'service_probe_ok': True},
                     'runtime_inventory': {'runtime_agent_names': ['main', 'atlas'], 'runtime_agent_count': 2},
                     'governed_agent_summary': {'declared_bound_agent_count': 1},
                 },

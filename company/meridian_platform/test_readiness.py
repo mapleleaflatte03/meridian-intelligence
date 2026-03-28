@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import importlib.util
+import json
 import io
 import os
 import sys
@@ -85,18 +86,18 @@ SPEC.loader.exec_module(readiness)
 class ReadinessVerdictTests(unittest.TestCase):
     def _fake_run(self, runtime_ok=True, preflight_ok=True):
         def fake_run(cmd, cwd=readiness.WORKSPACE, timeout=30):
-            if cmd[:2] == ["openclaw", "health"]:
+            if len(cmd) >= 2 and cmd[1] == "health":
                 return {
                     "ok": runtime_ok,
                     "returncode": 0 if runtime_ok else 1,
-                    "stdout": "",
+                    "stdout": json.dumps({"status": "healthy"}) if runtime_ok else json.dumps({"status": "degraded"}),
                     "stderr": "",
                 }
-            if cmd[:3] == ["openclaw", "agent", "--agent"]:
+            if len(cmd) >= 3 and cmd[1:3] == ["service", "status"]:
                 return {
                     "ok": runtime_ok,
                     "returncode": 0 if runtime_ok else 1,
-                    "stdout": "PONG" if runtime_ok else "",
+                    "stdout": json.dumps({"running": runtime_ok, "service_status": "running" if runtime_ok else "stopped", "health": "healthy" if runtime_ok else "degraded", "transport": "socket+http"}),
                     "stderr": "",
                 }
             if len(cmd) >= 2 and cmd[1] == readiness.CI_VERTICAL_PY:
@@ -112,7 +113,7 @@ class ReadinessVerdictTests(unittest.TestCase):
 
     def _collect(self, treasury, phase_num, phase_name, preflight_ok):
         with patch.object(readiness, "_run", side_effect=self._fake_run(preflight_ok=preflight_ok)), \
-             patch.object(readiness, "_runtime_env_defaults", return_value={'MERIDIAN_INTELLIGENCE_EXEC_RUNTIME': 'openclaw'}), \
+             patch.object(readiness, "_runtime_env_defaults", return_value={'MERIDIAN_INTELLIGENCE_EXEC_RUNTIME': 'legacy'}), \
              patch.object(readiness, "treasury_snapshot", return_value=treasury), \
              patch.object(readiness.status_surface, "persistence_snapshot", return_value={
                  'backend': 'file-backed-json-jsonl',
@@ -195,9 +196,9 @@ class ReadinessVerdictTests(unittest.TestCase):
         )
         self.assertEqual(report["verdict"], "CONSTITUTION_BLOCKED_PREFLIGHT")
 
-    def test_pong_ok_accepts_terminal_heartbeat_marker(self):
+    def test_service_probe_ok_accepts_terminal_markers(self):
         self.assertTrue(
-            readiness._pong_ok(
+            readiness._service_probe_ok(
                 {
                     "ok": True,
                     "stdout": "agent log\nHEARTBEAT_OK\n",
@@ -206,7 +207,7 @@ class ReadinessVerdictTests(unittest.TestCase):
             )
         )
         self.assertFalse(
-            readiness._pong_ok(
+            readiness._service_probe_ok(
                 {
                     "ok": True,
                     "stdout": "agent log\nHEARTBEAT_WAITING\n",
@@ -219,7 +220,7 @@ class ReadinessVerdictTests(unittest.TestCase):
         report = {
             'checked_at': '2026-03-25T00:00:00Z',
             'verdict': 'READY_FOR_CONTROLLED_DELIVERY_CHECK',
-            'runtime': {'health_ok': True, 'pong_ok': True, 'pong_output': 'PONG'},
+            'runtime': {'health_ok': True, 'service_probe_ok': True, 'service_probe_output': '{"running": true}'},
             'treasury': {
                 'blocked': False,
                 'runway_usd': 25.0,
