@@ -17,6 +17,9 @@ import shutil
 import subprocess
 import sys
 
+from loom_runtime_discovery import preferred_loom_bin as _shared_preferred_loom_bin
+from loom_runtime_discovery import preferred_loom_root as _shared_preferred_loom_root
+from loom_runtime_discovery import runtime_value as _shared_runtime_value
 from treasury import treasury_snapshot
 from organizations import load_orgs
 import status_surface
@@ -125,29 +128,12 @@ def _parse_json_output(result):
 
 def _preferred_loom_bin(runtime_env=None):
     env = runtime_env or os.environ
-    candidates = [
-        (env.get('MERIDIAN_LOOM_BIN') or '').strip(),
-        '/home/ubuntu/.local/share/meridian-loom/current/bin/loom',
-        '/root/.local/share/meridian-loom/current/bin/loom',
-        shutil.which('loom') or '',
-    ]
-    for candidate in candidates:
-        if candidate and os.path.exists(candidate):
-            return candidate
-    return candidates[0] or 'loom'
+    return _shared_runtime_value('binary_path', _shared_preferred_loom_bin(env), runtime_env=env)
 
 
 def _preferred_loom_root(runtime_env=None):
     env = runtime_env or os.environ
-    candidates = [
-        (env.get('MERIDIAN_LOOM_ROOT') or '').strip(),
-        '/home/ubuntu/.local/share/meridian-loom/runtime/default',
-        '/root/.local/share/meridian-loom/runtime/default',
-    ]
-    for candidate in candidates:
-        if candidate and os.path.exists(candidate):
-            return candidate
-    return candidates[0] or '/home/ubuntu/.local/share/meridian-loom/runtime/default'
+    return _shared_runtime_value('runtime_root', _shared_preferred_loom_root(env), runtime_env=env)
 
 
 def _loom_cmd(runtime_env, *parts):
@@ -198,8 +184,8 @@ def _sudo_loom_research_preflight(capability_name: str, runtime_env: dict) -> di
         preflight['errors'].append('research capability is not configured')
         return preflight
 
-    loom_bin = (runtime_env.get('MERIDIAN_LOOM_BIN') or '/home/ubuntu/.local/share/meridian-loom/current/bin/loom').strip()
-    loom_root = (runtime_env.get('MERIDIAN_LOOM_ROOT') or '/home/ubuntu/.local/share/meridian-loom/runtime/default').strip()
+    loom_bin = _preferred_loom_bin(runtime_env)
+    loom_root = _preferred_loom_root(runtime_env)
 
     service_cmd = ['sudo', '-n', loom_bin, 'service', 'status', '--root', loom_root, '--format', 'json']
     capability_cmd = ['sudo', '-n', loom_bin, 'capability', 'show', '--root', loom_root, '--name', capability_name, '--format', 'json']

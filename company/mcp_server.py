@@ -85,6 +85,10 @@ try:
 except ImportError:
     CONSTITUTIONAL_ENABLED = False
 
+from loom_runtime_discovery import preferred_loom_bin as _shared_preferred_loom_bin
+from loom_runtime_discovery import preferred_loom_root as _shared_preferred_loom_root
+from loom_runtime_discovery import runtime_value as _shared_runtime_value
+
 # Founding institution binding — resolved once at startup.
 # All audit, metering, treasury, and revenue calls use this org_id.
 # There is no per-session or per-request org routing.
@@ -162,28 +166,11 @@ def _intelligence_route_fallback(route: str, default: bool = False) -> bool:
 
 
 def _loom_bin() -> str:
-    candidates = [
-        (os.environ.get('MERIDIAN_LOOM_BIN') or '').strip(),
-        '/home/ubuntu/.local/share/meridian-loom/current/bin/loom',
-        '/root/.local/share/meridian-loom/current/bin/loom',
-        shutil.which('loom') or '',
-    ]
-    for candidate in candidates:
-        if candidate and os.path.exists(candidate):
-            return candidate
-    return candidates[0] or 'loom'
+    return _shared_runtime_value('binary_path', _shared_preferred_loom_bin(os.environ), runtime_env=os.environ)
 
 
 def _loom_root() -> str:
-    candidates = [
-        (os.environ.get('MERIDIAN_LOOM_ROOT') or '').strip(),
-        '/home/ubuntu/.local/share/meridian-loom/runtime/default',
-        '/root/.local/share/meridian-loom/runtime/default',
-    ]
-    for candidate in candidates:
-        if candidate and os.path.exists(candidate):
-            return candidate
-    return candidates[0] or '/home/ubuntu/.local/share/meridian-loom/runtime/default'
+    return _shared_runtime_value('runtime_root', _shared_preferred_loom_root(os.environ), runtime_env=os.environ)
 
 
 def _loom_agent_id() -> str:
@@ -195,7 +182,7 @@ def _loom_org_id() -> str:
         value = (os.environ.get(key) or '').strip()
         if value:
             return value
-    return 'org_48b05c21'
+    return _shared_runtime_value('org_id', 'org_48b05c21', runtime_env=os.environ)
 
 
 def _loom_service_token() -> str:

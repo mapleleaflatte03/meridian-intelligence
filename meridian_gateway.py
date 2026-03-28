@@ -27,21 +27,22 @@ from meridian_config import load_config
 HOST = "127.0.0.1"
 PORT = 8266
 WORKSPACE_DIR = Path(__file__).resolve().parent
+PLATFORM_DIR = WORKSPACE_DIR / "company" / "meridian_platform"
+if str(PLATFORM_DIR) not in sys.path:
+    sys.path.insert(0, str(PLATFORM_DIR))
+
+from loom_runtime_discovery import preferred_loom_bin, preferred_loom_root, runtime_value
+
 SOUL_PATH = WORKSPACE_DIR / "SOUL.md"
 MEMORY_PATH = WORKSPACE_DIR / "MEMORY.md"
 SKILLS_DIR = WORKSPACE_DIR / "skills"
 LOOM_MEMORY_PATH = "workspace/MEMORY.md"
-LOOM_BIN = os.environ.get(
-    "MERIDIAN_LOOM_BIN",
-    "/home/ubuntu/.local/share/meridian-loom/current/bin/loom",
-)
-LOOM_ROOT = os.environ.get(
-    "MERIDIAN_LOOM_ROOT",
-    "/home/ubuntu/.local/share/meridian-loom/runtime/default",
-)
+LOOM_BIN = runtime_value('binary_path', preferred_loom_bin())
+LOOM_ROOT = runtime_value('runtime_root', preferred_loom_root())
 LOOM_ORG_ID = (
     os.environ.get("MERIDIAN_LOOM_ORG_ID")
     or os.environ.get("MERIDIAN_WORKSPACE_ORG_ID")
+    or runtime_value('org_id', '')
     or "org_48b05c21"
 )
 LOOM_AGENT_ID = os.environ.get("MERIDIAN_LOOM_AGENT_ID", "atlas")
