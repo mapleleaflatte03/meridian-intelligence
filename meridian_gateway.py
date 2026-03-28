@@ -9,6 +9,7 @@ import queue
 import re
 import subprocess
 import sys
+import tempfile
 import textwrap
 import threading
 import time
@@ -44,6 +45,14 @@ LOOM_ORG_ID = (
     or "org_48b05c21"
 )
 LOOM_AGENT_ID = os.environ.get("MERIDIAN_LOOM_AGENT_ID", "atlas")
+MERIDIAN_CODEX_HOME = os.environ.get(
+    "MERIDIAN_CODEX_HOME",
+    "/home/ubuntu/.meridian/auth/codex/login-home",
+)
+MERIDIAN_CODEX_BIN = os.environ.get(
+    "MERIDIAN_CODEX_BIN",
+    "/home/ubuntu/.npm-global/bin/codex",
+)
 MAX_STEPS = int(os.environ.get("MERIDIAN_GATEWAY_MAX_STEPS", "6"))
 REQUEST_TIMEOUT_SECONDS = int(os.environ.get("MERIDIAN_GATEWAY_TIMEOUT_SECONDS", "90"))
 HEARTBEAT_INTERVAL_SECONDS = 60
@@ -58,6 +67,177 @@ ANSI_RED = "\033[31m"
 LLM_BASE_URL = ""
 LLM_MODEL = ""
 LLM_API_KEY = ""
+
+
+def _loom_manager_defaults() -> dict[str, str]:
+    provider_profile = "manager_frontier"
+    model = "gpt-5.4"
+    manifest_path = Path(LOOM_ROOT) / "state" / "onboard.json"
+    try:
+        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+        brain = payload.get("brain") or {}
+        lane = str(brain.get("managerLane") or "frontier").strip().lower()
+        configured_model = str(brain.get("managerModel") or "").strip()
+        if lane != "frontier":
+            provider_profile = "local_ollama"
+        if configured_model:
+            model = configured_model
+    except Exception:
+        pass
+    return {"provider_profile": provider_profile, "model": model}
+
+
+def _run_loom_json(command: list[str], *, timeout: int = REQUEST_TIMEOUT_SECONDS) -> dict[str, Any]:
+    try:
+        completed = subprocess.run(
+            _loom_cli_prefix() + command,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+    except Exception as exc:
+        return {"ok": False, "error": f"{exc.__class__.__name__}: {exc}"}
+    stdout = (completed.stdout or "").strip()
+    stderr = (completed.stderr or "").strip()
+    payload = _extract_json(stdout) or {}
+    result = {
+        "ok": completed.returncode == 0,
+        "returncode": completed.returncode,
+        "stdout": stdout,
+        "stderr": stderr,
+        "payload": payload,
+    }
+    if completed.returncode != 0 and not stderr and not payload:
+        result["error"] = stdout[:500]
+    elif completed.returncode != 0:
+        result["error"] = stderr[:500] or stdout[:500]
+    return result
+
+
+def _loom_channel_ingest(channel_id: str, peer_id: str, text: str, *, thread_id: str = "") -> dict[str, Any]:
+    command = [
+        LOOM_BIN,
+        "channel",
+        "ingest",
+        "--root",
+        LOOM_ROOT,
+        "--channel",
+        channel_id,
+        "--peer",
+        str(peer_id),
+        "--text",
+        text,
+        "--format",
+        "json",
+    ]
+    if thread_id:
+        command.extend(["--thread", str(thread_id)])
+    result = _run_loom_json(command)
+    if not result.get("ok"):
+        _log(f"loom channel ingest failed for {channel_id}:{peer_id}: {result.get('error') or result.get('stderr') or result.get('stdout')}", color=ANSI_YELLOW)
+    return result
+
+
+def _loom_channel_send(channel_id: str, recipient: str, text: str) -> dict[str, Any]:
+    command = [
+        LOOM_BIN,
+        "channel",
+        "send",
+        "--root",
+        LOOM_ROOT,
+        "--channel",
+        channel_id,
+        "--recipient",
+        str(recipient),
+        "--text",
+        text,
+        "--format",
+        "json",
+    ]
+    result = _run_loom_json(command)
+    if not result.get("ok"):
+        _log(f"loom channel send failed for {channel_id}:{recipient}: {result.get('error') or result.get('stderr') or result.get('stdout')}", color=ANSI_YELLOW)
+    return result
+
+
+def _run_codex_exec(*, system_prompt: str, user_prompt: str, model: str, timeout: int = REQUEST_TIMEOUT_SECONDS) -> dict[str, Any]:
+    codex_bin = str(MERIDIAN_CODEX_BIN).strip() or "codex"
+    codex_home = str(MERIDIAN_CODEX_HOME).strip() or "/home/ubuntu/.meridian/auth/codex/login-home"
+    prompt = textwrap.dedent(
+        f"""
+        System instructions:
+        {system_prompt.strip()}
+
+        User request:
+        {user_prompt.strip()}
+
+        Return only the final answer for the user.
+        """
+    ).strip()
+    output_path = None
+    env = os.environ.copy()
+    env["HOME"] = codex_home
+    command = [
+        codex_bin,
+        "exec",
+        "-m",
+        model,
+        "--skip-git-repo-check",
+        "--ephemeral",
+        "--color",
+        "never",
+        "-C",
+        "/home/ubuntu",
+    ]
+    try:
+        with tempfile.NamedTemporaryFile(prefix="meridian-codex-", suffix=".txt", delete=False) as handle:
+            output_path = handle.name
+        command.extend(["-o", output_path, prompt])
+        completed = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+            env=env,
+        )
+        output_text = ""
+        if output_path:
+            candidate = Path(output_path)
+            if candidate.exists():
+                output_text = candidate.read_text(encoding="utf-8").strip()
+        result = {
+            "ok": completed.returncode == 0 and bool(output_text),
+            "returncode": completed.returncode,
+            "stdout": (completed.stdout or "").strip(),
+            "stderr": (completed.stderr or "").strip(),
+            "output_text": output_text,
+            "model": model,
+            "provider_profile": "manager_frontier",
+        }
+        if completed.returncode != 0 and not result["stderr"]:
+            result["stderr"] = result["stdout"][-500:]
+        if not output_text and completed.returncode == 0:
+            result["ok"] = False
+            result["stderr"] = result["stderr"] or "Codex exec returned empty output"
+        return result
+    except Exception as exc:
+        return {
+            "ok": False,
+            "returncode": -1,
+            "stderr": f"{exc.__class__.__name__}: {exc}",
+            "stdout": "",
+            "output_text": "",
+            "model": model,
+            "provider_profile": "manager_frontier",
+        }
+    finally:
+        if output_path:
+            try:
+                Path(output_path).unlink(missing_ok=True)
+            except Exception:
+                pass
 
 
 class _TitleParser(HTMLParser):
@@ -251,9 +431,6 @@ def _load_runtime_config_or_exit() -> dict[str, Any]:
     LLM_BASE_URL = str(config.get("llm_base_url") or "").strip()
     LLM_MODEL = str(config.get("llm_model") or "").strip()
     LLM_API_KEY = str(config.get("llm_api_key") or "").strip()
-    if not LLM_BASE_URL or not LLM_MODEL:
-        print("Invalid meridian_config.json. Run python3 meridian_setup.py to repair it.", file=sys.stderr)
-        raise SystemExit(1)
     return config
 
 
@@ -300,25 +477,49 @@ class AgentRuntime:
         ).strip()
 
     def _chat(self, messages: list[dict[str, str]]) -> str:
-        request = urllib.request.Request(
-            LLM_BASE_URL,
-            method="POST",
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {LLM_API_KEY or 'meridian-local-key'}",
+        system_prompt = ""
+        user_parts: list[str] = []
+        for message in messages:
+            role = str(message.get("role") or "user").strip().lower()
+            content = str(message.get("content") or "")
+            if role == "system" and not system_prompt:
+                system_prompt = content
+            elif content.strip():
+                if role == "user":
+                    user_parts.append(content)
+                else:
+                    user_parts.append(f"[{role}] {content}")
+        defaults = _loom_manager_defaults()
+        user_prompt = "\n\n".join(part for part in user_parts if part.strip())
+        if defaults["provider_profile"] == "manager_frontier":
+            codex_result = _run_codex_exec(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                model=defaults["model"],
+            )
+            if not codex_result.get("ok"):
+                raise RuntimeError(codex_result.get("stderr") or codex_result.get("stdout") or "Codex exec failed")
+            output = str(codex_result.get("output_text") or "").strip()
+            if not output:
+                raise RuntimeError("Codex exec returned empty output")
+            return output
+        observation = self._run_loom(
+            "loom.llm.inference.v1",
+            {
+                "provider_profile": defaults["provider_profile"],
+                "model": defaults["model"],
+                "system_prompt": system_prompt,
+                "user_prompt": user_prompt,
+                "max_tokens": 700,
             },
-            data=json.dumps(
-                {
-                    "model": LLM_MODEL,
-                    "messages": messages,
-                    "temperature": 0.2,
-                    "stream": False,
-                }
-            ).encode("utf-8"),
         )
-        with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
-            payload = json.loads(response.read().decode("utf-8", "replace"))
-        return payload["choices"][0]["message"]["content"]
+        if not observation.get("ok"):
+            raise RuntimeError(observation.get("error") or observation.get("stderr") or "Loom llm inference failed")
+        llm_response = observation.get("llm_response") or {}
+        output = str(llm_response.get("output_text") or "").strip()
+        if not output:
+            raise RuntimeError("Loom llm inference returned empty output_text")
+        return output
 
     def _valid_step(self, payload: dict[str, Any] | None) -> bool:
         if not isinstance(payload, dict):
@@ -495,6 +696,15 @@ class AgentRuntime:
                     "uname": str(host_response.get("uname_utf8") or "").strip(),
                     "note": str(host_response.get("note") or "").strip(),
                 }
+            elif capability == "loom.llm.inference.v1" and isinstance(host_response, dict):
+                observation["llm_response"] = {
+                    "model": str(host_response.get("model") or payload.get("model") or "").strip(),
+                    "output_text": str(host_response.get("output_text") or "").strip(),
+                    "finish_reason": str(host_response.get("finish_reason") or "").strip(),
+                    "prompt_tokens": host_response.get("prompt_tokens"),
+                    "completion_tokens": host_response.get("completion_tokens"),
+                    "note": str(host_response.get("note") or "").strip(),
+                }
         else:
             observation["stdout_excerpt"] = stdout[:500]
         return observation
@@ -614,6 +824,7 @@ class TelegramAdapter(ChannelAdapter):
         with self.active_lock:
             targets = list(self.active_chats)
         for chat_id in targets:
+            _loom_channel_send("telegram", str(chat_id), text)
             try:
                 self._send_direct(chat_id, text)
             except Exception as exc:
@@ -648,8 +859,10 @@ class TelegramAdapter(ChannelAdapter):
             return
         with self.active_lock:
             self.active_chats.add(chat_id)
+        _loom_channel_ingest("telegram", str(chat_id), text.strip(), thread_id=str(message_id or ""))
         answer = self.runtime.run_goal(text.strip())
         if answer:
+            _loom_channel_send("telegram", str(chat_id), answer)
             self._send_direct(chat_id, answer, reply_to_message_id=message_id if isinstance(message_id, int) else None)
 
 
@@ -731,7 +944,10 @@ class WebAPIAdapter(ChannelAdapter):
                 if not isinstance(goal, str) or not goal.strip():
                     self._send_json(400, {"status": "error", "output": "goal_required"})
                     return
+                _loom_channel_ingest("web_api", LOOM_ORG_ID, goal.strip())
                 answer = adapter.runtime.run_goal(goal.strip())
+                if answer:
+                    _loom_channel_send("web_api", LOOM_ORG_ID, answer)
                 self._send_json(200, {"status": "success", "output": answer})
 
             def log_message(self, format: str, *args: object) -> None:  # noqa: A003
@@ -756,6 +972,7 @@ class WebAPIAdapter(ChannelAdapter):
             self.server.server_close()
 
     def send_message(self, text: str, *, source: str = "runtime") -> None:
+        _loom_channel_send("web_api", LOOM_ORG_ID, text)
         self.notifications.put({"source": source, "text": text, "ts": str(int(time.time()))})
 
 
