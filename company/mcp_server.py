@@ -221,10 +221,29 @@ def _legacy_response_content(stdout: str):
         return stdout
 
 
+def _legacy_agent_bin() -> str | None:
+    configured = (os.environ.get('MERIDIAN_LEGACY_AGENT_BIN') or '').strip()
+    if configured:
+        return configured
+    for candidate in ('legacy-agent', 'legacy_v1_agent', 'legacy-v1-agent'):
+        resolved = shutil.which(candidate)
+        if resolved:
+            return resolved
+    return 'legacy-agent'
+
+
 def _run_legacy_agent(agent: str, prompt: str, timeout: int) -> dict:
+    legacy_bin = _legacy_agent_bin()
+    if not legacy_bin:
+        return {
+            'ok': False,
+            'runtime': 'legacy',
+            'agent': agent,
+            'error': 'Legacy agent binary is not configured',
+        }
     try:
         result = subprocess.run(
-            ['openclaw', 'agent', '--agent', agent, '--message', prompt, '--json'],
+            [legacy_bin, 'agent', '--agent', agent, '--message', prompt, '--json'],
             capture_output=True, text=True, timeout=timeout, cwd=WORKSPACE
         )
         if result.returncode != 0:
@@ -368,8 +387,12 @@ def _normalize_loom_import_metadata(capability_payload: dict) -> dict:
         unsupported_reasons.append(f'import_provenance={import_provenance}')
     if normalized_worker_entry and worker_entry and worker_entry != normalized_worker_entry:
         unsupported_reasons.append(f'worker_entry={worker_entry}')
-    legacy_source_kind_map = {'openclaw_workspace_skill': 'legacy_workspace_skill', 'openclaw_plugin_skill': 'legacy_plugin_skill', 'openclaw_plugin_packaged_skill': 'legacy_plugin_packaged_skill'}
-    source_kind = legacy_source_kind_map.get(source_kind, source_kind)
+    if source_kind and source_kind not in {'loom_workspace_skill', 'loom_plugin_skill', 'loom_plugin_packaged_skill', 'legacy_workspace_skill', 'legacy_plugin_skill', 'legacy_plugin_packaged_skill'}:
+        if '_' in source_kind:
+            suffix = source_kind.split('_', 1)[1]
+            legacy_candidate = f'legacy_{suffix}'
+            if legacy_candidate in {'legacy_workspace_skill', 'legacy_plugin_skill', 'legacy_plugin_packaged_skill'}:
+                source_kind = legacy_candidate
     if source_kind and source_kind not in {'loom_workspace_skill', 'loom_plugin_skill', 'loom_plugin_packaged_skill', 'legacy_workspace_skill', 'legacy_plugin_skill', 'legacy_plugin_packaged_skill'}:
         unsupported_reasons.append(f'source_kind={source_kind}')
 

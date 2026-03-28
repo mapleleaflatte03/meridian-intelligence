@@ -17,7 +17,7 @@ def _load_module(name, path):
     return module
 
 
-proof = _load_module('meridian_loom_runtime_proof_test', MODULE_PATH)
+proof = _load_module('loom_runtime_proof_test', MODULE_PATH)
 
 
 class LoomRuntimeProofTests(unittest.TestCase):
