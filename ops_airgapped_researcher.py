@@ -19,7 +19,7 @@ import urllib.request
 from typing import Any
 
 os.environ['LLM_BASE_URL'] = 'http://127.0.0.1:11434/v1/chat/completions'
-os.environ['LLM_MODEL'] = 'gpt-3.5-turbo'
+os.environ['LLM_MODEL'] = 'qwen2.5:7b'
 os.environ['OPENAI_API_KEY'] = 'meridian-airgap-local-key'
 
 import ops_meridian_delivery_engine as engine

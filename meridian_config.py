@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 DEFAULT_LLM_BASE_URL = "http://127.0.0.1:11434/v1/chat/completions"
-DEFAULT_LLM_MODEL = "gpt-3.5-turbo"
+DEFAULT_LLM_MODEL = "qwen2.5:7b"
 DEFAULT_ALLOWED_ORIGIN = "https://app.welliam.codes"
 CONFIG_PATH = Path(__file__).resolve().parent / "meridian_config.json"
 
