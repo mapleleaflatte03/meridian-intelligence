@@ -40,7 +40,7 @@ Meridian v0.1.0 launches with a premium public surface around three ideas:
 Public launch snippet:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/meridian/loom/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/mapleleaflatte03/meridian-loom/main/scripts/install.sh | bash
 ```
 
 The installer story belongs to Meridian Loom. This intelligence repo links to that runtime surface while keeping the live customer and host boundary honest.
