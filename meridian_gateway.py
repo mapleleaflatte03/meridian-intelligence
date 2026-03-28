@@ -38,8 +38,12 @@ LOOM_ROOT = os.environ.get(
     "MERIDIAN_LOOM_ROOT",
     "/home/ubuntu/.local/share/meridian-loom/runtime/default",
 )
-LOOM_ORG_ID = os.environ.get("MERIDIAN_LOOM_ORG_ID", "org_51fcd87f")
-LOOM_AGENT_ID = os.environ.get("MERIDIAN_LOOM_AGENT_ID", "agent_atlas")
+LOOM_ORG_ID = (
+    os.environ.get("MERIDIAN_LOOM_ORG_ID")
+    or os.environ.get("MERIDIAN_WORKSPACE_ORG_ID")
+    or "org_48b05c21"
+)
+LOOM_AGENT_ID = os.environ.get("MERIDIAN_LOOM_AGENT_ID", "atlas")
 MAX_STEPS = int(os.environ.get("MERIDIAN_GATEWAY_MAX_STEPS", "6"))
 REQUEST_TIMEOUT_SECONDS = int(os.environ.get("MERIDIAN_GATEWAY_TIMEOUT_SECONDS", "90"))
 HEARTBEAT_INTERVAL_SECONDS = 60
@@ -233,6 +237,16 @@ def _load_runtime_config_or_exit() -> dict[str, Any]:
     except Exception as exc:
         print(f"Failed to load meridian_config.json: {exc}", file=sys.stderr)
         raise SystemExit(1)
+
+    config["telegram_bot_token"] = (
+        os.environ.get("MERIDIAN_TELEGRAM_BOT_TOKEN")
+        or os.environ.get("TELEGRAM_BOT_TOKEN")
+        or str(config.get("telegram_bot_token") or "")
+    ).strip()
+    config["allowed_origin"] = (
+        os.environ.get("MERIDIAN_ALLOWED_ORIGIN")
+        or str(config.get("allowed_origin") or "")
+    ).strip()
 
     LLM_BASE_URL = str(config.get("llm_base_url") or "").strip()
     LLM_MODEL = str(config.get("llm_model") or "").strip()

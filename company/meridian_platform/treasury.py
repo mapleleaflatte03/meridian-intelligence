@@ -311,11 +311,13 @@ def _read_only_json(path, default=None):
 
 def _read_only_ledger(org_id=None):
     org_id = _resolve_org_id(org_id)
+    ensure_treasury_aliases(org_id)
     return _read_only_json(capsule_path(org_id, 'ledger.json'), {'treasury': {}})
 
 
 def _read_only_revenue(org_id=None):
     org_id = _resolve_org_id(org_id)
+    ensure_treasury_aliases(org_id)
     return _read_only_json(capsule_path(org_id, 'revenue.json'), {
         'clients': {},
         'orders': {},

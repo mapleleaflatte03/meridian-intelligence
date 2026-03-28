@@ -187,7 +187,15 @@ def _loom_root() -> str:
 
 
 def _loom_agent_id() -> str:
-    return (os.environ.get('MERIDIAN_LOOM_AGENT_ID') or 'agent_leviathann').strip()
+    return (os.environ.get('MERIDIAN_LOOM_AGENT_ID') or 'leviathann').strip()
+
+
+def _loom_org_id() -> str:
+    for key in ('MERIDIAN_LOOM_ORG_ID', 'MERIDIAN_MCP_ORG_ID', 'MERIDIAN_WORKSPACE_ORG_ID'):
+        value = (os.environ.get(key) or '').strip()
+        if value:
+            return value
+    return 'org_48b05c21'
 
 
 def _loom_service_token() -> str:
@@ -506,11 +514,11 @@ def _loom_capability_preflight(capability_name: str, *, route: str) -> dict:
                     )
                 if not capability_payload.get('enabled', False):
                     preflight['errors'].append('loom capability is disabled')
-                if capability_payload.get('verification_status') != 'verified':
+                if capability_payload.get('verification_status') not in {'verified', 'builtin'}:
                     preflight['errors'].append(
                         f"loom capability verification={capability_payload.get('verification_status', '')}"
                     )
-                if capability_payload.get('promotion_state') != 'promoted':
+                if capability_payload.get('promotion_state') not in {'promoted', 'builtin'}:
                     preflight['errors'].append(
                         f"loom capability promotion={capability_payload.get('promotion_state', '')}"
                     )
@@ -741,6 +749,8 @@ def _run_loom_capability(capability_name: str, payload: dict, timeout: int) -> d
         'submit',
         '--root',
         _loom_root(),
+        '--org-id',
+        _loom_org_id(),
         '--agent-id',
         _loom_agent_id(),
         '--capability',

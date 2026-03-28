@@ -237,9 +237,9 @@ def _sudo_loom_research_preflight(capability_name: str, runtime_env: dict) -> di
             preflight['capability'] = capability_payload
             if not capability_payload.get('enabled', False):
                 preflight['errors'].append('loom capability is disabled')
-            if capability_payload.get('verification_status') != 'verified':
+            if capability_payload.get('verification_status') not in {'verified', 'builtin'}:
                 preflight['errors'].append(f"loom capability verification={capability_payload.get('verification_status', '')}")
-            if capability_payload.get('promotion_state') != 'promoted':
+            if capability_payload.get('promotion_state') not in {'promoted', 'builtin'}:
                 preflight['errors'].append(f"loom capability promotion={capability_payload.get('promotion_state', '')}")
 
     preflight['ok'] = not preflight['errors']

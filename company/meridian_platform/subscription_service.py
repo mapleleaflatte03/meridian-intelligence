@@ -358,6 +358,14 @@ def _loom_root():
     return (os.environ.get('MERIDIAN_LOOM_ROOT') or '/home/ubuntu/.local/share/meridian-loom/runtime/default').strip()
 
 
+def _loom_org_id():
+    for key in ('MERIDIAN_LOOM_ORG_ID', 'MERIDIAN_MCP_ORG_ID', 'MERIDIAN_WORKSPACE_ORG_ID'):
+        value = (os.environ.get(key) or '').strip()
+        if value:
+            return value
+    return 'org_48b05c21'
+
+
 def _loom_service_token():
     return (
         os.environ.get('MERIDIAN_LOOM_SERVICE_TOKEN')
@@ -868,9 +876,9 @@ def _loom_delivery_preflight(capability_name):
                 preflight['capability'] = payload
                 if not payload.get('enabled', False):
                     preflight['errors'].append('loom capability is disabled')
-                if payload.get('verification_status') != 'verified':
+                if payload.get('verification_status') not in {'verified', 'builtin'}:
                     preflight['errors'].append(f"loom capability verification={payload.get('verification_status', '')}")
-                if payload.get('promotion_state') != 'promoted':
+                if payload.get('promotion_state') not in {'promoted', 'builtin'}:
                     preflight['errors'].append(f"loom capability promotion={payload.get('promotion_state', '')}")
 
     preflight['ok'] = not preflight['errors']
@@ -897,8 +905,10 @@ def _run_loom_delivery_capability(capability_name, payload, timeout):
         'submit',
         '--root',
         _loom_root(),
+        '--org-id',
+        _loom_org_id(),
         '--agent-id',
-        (os.environ.get('MERIDIAN_LOOM_AGENT_ID') or 'agent_leviathann').strip(),
+        (os.environ.get('MERIDIAN_LOOM_AGENT_ID') or 'leviathann').strip(),
         '--capability',
         capability_name,
         '--estimated-cost-usd',
