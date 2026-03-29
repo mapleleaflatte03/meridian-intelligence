@@ -168,6 +168,37 @@ def _loom_channel_send(channel_id: str, recipient: str, text: str) -> dict[str, 
     return result
 
 
+def _loom_channel_update(delivery_id: str, status: str, *, external_ref: str = "", detail: str = "") -> dict[str, Any]:
+    delivery_id = str(delivery_id or "").strip()
+    status = str(status or "").strip()
+    if not delivery_id or not status:
+        return {}
+    command = [
+        LOOM_BIN,
+        "channel",
+        "update",
+        "--root",
+        LOOM_ROOT,
+        "--delivery-id",
+        delivery_id,
+        "--status",
+        status,
+        "--format",
+        "json",
+    ]
+    if external_ref:
+        command.extend(["--external-ref", external_ref])
+    if detail:
+        command.extend(["--detail", detail])
+    result = _run_loom_json(command)
+    if not result.get("ok"):
+        _log(
+            f"loom channel update failed for {delivery_id}: {result.get('error') or result.get('stderr') or result.get('stdout')}",
+            color=ANSI_YELLOW,
+        )
+    return result
+
+
 def _loom_manager_route(*, agent_id: str = "", org_id: str = "") -> dict[str, Any]:
     command = [
         LOOM_BIN,
@@ -1044,20 +1075,30 @@ class TelegramAdapter(ChannelAdapter):
             raise RuntimeError(body.get("description") or f"Telegram API call failed: {method}")
         return body
 
-    def _send_direct(self, chat_id: int | str, text: str, *, reply_to_message_id: int | None = None) -> None:
+    def _send_direct(self, chat_id: int | str, text: str, *, reply_to_message_id: int | None = None) -> dict[str, Any]:
         payload: dict[str, Any] = {"chat_id": chat_id, "text": text}
         if reply_to_message_id is not None:
             payload["reply_to_message_id"] = reply_to_message_id
-        self._telegram_request("sendMessage", payload)
+        body = self._telegram_request("sendMessage", payload)
+        result = body.get("result") if isinstance(body, dict) else {}
+        return result if isinstance(result, dict) else {}
 
     def send_message(self, text: str, *, source: str = "runtime") -> None:
         with self.active_lock:
             targets = list(self.active_chats)
         for chat_id in targets:
-            _loom_channel_send("telegram", str(chat_id), text)
+            delivery = _loom_channel_send("telegram", str(chat_id), text)
+            delivery_payload = delivery.get("payload") if isinstance(delivery, dict) else {}
+            delivery_id = str((delivery_payload or {}).get("delivery_id") or "").strip()
             try:
-                self._send_direct(chat_id, text)
+                result = self._send_direct(chat_id, text)
+                _loom_channel_update(
+                    delivery_id,
+                    "delivered",
+                    external_ref=str((result or {}).get("message_id") or str(chat_id)).strip(),
+                )
             except Exception as exc:
+                _loom_channel_update(delivery_id, "failed", detail=f"{exc.__class__.__name__}: {exc}")
                 _log(f"telegram proactive delivery failed for {chat_id}: {exc}", color=ANSI_YELLOW)
 
     def _poll_loop(self) -> None:
@@ -1099,7 +1140,16 @@ class TelegramAdapter(ChannelAdapter):
             delivery = _loom_channel_send("telegram", str(chat_id), answer)
             delivery_payload = delivery.get("payload") if isinstance(delivery, dict) else {}
             delivery_id = str((delivery_payload or {}).get("delivery_id") or "").strip()
-            self._send_direct(chat_id, answer, reply_to_message_id=message_id if isinstance(message_id, int) else None)
+            try:
+                result = self._send_direct(chat_id, answer, reply_to_message_id=message_id if isinstance(message_id, int) else None)
+                _loom_channel_update(
+                    delivery_id,
+                    "delivered",
+                    external_ref=str((result or {}).get("message_id") or str(chat_id)).strip(),
+                )
+            except Exception as exc:
+                _loom_channel_update(delivery_id, "failed", detail=f"{exc.__class__.__name__}: {exc}")
+                raise
         _loom_session_route(
             session_key,
             agent_id=TEAM_MANAGER_AGENT_ID,
@@ -1207,6 +1257,8 @@ class WebAPIAdapter(ChannelAdapter):
                     job_id=str((team_meta or {}).get("job_id") or "").strip(),
                 )
                 self._send_json(200, {"status": "success", "output": answer})
+                if delivery_id:
+                    _loom_channel_update(delivery_id, "delivered", external_ref="http_response")
 
             def log_message(self, format: str, *args: object) -> None:  # noqa: A003
                 return
@@ -1230,8 +1282,12 @@ class WebAPIAdapter(ChannelAdapter):
             self.server.server_close()
 
     def send_message(self, text: str, *, source: str = "runtime") -> None:
-        _loom_channel_send("web_api", LOOM_ORG_ID, text)
+        delivery = _loom_channel_send("web_api", LOOM_ORG_ID, text)
+        delivery_payload = delivery.get("payload") if isinstance(delivery, dict) else {}
+        delivery_id = str((delivery_payload or {}).get("delivery_id") or "").strip()
         self.notifications.put({"source": source, "text": text, "ts": str(int(time.time()))})
+        if delivery_id:
+            _loom_channel_update(delivery_id, "delivered", external_ref="notification_queue")
 
 
 class HeartbeatEngine(threading.Thread):
