@@ -35,12 +35,17 @@ class ServiceStateTests(unittest.TestCase):
             'subscriptions_lock': self._subs + '.lock',
             'canonical_source': 'capsule_file',
             'canonical_service_module': 'company.meridian_platform.subscription_service',
-            'compatibility_mode': 'legacy_symlink',
+            'compatibility_mode': 'compatibility_alias',
             'compatibility_module': 'company.subscriptions',
             'canonical_paths': {
                 'subscriptions': self._subs,
                 'subscriptions_backup': self._subs + '.bak',
                 'subscriptions_lock': self._subs + '.lock',
+            },
+            'compatibility_paths': {
+                'subscriptions': os.path.join(self._tmp, 'company', 'subscriptions.json'),
+                'subscriptions_backup': os.path.join(self._tmp, 'company', 'subscriptions.json.bak'),
+                'subscriptions_lock': os.path.join(self._tmp, 'company', '.subscriptions.lock'),
             },
             'legacy_paths': {
                 'subscriptions': os.path.join(self._tmp, 'company', 'subscriptions.json'),
@@ -52,10 +57,13 @@ class ServiceStateTests(unittest.TestCase):
             'owner_ledger': self._owner,
             'canonical_source': 'capsule_file',
             'canonical_service_module': 'company.meridian_platform.accounting_service',
-            'compatibility_mode': 'legacy_symlink',
+            'compatibility_mode': 'compatibility_alias',
             'compatibility_module': 'company.accounting',
             'canonical_paths': {
                 'owner_ledger': self._owner,
+            },
+            'compatibility_paths': {
+                'owner_ledger': os.path.join(self._tmp, 'company', 'owner_ledger.json'),
             },
             'legacy_paths': {
                 'owner_ledger': os.path.join(self._tmp, 'company', 'owner_ledger.json'),

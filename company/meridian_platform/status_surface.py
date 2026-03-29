@@ -147,13 +147,13 @@ def persistence_snapshot(org_id=None):
             os.path.join(PLATFORM_DIR, 'authority_queue.json'),
             kind='json',
             owner='authority.py',
-            role='legacy_input',
+            role='compatibility_input',
         ),
         _file_snapshot(
             os.path.join(PLATFORM_DIR, 'court_records.json'),
             kind='json',
             owner='court.py',
-            role='legacy_input',
+            role='compatibility_input',
         ),
         _file_snapshot(
             os.path.join(PLATFORM_DIR, 'audit_log.jsonl'),

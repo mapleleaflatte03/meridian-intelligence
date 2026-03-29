@@ -82,7 +82,7 @@ def _default_subscriptions(org_id=None):
             'bound_org_id': org_id or '',
             'boundary_name': 'subscriptions',
             'identity_model': 'session',
-            'storage_model': 'capsule_canonical_with_legacy_symlink',
+            'storage_model': 'capsule_canonical_with_compatibility_alias',
             'internal_test_ids': [],
         },
     }
@@ -118,7 +118,7 @@ def load_subscription_state(org_id=None):
     payload['_meta']['bound_org_id'] = org_id or payload['_meta'].get('bound_org_id', '')
     payload['_meta']['boundary_name'] = 'subscriptions'
     payload['_meta']['identity_model'] = 'session'
-    payload['_meta']['storage_model'] = _normalize_storage_model('capsule_canonical_with_legacy_symlink')
+    payload['_meta']['storage_model'] = _normalize_storage_model('capsule_canonical_with_compatibility_alias')
     payload['_meta'].setdefault('internal_test_ids', [])
     return payload
 
@@ -172,8 +172,9 @@ def subscription_snapshot(org_id=None):
         alias_registry['canonical_paths']['subscriptions'],
         WORKSPACE,
     )
+    compatibility_paths = alias_registry.get('compatibility_paths') or alias_registry['legacy_paths']
     legacy_path = os.path.relpath(
-        alias_registry['legacy_paths']['subscriptions'],
+        compatibility_paths['subscriptions'],
         WORKSPACE,
     )
 
@@ -182,7 +183,7 @@ def subscription_snapshot(org_id=None):
         'management_mode': 'institution_owned_service',
         'mutation_enabled': True,
         'mutation_disabled_reason': '',
-        'storage_model': _normalize_storage_model(meta.get('storage_model', 'capsule_canonical_with_legacy_symlink')),
+        'storage_model': _normalize_storage_model(meta.get('storage_model', 'capsule_canonical_with_compatibility_alias')),
         'boundary_name': meta.get('boundary_name', 'subscriptions'),
         'identity_model': meta.get('identity_model', 'session'),
         'canonical_source': 'service_module',
@@ -191,7 +192,7 @@ def subscription_snapshot(org_id=None):
         'compatibility_path_role': 'compatibility_symlink',
         'compatibility_path': legacy_path,
         'compatibility_module': alias_registry['compatibility_module'],
-        'compatibility_mode': _normalize_compatibility_mode('legacy_shim'),
+        'compatibility_mode': _normalize_compatibility_mode('compatibility_alias'),
         'alias_registry': {
             'canonical_source': alias_registry['canonical_source'],
             'canonical_paths': {
@@ -208,11 +209,11 @@ def subscription_snapshot(org_id=None):
             'compatibility_paths': {
                 'subscriptions': legacy_path,
                 'subscriptions_backup': os.path.relpath(
-                    alias_registry['legacy_paths']['subscriptions_backup'],
+                    compatibility_paths['subscriptions_backup'],
                     WORKSPACE,
                 ),
                 'subscriptions_lock': os.path.relpath(
-                    alias_registry['legacy_paths']['subscriptions_lock'],
+                    compatibility_paths['subscriptions_lock'],
                     WORKSPACE,
                 ),
             },
@@ -243,8 +244,9 @@ def accounting_snapshot(org_id=None):
         alias_registry['canonical_paths']['owner_ledger'],
         WORKSPACE,
     )
+    compatibility_paths = alias_registry.get('compatibility_paths') or alias_registry['legacy_paths']
     legacy_path = os.path.relpath(
-        alias_registry['legacy_paths']['owner_ledger'],
+        compatibility_paths['owner_ledger'],
         WORKSPACE,
     )
 
@@ -263,7 +265,7 @@ def accounting_snapshot(org_id=None):
         'compatibility_path_role': 'compatibility_symlink',
         'compatibility_path': legacy_path,
         'compatibility_module': alias_registry['compatibility_module'],
-        'compatibility_mode': _normalize_compatibility_mode('legacy_shim'),
+        'compatibility_mode': _normalize_compatibility_mode('compatibility_alias'),
         'alias_registry': {
             'canonical_source': alias_registry['canonical_source'],
             'canonical_paths': {

@@ -13,7 +13,7 @@ It is not promotional copy. Every claim is tagged verified, inferred, or unknown
 | Component | Status | Source |
 |-----------|--------|--------|
 | Agent runtime | HEALTHY — `loom doctor` OK and the Loom service-state probe verified healthy at closeout; this host remains a single-host Loom proof surface with bounded compatibility paths | `loom health --format json`, `loom service status --format json` |
-| Live route cutover | VERIFIED — Meridian-facing MCP execution on this host is Loom-owned or fail-closed; non-Loom route requests are blocked instead of falling back silently | `readiness.py --json`, live route checks |
+| Live route ownership | VERIFIED — Meridian-facing MCP execution on this host is Loom-owned or fail-closed; non-Loom route requests are blocked instead of falling back silently | `readiness.py --json`, live route checks |
 | Runtime proof receipt | VERIFIED — public `GET /api/runtime-proof` now turns the host's Loom health, canonical Loom service-state probe, runtime inventory, and governed-agent alignment into a structured proof receipt | localhost GET to `http://127.0.0.1:18901/api/runtime-proof` |
 | Night-shift pipeline | BLOCKED — treasury $48 below reserve floor | `ci_vertical.py preflight` |
 | Constitutional preflight | BLOCKED — treasury $48 below reserve floor | `treasury.py runway` |
@@ -193,9 +193,9 @@ live runtime modules are intentionally founding-service-only, and the system is
 currently owner-blocked by treasury policy and, as a consequence, by the
 absence of a fresh brief. The latest founding-only service-state tranche also
 made subscriptions and owner-ledger accounting state capsule-canonical, with
-legacy company paths kept only as compatibility symlinks, while payment-monitor
-state continues to resolve through the founding capsule boundary instead of
-hidden singleton file paths.
+company-file compatibility paths kept only as symlink aliases back to the
+founding capsule, while payment-monitor state continues to resolve through the
+founding capsule boundary instead of hidden singleton file paths.
 
 ---
 
@@ -218,7 +218,7 @@ hidden singleton file paths.
 
 See `DELIVERY_ARCHITECTURE.md` in this directory for the full Telegram channel/bot/premium model.
 
-Subscription state is now capsule-canonical for the founding org. The legacy
+Subscription state is now capsule-canonical for the founding org. The
 `company/subscriptions.json`, `subscriptions.json.bak`, and
 `.subscriptions.lock` paths are compatibility symlinks back to the founding
 capsule files rather than the other way around.

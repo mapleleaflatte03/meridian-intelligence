@@ -3363,7 +3363,7 @@ def api_status(context_source='founding_default', institution_context=None):
             'lifecycle_state': org.get('lifecycle_state', 'active'),
             'policy_defaults': org.get('policy_defaults', {}),
             'plan': org.get('plan', ''),
-            'owner_id': org.get('owner_id', ''),
+            'owner_id': _canonical_meridian_user_id(org.get('owner_id', '')),
             'state_capsule': os.path.relpath(capsule_dir(org_id), WORKSPACE) if org_id else None,
             'treasury_id': org.get('treasury_id'),
         } if org else None,

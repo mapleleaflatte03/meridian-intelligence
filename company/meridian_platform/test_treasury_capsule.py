@@ -289,7 +289,7 @@ class TreasuryCapsuleTests(unittest.TestCase):
             'company.meridian_platform.subscription_service',
         )
         self.assertEqual(sub_aliases['compatibility_module'], 'company.subscriptions')
-        self.assertEqual(sub_aliases['compatibility_mode'], 'legacy_symlink')
+        self.assertEqual(sub_aliases['compatibility_mode'], 'compatibility_alias')
         accounting_aliases = capsule.ensure_accounting_aliases(self.org_id)
         self.assertFalse(os.path.islink(accounting_aliases['owner_ledger']))
         self.assertTrue(os.path.islink(self._legacy_owner_ledger))
@@ -303,7 +303,7 @@ class TreasuryCapsuleTests(unittest.TestCase):
             'company.meridian_platform.accounting_service',
         )
         self.assertEqual(accounting_aliases['compatibility_module'], 'company.accounting')
-        self.assertEqual(accounting_aliases['compatibility_mode'], 'legacy_symlink')
+        self.assertEqual(accounting_aliases['compatibility_mode'], 'compatibility_alias')
         monitor_aliases = capsule.ensure_payment_monitor_aliases(self.org_id)
         self.assertTrue(os.path.islink(monitor_aliases['payment_monitor_state']))
         self.assertTrue(os.path.islink(monitor_aliases['payment_events_log']))

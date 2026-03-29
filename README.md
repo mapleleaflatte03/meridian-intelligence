@@ -74,7 +74,7 @@ Some of those surfaces are live local primitives today. Others remain declared o
 ## What Is Not Claimed
 
 - Full hosted runtime replacement.
-- Broad production cutover across every route.
+- Every possible deployment route running live on this host.
 - Universal live automation without treasury, policy, and boundary proof.
 
 ## Intelligence Workflow (Current Vertical)

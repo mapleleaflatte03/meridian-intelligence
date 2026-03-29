@@ -301,7 +301,7 @@ def ensure_subscription_aliases(org_id=None):
             'service_scope': 'institution_owned_subscription_service',
             'boundary_name': 'subscriptions',
             'identity_model': 'session',
-            'storage_model': 'capsule_canonical_with_legacy_symlink',
+            'storage_model': 'capsule_canonical_with_compatibility_alias',
             'bound_org_id': resolved_org_id,
         },
     }
@@ -324,12 +324,17 @@ def ensure_subscription_aliases(org_id=None):
         'subscriptions_lock': subscriptions_lock_alias,
         'canonical_source': 'capsule_file',
         'canonical_service_module': SUBSCRIPTIONS_CANONICAL_SERVICE_MODULE,
-        'compatibility_mode': 'legacy_symlink',
+        'compatibility_mode': 'compatibility_alias',
         'compatibility_module': SUBSCRIPTIONS_COMPATIBILITY_MODULE,
         'canonical_paths': {
             'subscriptions': subscriptions_alias,
             'subscriptions_backup': subscriptions_backup_alias,
             'subscriptions_lock': subscriptions_lock_alias,
+        },
+        'compatibility_paths': {
+            'subscriptions': LEGACY_SUBSCRIPTIONS_FILE,
+            'subscriptions_backup': LEGACY_SUBSCRIPTIONS_BACKUP_FILE,
+            'subscriptions_lock': LEGACY_SUBSCRIPTIONS_LOCK_FILE,
         },
         'legacy_paths': {
             'subscriptions': LEGACY_SUBSCRIPTIONS_FILE,
@@ -364,10 +369,13 @@ def ensure_accounting_aliases(org_id=None):
         'owner_ledger': owner_ledger_alias,
         'canonical_source': 'capsule_file',
         'canonical_service_module': ACCOUNTING_CANONICAL_SERVICE_MODULE,
-        'compatibility_mode': 'legacy_symlink',
+        'compatibility_mode': 'compatibility_alias',
         'compatibility_module': ACCOUNTING_COMPATIBILITY_MODULE,
         'canonical_paths': {
             'owner_ledger': owner_ledger_alias,
+        },
+        'compatibility_paths': {
+            'owner_ledger': LEGACY_OWNER_LEDGER_FILE,
         },
         'legacy_paths': {
             'owner_ledger': LEGACY_OWNER_LEDGER_FILE,

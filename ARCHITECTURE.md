@@ -86,7 +86,7 @@ Institution {
     auto_sanctions_enabled: bool
     auth_decay_per_epoch: int
   }
-  treasury_id: string               # Current treasury pointer until treasury registry cutover
+  treasury_id: string               # Current treasury pointer until treasury registry unification lands
   lifecycle_state: founding|active|suspended|dissolved
   settings: object
 }
@@ -441,7 +441,7 @@ The owner workspace also now exposes read-only snapshots for two
 institution-owned service boundaries on the founding-locked host:
 `GET /api/subscriptions` and `GET /api/accounting`. Those surfaces read
 directly from capsule-canonical state and explicitly surface both canonical and
-legacy compatibility paths. They now also expose the canonical service module
+compatibility alias paths. They now also expose the canonical service module
 and compatibility shim module explicitly, so the live truth surface does not
 blur the service layer with the old founding-only wrapper shell. Accounting now exposes owner-gated workspace
 mutations, and subscriptions expose admin-gated workspace mutations. Both

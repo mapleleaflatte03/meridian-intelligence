@@ -73,7 +73,7 @@ def _default_subscriptions(org_id=None):
             'service_scope': 'institution_owned_subscription_service',
             'boundary_name': 'subscriptions',
             'identity_model': 'session',
-            'storage_model': 'capsule_canonical_with_legacy_symlink',
+            'storage_model': 'capsule_canonical_with_compatibility_alias',
             'bound_org_id': org_id or '',
             'internal_test_ids': [],
         },
@@ -145,7 +145,7 @@ def _normalize_subscriptions(data, org_id=None):
     payload['_meta']['service_scope'] = 'institution_owned_subscription_service'
     payload['_meta']['boundary_name'] = 'subscriptions'
     payload['_meta']['identity_model'] = 'session'
-    payload['_meta']['storage_model'] = 'capsule_canonical_with_legacy_symlink'
+    payload['_meta']['storage_model'] = 'capsule_canonical_with_compatibility_alias'
     payload['_meta']['bound_org_id'] = org_id or payload['_meta'].get('bound_org_id', '')
     payload['_meta'].setdefault('internal_test_ids', [])
     raw_drafts = payload.get('draft_subscriptions', {})
