@@ -113,7 +113,9 @@ def _run_loom_json(command: list[str], *, timeout: int = REQUEST_TIMEOUT_SECONDS
         return {"ok": False, "error": f"{exc.__class__.__name__}: {exc}"}
     stdout = (completed.stdout or "").strip()
     stderr = (completed.stderr or "").strip()
-    payload = _extract_json(stdout) or {}
+    payload = _extract_json_value(stdout)
+    if payload is None:
+        payload = {}
     result = {
         "ok": completed.returncode == 0,
         "returncode": completed.returncode,
@@ -172,6 +174,30 @@ def _loom_channel_send(channel_id: str, recipient: str, text: str) -> dict[str, 
     if not result.get("ok"):
         _log(f"loom channel send failed for {channel_id}:{recipient}: {result.get('error') or result.get('stderr') or result.get('stdout')}", color=ANSI_YELLOW)
     return result
+
+
+def _loom_channel_deliveries(limit: int = 50) -> list[dict[str, Any]]:
+    command = [
+        LOOM_BIN,
+        "channel",
+        "deliveries",
+        "--root",
+        LOOM_ROOT,
+        "--limit",
+        str(limit),
+        "--format",
+        "json",
+    ]
+    result = _run_loom_json(command)
+    payload = result.get("payload") if isinstance(result, dict) else None
+    if not result.get("ok") or not isinstance(payload, list):
+        if not result.get("ok"):
+            _log(
+                f"loom channel deliveries failed: {result.get('error') or result.get('stderr') or result.get('stdout')}",
+                color=ANSI_YELLOW,
+            )
+        return []
+    return [item for item in payload if isinstance(item, dict)]
 
 
 def _loom_channel_update(delivery_id: str, status: str, *, external_ref: str = "", detail: str = "") -> dict[str, Any]:
@@ -263,6 +289,8 @@ def _loom_session_route(
         "--format",
         "json",
     ]
+    if org_id:
+        command.extend(["--org-id", org_id])
     if provider_profile:
         command.extend(["--provider-profile", provider_profile])
     if model:
@@ -286,6 +314,85 @@ def _loom_session_route(
             color=ANSI_YELLOW,
         )
     return result
+
+
+_MERIDIAN_INTERNAL_STATUS_TERMS = (
+    "meridian",
+    "loom",
+    "kernel",
+    "treasury",
+    "authority",
+    "court",
+    "commitment",
+    "governance",
+    "runtime proof",
+    "runtime-proof",
+    "preflight",
+    "admission",
+    "federation",
+    "constitutional",
+)
+_MERIDIAN_INTERNAL_QUESTION_TERMS = (
+    "current",
+    "status",
+    "state",
+    "posture",
+    "health",
+    "runtime",
+    "proof",
+    "balance",
+    "pending",
+    "open",
+    "match",
+    "aligned",
+)
+
+
+def _looks_like_meridian_internal_query(text: str) -> bool:
+    lowered = text.strip().lower()
+    if not lowered:
+        return False
+    mentions_meridian = any(term in lowered for term in _MERIDIAN_INTERNAL_STATUS_TERMS)
+    asks_for_state = any(term in lowered for term in _MERIDIAN_INTERNAL_QUESTION_TERMS)
+    return mentions_meridian and asks_for_state
+
+
+def _render_meridian_internal_answer(_goal: str) -> str:
+    status = _workspace_api_get_json("/api/status")
+    proof = _workspace_api_get_json("/api/runtime-proof")
+    if not status.get("ok"):
+        payload = status.get("payload") or {}
+        detail = str(payload.get("output") or payload.get("error") or "workspace status unavailable").strip()
+        return f"Meridian live status is currently unavailable: {detail}"
+    status_payload = dict(status.get("payload") or {})
+    proof_payload = dict(proof.get("payload") or {})
+    context = dict(status_payload.get("context") or {})
+    treasury = dict(status_payload.get("treasury") or {})
+    authority = dict(status_payload.get("authority") or {})
+    cases = dict(status_payload.get("cases") or {})
+    observability = dict(status_payload.get("observability") or {})
+    slo = dict(status_payload.get("slo") or observability.get("slo") or {})
+    alert_queue = dict(status_payload.get("alert_queue") or {})
+    surfaces = dict(proof_payload.get("runtime_surfaces") or {})
+    session_surface = dict(surfaces.get("session_provenance") or {})
+    channel_surface = dict(surfaces.get("channel_runtime") or {})
+    pending_approvals = authority.get("pending_approvals") or []
+    org_id = str(context.get("bound_org_id") or status_payload.get("org_id") or LOOM_ORG_ID).strip() or LOOM_ORG_ID
+    runtime_id = str(status_payload.get("runtime_id") or proof_payload.get("runtime_id") or "unknown").strip() or "unknown"
+    preflight = str(status_payload.get("preflight") or status_payload.get("ci_vertical", {}).get("preflight") or "unknown").strip() or "unknown"
+    slo_status = str(slo.get("status") or "unknown").strip() or "unknown"
+    alert_count = int(alert_queue.get("queue_count") or 0)
+    balance = float(treasury.get("balance_usd") or 0.0)
+    reserve_floor = float(treasury.get("reserve_floor_usd") or 0.0)
+    open_cases = int(cases.get("open") or 0)
+    active_sessions = int(session_surface.get("active_count") or 0)
+    active_deliveries = int(channel_surface.get("active_delivery_count") or 0)
+    return (
+        f"Meridian is operating on {runtime_id} for {org_id} with preflight {preflight}, "
+        f"SLO {slo_status}, {alert_count} queued alerts, treasury ${balance:.2f} against a ${reserve_floor:.2f} reserve floor, "
+        f"{len(pending_approvals)} pending approvals, {open_cases} open cases, "
+        f"{active_sessions} active sessions, and {active_deliveries} active channel deliveries."
+    )
 
 
 def _run_codex_exec(*, system_prompt: str, user_prompt: str, model: str, timeout: int = REQUEST_TIMEOUT_SECONDS) -> dict[str, Any]:
@@ -398,6 +505,14 @@ def _team_route_plan(text: str) -> dict[str, Any]:
         return {"mode": "direct", "reason": "empty"}
     if stripped.lower() in {"hi", "hello", "hey", "yo", "ping"}:
         return {"mode": "direct", "reason": "greeting"}
+    if _looks_like_meridian_internal_query(stripped):
+        return {
+            "mode": "internal_status",
+            "topic": stripped,
+            "depth": "quick",
+            "criteria": "consistency",
+            "reason": "meridian_internal_status",
+        }
     manager = _loom_manager_defaults()
     plan = _run_codex_exec(
         system_prompt=(
@@ -490,6 +605,9 @@ def _run_team_route(text: str, session_key: str, runtime: AgentRuntime) -> tuple
     plan = _team_route_plan(request)
     if plan.get("mode") == "direct":
         return runtime.run_goal(request), {"mode": "direct", "steps": [], "plan": plan}
+    if plan.get("mode") == "internal_status":
+        answer = _render_meridian_internal_answer(request)
+        return answer, {"mode": "internal_status", "steps": [], "plan": plan}
 
     research = mcp_server.do_on_demand_research_route(
         str(plan.get("topic") or request),
@@ -608,7 +726,7 @@ def _strip_ansi(text: str) -> str:
     return re.sub(r"\x1B\[[0-?]*[ -/]*[@-~]", "", text)
 
 
-def _extract_json(text: str) -> dict[str, Any] | None:
+def _extract_json_value(text: str) -> Any:
     raw = text.strip()
     if not raw:
         return None
@@ -616,18 +734,25 @@ def _extract_json(text: str) -> dict[str, Any] | None:
     fence_match = re.search(r"```(?:json)?\s*(\{.*\})\s*```", raw, flags=re.DOTALL)
     if fence_match:
         candidates.append(fence_match.group(1))
-    first = raw.find("{")
-    last = raw.rfind("}")
-    if first != -1 and last != -1 and last > first:
-        candidates.append(raw[first : last + 1])
+    bracket_pairs = (("{", "}"), ("[", "]"))
+    for opener, closer in bracket_pairs:
+        first = raw.find(opener)
+        last = raw.rfind(closer)
+        if first != -1 and last != -1 and last > first:
+            candidates.append(raw[first : last + 1])
     for candidate in candidates:
         try:
             parsed = json.loads(candidate)
         except json.JSONDecodeError:
             continue
-        if isinstance(parsed, dict):
+        if isinstance(parsed, (dict, list)):
             return parsed
     return None
+
+
+def _extract_json(text: str) -> dict[str, Any] | None:
+    parsed = _extract_json_value(text)
+    return parsed if isinstance(parsed, dict) else None
 
 
 def _extract_title(html: str) -> str:
@@ -1168,6 +1293,7 @@ class TelegramAdapter(ChannelAdapter):
         super().__init__(runtime, "telegram")
         self.bot_token = bot_token.strip()
         self.thread: threading.Thread | None = None
+        self.drain_thread: threading.Thread | None = None
         self.stop_event = threading.Event()
         self.next_offset: int | None = None
         self.active_chats: set[int | str] = set()
@@ -1180,6 +1306,8 @@ class TelegramAdapter(ChannelAdapter):
         self._active = True
         self.thread = threading.Thread(target=self._poll_loop, name="telegram-adapter", daemon=True)
         self.thread.start()
+        self.drain_thread = threading.Thread(target=self._drain_loop, name="telegram-drain", daemon=True)
+        self.drain_thread.start()
         _log("telegram adapter started: polling active", color=ANSI_GREEN)
 
     def stop(self) -> None:
@@ -1230,6 +1358,47 @@ class TelegramAdapter(ChannelAdapter):
             except Exception as exc:
                 _loom_channel_update(delivery_id, "failed", detail=f"{exc.__class__.__name__}: {exc}")
                 _log(f"telegram proactive delivery failed for {chat_id}: {exc}", color=ANSI_YELLOW)
+
+    def _drain_loop(self) -> None:
+        while not self.stop_event.wait(2):
+            try:
+                self._drain_pending_deliveries()
+            except Exception as exc:
+                _log(f"telegram drain warning: {exc}", color=ANSI_YELLOW)
+
+    def _drain_pending_deliveries(self) -> None:
+        cutoff_ms = int(time.time() * 1000) - 1000
+        for record in _loom_channel_deliveries(limit=50):
+            if str(record.get("channel_id") or "").strip() != "telegram":
+                continue
+            if str(record.get("status") or "").strip() != "queued":
+                continue
+            submitted_at = int(record.get("submitted_at_unix_ms") or 0)
+            if submitted_at > cutoff_ms:
+                continue
+            delivery_id = str(record.get("delivery_id") or "").strip()
+            recipient = str(record.get("recipient") or "").strip()
+            text = str(record.get("display_text") or "").strip()
+            if not delivery_id or not recipient or not text:
+                continue
+            try:
+                result = self._send_direct(recipient, text)
+                with self.active_lock:
+                    self.active_chats.add(recipient)
+                _loom_channel_update(
+                    delivery_id,
+                    "delivered",
+                    external_ref=str((result or {}).get("message_id") or recipient).strip(),
+                )
+                _loom_session_route(
+                    f"telegram:{recipient}",
+                    agent_id=TEAM_MANAGER_AGENT_ID,
+                    org_id=LOOM_ORG_ID,
+                    delivery_id=delivery_id,
+                )
+            except Exception as exc:
+                _loom_channel_update(delivery_id, "failed", detail=f"{exc.__class__.__name__}: {exc}")
+                _log(f"telegram queued delivery failed for {recipient}: {exc}", color=ANSI_YELLOW)
 
     def _poll_loop(self) -> None:
         while not self.stop_event.is_set():

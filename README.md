@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/release-v0.1.0-0c1117?style=flat-square" alt="v0.1.0">
+  <img src="https://img.shields.io/badge/release-live%20host-0c1117?style=flat-square" alt="live host">
   <img src="https://img.shields.io/badge/surface-public%20intelligence-0f766e?style=flat-square" alt="Public intelligence surface">
   <img src="https://img.shields.io/badge/runtime-truthfully%20bounded-1f6feb?style=flat-square" alt="Truthfully bounded runtime">
   <img src="https://img.shields.io/badge/install-1--command-111827?style=flat-square" alt="1-command install">
@@ -29,7 +29,7 @@ This repo is the public intelligence surface for Meridian's first commercial wed
 
 ## Launch Positioning
 
-Meridian v0.1.0 launches with a premium public surface around three ideas:
+Meridian currently presents a premium public surface around three ideas:
 
 - Governed competitor intelligence as the first commercial wedge proving governed digital labor.
 - Meridian Loom as the live execution runtime on this host and the installable local runtime.
@@ -48,7 +48,7 @@ The installer story belongs to Meridian Loom. This intelligence repo links to th
 
 ## Constitutional Model
 
-The current v0.1.0 Meridian story across the stack is:
+The current Meridian story across the stack is:
 
 - **Kernel boundary:** five governance primitives — Institution, Agent, Authority, Treasury, Court.
 - **Meridian platform:** six platform primitives — Institution, Agent, Authority, Treasury, Court, Commitment.
