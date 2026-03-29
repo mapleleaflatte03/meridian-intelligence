@@ -19,7 +19,21 @@ import ops_meridian_delivery_engine as engine
 
 
 WORKSPACE = os.path.dirname(os.path.abspath(__file__))
-KERNEL_DIR = "/tmp/meridian-kernel/kernel"
+CANONICAL_KERNEL_ROOT = "/opt/meridian-kernel"
+LEGACY_KERNEL_ROOT = "/tmp/meridian-kernel"
+
+
+def _resolve_kernel_root() -> str:
+    override = str(os.environ.get("MERIDIAN_KERNEL_ROOT") or "").strip()
+    candidates = [override, CANONICAL_KERNEL_ROOT, LEGACY_KERNEL_ROOT]
+    for candidate in candidates:
+        if candidate and os.path.isdir(os.path.join(candidate, "kernel")):
+            return candidate
+    return CANONICAL_KERNEL_ROOT
+
+
+KERNEL_ROOT = _resolve_kernel_root()
+KERNEL_DIR = os.path.join(KERNEL_ROOT, "kernel")
 BOOTSTRAP_PATH = os.path.join(KERNEL_DIR, "bootstrap.py")
 WARRANTS_PATH = os.path.join(KERNEL_DIR, "warrants.py")
 AGENT_REGISTRY_FILE = os.path.join(KERNEL_DIR, "agent_registry.json")
@@ -71,7 +85,7 @@ def _run_kernel_python(script_path: str, *args: str):
 
 def _bootstrap_governance():
     bootstrap_output = _run_kernel_python(BOOTSTRAP_PATH)
-    ledger_path = os.path.join("/tmp/meridian-kernel", "economy", "ledger.json")
+    ledger_path = os.path.join(KERNEL_ROOT, "economy", "ledger.json")
     ledger = {}
     if os.path.exists(ledger_path):
         with open(ledger_path) as handle:

@@ -25,7 +25,16 @@ import ops_meridian_golden_path as golden
 WORKSPACE = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_URL = "https://news.ycombinator.com/"
 LEGACY_ALIAS_PATH = "/opt/meridian-kernel/kernel/adapters/legacy_v1_compatible.py"
-LEGACY_ADAPTER_PATH = "/tmp/meridian-kernel/kernel/adapters/legacy_v1_compatible.py"
+LEGACY_ADAPTER_PATHS = [
+    os.path.join(
+        str(os.environ.get("MERIDIAN_KERNEL_ROOT") or "/opt/meridian-kernel").strip(),
+        "kernel",
+        "adapters",
+        "legacy_v1_compatible.py",
+    ),
+    "/opt/meridian-kernel/kernel/adapters/legacy_v1_compatible.py",
+    "/tmp/meridian-kernel/kernel/adapters/legacy_v1_compatible.py",
+]
 LOOM_WORKSPACE_ROOT = os.path.join(engine.DIRECT_LOOM_ROOT, "workspace")
 COMPETITOR_BRIEF_PATH = os.path.join(LOOM_WORKSPACE_ROOT, "competitor_brief.md")
 LLM_CAPABILITY = "loom.llm.inference.v1"
@@ -67,17 +76,18 @@ def _target_url(cli_value: str = "") -> str:
 def _ensure_legacy_v1_adapter_alias() -> dict[str, Any]:
     if os.path.exists(LEGACY_ALIAS_PATH):
         return {"ok": True, "created": False, "path": LEGACY_ALIAS_PATH}
-    if not os.path.exists(LEGACY_ADAPTER_PATH):
+    adapter_path = next((path for path in LEGACY_ADAPTER_PATHS if path and os.path.exists(path)), "")
+    if not adapter_path:
         return {
             "ok": False,
             "created": False,
             "path": LEGACY_ALIAS_PATH,
-            "error": f"legacy_v1 adapter missing at {LEGACY_ADAPTER_PATH}",
+            "error": f"legacy_v1 adapter missing at {LEGACY_ADAPTER_PATHS[-1]}",
         }
     os.makedirs(os.path.dirname(LEGACY_ALIAS_PATH), exist_ok=True)
     with open(LEGACY_ALIAS_PATH, "w", encoding="utf-8") as handle:
         handle.write("from adapters.legacy_v1_compatible import *  # noqa: F401,F403\n")
-    return {"ok": True, "created": True, "path": LEGACY_ALIAS_PATH}
+    return {"ok": True, "created": True, "path": LEGACY_ALIAS_PATH, "source_path": adapter_path}
 
 
 def _read_json(path: str) -> dict[str, Any]:

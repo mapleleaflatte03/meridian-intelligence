@@ -48,9 +48,38 @@ DIRECT_X402_TOKEN_CONTRACT = '0x036CbD53842c5426634e7929541eC2318f3dCF7e'
 DIRECT_X402_RECIPIENT = '0x2222222222222222222222222222222222222222'
 DIRECT_X402_AMOUNT_USDC = '1.00'
 DIRECT_X402_RPC_URL = 'https://base-sepolia-rpc.publicnode.com'
-KERNEL_TREASURY_PATH = '/tmp/meridian-kernel/kernel/treasury.py'
-KERNEL_CAPSULE_PATH = '/tmp/meridian-kernel/kernel/capsule.py'
-HOT_WALLET_SECRET_PATH = '/tmp/meridian-kernel/.hot-wallet-secrets/automated_loom_settlement_v1.json'
+CANONICAL_KERNEL_ROOT = '/opt/meridian-kernel'
+LEGACY_KERNEL_ROOT = '/tmp/meridian-kernel'
+
+
+def _first_existing_path(*candidates):
+    for candidate in candidates:
+        if candidate and os.path.exists(candidate):
+            return candidate
+    return str(candidates[0] or '')
+
+
+KERNEL_ROOT = _first_existing_path(
+    os.environ.get('MERIDIAN_KERNEL_ROOT'),
+    CANONICAL_KERNEL_ROOT,
+    LEGACY_KERNEL_ROOT,
+)
+KERNEL_TREASURY_PATH = _first_existing_path(
+    os.path.join(KERNEL_ROOT, 'kernel', 'treasury.py'),
+    os.path.join(CANONICAL_KERNEL_ROOT, 'kernel', 'treasury.py'),
+    os.path.join(LEGACY_KERNEL_ROOT, 'kernel', 'treasury.py'),
+)
+KERNEL_CAPSULE_PATH = _first_existing_path(
+    os.path.join(KERNEL_ROOT, 'kernel', 'capsule.py'),
+    os.path.join(CANONICAL_KERNEL_ROOT, 'kernel', 'capsule.py'),
+    os.path.join(LEGACY_KERNEL_ROOT, 'kernel', 'capsule.py'),
+)
+HOT_WALLET_SECRET_PATH = _first_existing_path(
+    os.environ.get('MERIDIAN_HOT_WALLET_SECRET_PATH'),
+    os.path.join(KERNEL_ROOT, '.hot-wallet-secrets', 'automated_loom_settlement_v1.json'),
+    os.path.join(CANONICAL_KERNEL_ROOT, '.hot-wallet-secrets', 'automated_loom_settlement_v1.json'),
+    os.path.join(LEGACY_KERNEL_ROOT, '.hot-wallet-secrets', 'automated_loom_settlement_v1.json'),
+)
 PROD_ORG_ID = 'org_prod_exec'
 _KERNEL_TREASURY_MODULE = None
 
