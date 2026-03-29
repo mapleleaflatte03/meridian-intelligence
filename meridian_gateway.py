@@ -162,6 +162,76 @@ def _loom_channel_send(channel_id: str, recipient: str, text: str) -> dict[str, 
     return result
 
 
+def _loom_manager_route(*, agent_id: str = "", org_id: str = "") -> dict[str, Any]:
+    command = [
+        LOOM_BIN,
+        "provider",
+        "route",
+        "--root",
+        LOOM_ROOT,
+        "--capability",
+        "loom.llm.inference.v1",
+        "--format",
+        "json",
+    ]
+    if agent_id:
+        command.extend(["--agent-id", agent_id])
+    if org_id:
+        command.extend(["--org-id", org_id])
+    result = _run_loom_json(command)
+    return result.get("payload") if result.get("ok") and isinstance(result.get("payload"), dict) else {}
+
+
+def _loom_session_route(
+    session_key: str,
+    *,
+    agent_id: str = "",
+    org_id: str = "",
+    ingress_request_id: str = "",
+    delivery_id: str = "",
+) -> dict[str, Any]:
+    route = _loom_manager_route(agent_id=agent_id, org_id=org_id)
+    provider_profile = str(route.get("profile") or "").strip()
+    model = str(route.get("model") or "").strip()
+    transport_kind = str(route.get("transport_kind") or "").strip()
+    auth_mode = str(route.get("auth_mode") or "").strip()
+    execution_owner = str(route.get("execution_owner") or "").strip()
+    command = [
+        LOOM_BIN,
+        "session",
+        "route",
+        "--root",
+        LOOM_ROOT,
+        "--session-key",
+        session_key,
+        "--override-source",
+        "default",
+        "--format",
+        "json",
+    ]
+    if provider_profile:
+        command.extend(["--provider-profile", provider_profile])
+    if model:
+        command.extend(["--model", model])
+    if transport_kind:
+        command.extend(["--transport-kind", transport_kind])
+    if auth_mode:
+        command.extend(["--auth-mode", auth_mode])
+    if execution_owner:
+        command.extend(["--execution-owner", execution_owner])
+    if ingress_request_id:
+        command.extend(["--ingress-request-id", ingress_request_id])
+    if delivery_id:
+        command.extend(["--delivery-id", delivery_id])
+    result = _run_loom_json(command)
+    if not result.get("ok"):
+        _log(
+            f"loom session route failed for {session_key}: {result.get('error') or result.get('stderr') or result.get('stdout')}",
+            color=ANSI_YELLOW,
+        )
+    return result
+
+
 def _run_codex_exec(*, system_prompt: str, user_prompt: str, model: str, timeout: int = REQUEST_TIMEOUT_SECONDS) -> dict[str, Any]:
     codex_bin = str(MERIDIAN_CODEX_BIN).strip() or "codex"
     codex_home = str(MERIDIAN_CODEX_HOME).strip() or "/home/ubuntu/.meridian/auth/codex/login-home"
@@ -860,11 +930,24 @@ class TelegramAdapter(ChannelAdapter):
             return
         with self.active_lock:
             self.active_chats.add(chat_id)
-        _loom_channel_ingest("telegram", str(chat_id), text.strip(), thread_id=str(message_id or ""))
+        ingress = _loom_channel_ingest("telegram", str(chat_id), text.strip(), thread_id=str(message_id or ""))
+        ingress_payload = ingress.get("payload") if isinstance(ingress, dict) else {}
+        session_key = str((ingress_payload or {}).get("session_key") or f"telegram:{chat_id}").strip()
+        ingress_request_id = str((ingress_payload or {}).get("ingress_id") or "").strip()
         answer = self.runtime.run_goal(text.strip())
+        delivery_id = ""
         if answer:
-            _loom_channel_send("telegram", str(chat_id), answer)
+            delivery = _loom_channel_send("telegram", str(chat_id), answer)
+            delivery_payload = delivery.get("payload") if isinstance(delivery, dict) else {}
+            delivery_id = str((delivery_payload or {}).get("delivery_id") or "").strip()
             self._send_direct(chat_id, answer, reply_to_message_id=message_id if isinstance(message_id, int) else None)
+        _loom_session_route(
+            session_key,
+            agent_id=str((ingress_payload or {}).get("agent_id") or ""),
+            org_id=LOOM_ORG_ID,
+            ingress_request_id=ingress_request_id,
+            delivery_id=delivery_id,
+        )
 
 
 class WebAPIAdapter(ChannelAdapter):
@@ -945,10 +1028,23 @@ class WebAPIAdapter(ChannelAdapter):
                 if not isinstance(goal, str) or not goal.strip():
                     self._send_json(400, {"status": "error", "output": "goal_required"})
                     return
-                _loom_channel_ingest("web_api", LOOM_ORG_ID, goal.strip())
+                ingress = _loom_channel_ingest("web_api", LOOM_ORG_ID, goal.strip())
+                ingress_payload = ingress.get("payload") if isinstance(ingress, dict) else {}
+                session_key = str((ingress_payload or {}).get("session_key") or f"web_api:{LOOM_ORG_ID}").strip()
+                ingress_request_id = str((ingress_payload or {}).get("ingress_id") or "").strip()
                 answer = adapter.runtime.run_goal(goal.strip())
+                delivery_id = ""
                 if answer:
-                    _loom_channel_send("web_api", LOOM_ORG_ID, answer)
+                    delivery = _loom_channel_send("web_api", LOOM_ORG_ID, answer)
+                    delivery_payload = delivery.get("payload") if isinstance(delivery, dict) else {}
+                    delivery_id = str((delivery_payload or {}).get("delivery_id") or "").strip()
+                _loom_session_route(
+                    session_key,
+                    agent_id=str((ingress_payload or {}).get("agent_id") or ""),
+                    org_id=LOOM_ORG_ID,
+                    ingress_request_id=ingress_request_id,
+                    delivery_id=delivery_id,
+                )
                 self._send_json(200, {"status": "success", "output": answer})
 
             def log_message(self, format: str, *args: object) -> None:  # noqa: A003
