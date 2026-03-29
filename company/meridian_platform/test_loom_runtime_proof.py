@@ -63,10 +63,28 @@ class LoomRuntimeProofTests(unittest.TestCase):
         mapped = proof.map_governed_agents_to_loom_handles(agents)
         self.assertEqual(mapped[0]['loom_handle'], 'main')
         self.assertEqual(mapped[0]['handle_source'], 'economy_key')
+        self.assertEqual(mapped[0]['economy_key'], 'main')
         self.assertEqual(mapped[1]['loom_handle'], 'release_writer')
         self.assertEqual(mapped[1]['handle_source'], 'name')
         self.assertTrue(mapped[0]['has_loom_handle'])
         self.assertEqual(mapped[0]['runtime_binding']['runtime_id'], 'loom_native')
+
+    def test_map_governed_agents_prefers_runtime_handle_alias_when_present(self):
+        agents = [
+            {
+                'id': 'agent_main',
+                'org_id': 'org_1',
+                'name': 'Leviathann',
+                'economy_key': 'main',
+                'runtime_binding': {'runtime_id': 'loom_native'},
+            }
+        ]
+
+        mapped = proof.map_governed_agents_to_loom_handles(agents, runtime_handles=['leviathann', 'atlas'])
+        self.assertEqual(mapped[0]['loom_handle'], 'leviathann')
+        self.assertEqual(mapped[0]['economy_key'], 'main')
+        self.assertEqual(mapped[0]['handle_source'], 'runtime_match')
+        self.assertEqual(mapped[0]['handle_candidates'], ['main', 'leviathann', 'agent_main'])
 
     def test_collect_loom_runtime_proof_combines_health_and_registry_truth(self):
         service_status = json.dumps({
@@ -137,7 +155,7 @@ class LoomRuntimeProofTests(unittest.TestCase):
                 health_output=json.dumps({
                     'status': 'healthy',
                     'checks': [
-                        {'level': 'OK', 'label': 'agent_runtime', 'detail': 'profiles=7 agents=main,atlas,sentinel memory_ready=7/7 session_ready=7/7'},
+                        {'level': 'OK', 'label': 'agent_runtime', 'detail': 'profiles=7 agents=leviathann,atlas,sentinel memory_ready=7/7 session_ready=7/7'},
                         {'level': 'OK', 'label': 'channel_runtime', 'detail': 'total=2 enabled=2 ingress=0 active_deliveries=4 archived_deliveries=1 delivery_path=/tmp inbox_path=/tmp channels=web_api,telegram'},
                         {'level': 'OK', 'label': 'session_provenance', 'detail': 'total=3 active=2 archived=1 sessions=web_api:owner,telegram:founder'},
                     ],
@@ -148,8 +166,9 @@ class LoomRuntimeProofTests(unittest.TestCase):
 
         self.assertEqual(result['proof_type'], 'live_single_host_loom_deployment')
         self.assertTrue(result['health']['health_ok'])
-        self.assertEqual(result['governed_agents'][0]['loom_handle'], 'main')
-        self.assertEqual(result['handle_overlap'], ['atlas', 'main'])
+        self.assertEqual(result['governed_agents'][0]['loom_handle'], 'leviathann')
+        self.assertEqual(result['governed_agents'][0]['economy_key'], 'main')
+        self.assertEqual(result['handle_overlap'], ['atlas', 'leviathann'])
         self.assertEqual(result['handle_gap'], [])
         self.assertEqual(result['deployment_truth']['scope'], 'single_host')
         self.assertFalse(result['deployment_truth']['generic_runtime_claim'])
@@ -175,7 +194,7 @@ class LoomRuntimeProofTests(unittest.TestCase):
                 'health_ok': True,
                 'telegram': {'ok': True},
                 'agent_count': 2,
-                'agents': [{'handle': 'main'}, {'handle': 'atlas'}],
+                'agents': [{'handle': 'leviathann'}, {'handle': 'atlas'}],
                 'heartbeat': {'interval': None, 'primary_agent': None},
                 'session_total': 0,
                 'session_runtime': {'total_count': 6, 'active_count': 4, 'archived_count': 2},
@@ -195,8 +214,10 @@ class LoomRuntimeProofTests(unittest.TestCase):
                     'agent_name': 'Leviathann',
                     'org_id': 'org_1',
                     'role': 'manager',
-                    'loom_handle': 'main',
-                    'handle_source': 'economy_key',
+                    'loom_handle': 'leviathann',
+                    'economy_key': 'main',
+                    'handle_candidates': ['main', 'leviathann', 'agent_main'],
+                    'handle_source': 'runtime_match',
                     'runtime_binding': {
                         'runtime_id': 'loom_native',
                         'runtime_registered': True,
@@ -205,7 +226,7 @@ class LoomRuntimeProofTests(unittest.TestCase):
                     },
                 }
             ],
-            'handle_overlap': ['main'],
+            'handle_overlap': ['leviathann'],
             'handle_gap': [],
         }, bound_org_id='org_1')
 
@@ -218,8 +239,10 @@ class LoomRuntimeProofTests(unittest.TestCase):
         self.assertTrue(receipt['memory_context']['checked'])
         self.assertTrue(receipt['memory_context']['memory_ok'])
         self.assertTrue(receipt['memory_context']['context_ok'])
-        self.assertEqual(receipt['health']['agent_handles'], ['main', 'atlas'])
+        self.assertEqual(receipt['health']['agent_handles'], ['leviathann', 'atlas'])
         self.assertEqual(receipt['governed_agents'][0]['runtime_binding']['runtime_id'], 'loom_native')
+        self.assertEqual(receipt['governed_agents'][0]['economy_key'], 'main')
+        self.assertEqual(receipt['governed_agents'][0]['loom_handle'], 'leviathann')
 
 
 if __name__ == '__main__':

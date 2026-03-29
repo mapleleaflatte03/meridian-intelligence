@@ -207,6 +207,41 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.assertEqual(auth['role'], 'owner')
         self.assertEqual(auth['actor_source'], 'owner_alias')
 
+    def test_public_org_record_canonicalizes_meridian_owner_and_members(self):
+        record = self.workspace._public_org_record({
+            'id': 'org_founding',
+            'name': 'Meridian',
+            'owner_id': 'user_son_5322393870',
+            'members': [
+                {'user_id': 'user_son_5322393870', 'role': 'owner'},
+                {'user_id': 'user_meridian_other', 'role': 'admin'},
+            ],
+        })
+        self.assertEqual(record['owner_id'], 'user_meridian_5322393870')
+        self.assertEqual(record['members'][0]['user_id'], 'user_meridian_5322393870')
+        self.assertEqual(record['members'][1]['user_id'], 'user_meridian_other')
+
+    def test_public_sprint_lead_resolves_agent_identity_fields(self):
+        lead = self.workspace._public_sprint_lead(
+            'atlas',
+            100,
+            reg={
+                'agents': {
+                    'agent_atlas': {
+                        'id': 'agent_atlas',
+                        'org_id': 'org_founding',
+                        'name': 'Atlas',
+                        'economy_key': 'atlas',
+                        'runtime_binding': {'runtime_id': 'loom_native'},
+                    }
+                }
+            },
+        )
+        self.assertEqual(lead['agent_id'], 'agent_atlas')
+        self.assertEqual(lead['economy_key'], 'atlas')
+        self.assertEqual(lead['agent_name'], 'Atlas')
+        self.assertEqual(lead['auth'], 100)
+
     def test_mutation_authorization_requires_admin_for_kill_switch(self):
         auth = {'enabled': True, 'role': 'member'}
         with self.assertRaises(PermissionError):
@@ -324,7 +359,7 @@ class LiveWorkspaceContextTests(unittest.TestCase):
             'pending_approvals': {},
             'delegations': {},
         }
-        self.workspace.treasury_snapshot = lambda org_id: {}
+        self.workspace.treasury_snapshot = lambda org_id, **_kwargs: {}
         self.workspace._phase_mod.evaluate = lambda org_id: (0, {'name': 'Founder-Backed Build'})
         self.workspace._load_records = lambda org_id: {'violations': {}, 'appeals': {}}
         self.workspace.list_warrants = lambda org_id=None, **_kwargs: [
@@ -541,7 +576,7 @@ class LiveWorkspaceContextTests(unittest.TestCase):
             'pending_approvals': {},
             'delegations': {},
         }
-        self.workspace.treasury_snapshot = lambda org_id: {}
+        self.workspace.treasury_snapshot = lambda org_id, **_kwargs: {}
         self.workspace._phase_mod.evaluate = lambda org_id: (0, {'name': 'Founder-Backed Build'})
         self.workspace._load_records = lambda org_id: {'violations': {}, 'appeals': {}}
         self.workspace.list_warrants = lambda org_id=None, **_kwargs: []
@@ -1265,7 +1300,7 @@ class LiveWorkspaceContextTests(unittest.TestCase):
             'pending_approvals': {},
             'delegations': {},
         }
-        self.workspace.treasury_snapshot = lambda org_id: {}
+        self.workspace.treasury_snapshot = lambda org_id, **_kwargs: {}
         self.workspace._phase_mod.evaluate = lambda org_id: (0, {'name': 'Founder-Backed Build'})
         self.workspace._load_records = lambda org_id: {'violations': {}, 'appeals': {}}
         self.workspace.list_warrants = lambda org_id=None, **_kwargs: []

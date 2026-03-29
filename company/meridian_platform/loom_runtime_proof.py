@@ -65,6 +65,20 @@ def _agent_handle(agent: Mapping[str, Any]) -> str:
     return ''
 
 
+def _agent_handle_candidates(agent: Mapping[str, Any]) -> List[str]:
+    seen = set()
+    candidates: List[str] = []
+    for field in AGENT_HANDLE_FIELDS:
+        raw = (agent.get(field) or '').strip()
+        if not raw:
+            continue
+        handle = raw if field == 'economy_key' else _slugify_handle(raw)
+        if handle and handle not in seen:
+            candidates.append(handle)
+            seen.add(handle)
+    return candidates
+
+
 def _loom_bin() -> str:
     return preferred_loom_bin()
 
@@ -91,24 +105,34 @@ def _context_command() -> List[str]:
 
 def map_governed_agents_to_loom_handles(
     agents: Optional[Iterable[Mapping[str, Any]]] = None,
+    runtime_handles: Optional[Iterable[str]] = None,
 ) -> List[Dict[str, Any]]:
     if agents is None:
         registry = load_registry()
         agents = registry.get('agents', {}).values()
 
+    available_handles = {str(handle or '').strip() for handle in (runtime_handles or []) if str(handle or '').strip()}
     mapped = []
     for agent in agents:
         normalized = normalize_agent_record(agent)
-        handle = _agent_handle(normalized)
+        candidates = _agent_handle_candidates(normalized)
+        handle = next((candidate for candidate in candidates if candidate in available_handles), '') if available_handles else ''
+        if not handle:
+            handle = candidates[0] if candidates else ''
+        handle_source = 'runtime_match' if (available_handles and handle in available_handles) else (
+            'economy_key' if (normalized.get('economy_key') or '').strip() else 'name'
+        )
         mapped.append({
             'agent_id': normalized.get('id'),
             'agent_name': normalized.get('name'),
             'org_id': normalized.get('org_id'),
             'role': normalized.get('role'),
             'loom_handle': handle,
+            'economy_key': (normalized.get('economy_key') or '').strip(),
+            'handle_candidates': candidates,
             'runtime_binding': dict(normalized.get('runtime_binding') or {}),
             'has_loom_handle': bool(handle),
-            'handle_source': 'economy_key' if (normalized.get('economy_key') or '').strip() else 'name',
+            'handle_source': handle_source,
         })
     return mapped
 
@@ -354,8 +378,8 @@ def collect_loom_runtime_proof(
         health_output = health_probe['stdout']
 
     health = parse_loom_health(health_output)
-    mapped_agents = map_governed_agents_to_loom_handles(agents=agents)
     health_handles = {agent.get('handle') for agent in health.get('agents', []) if agent.get('handle')}
+    mapped_agents = map_governed_agents_to_loom_handles(agents=agents, runtime_handles=health_handles)
     mapped_handles = {
         entry['loom_handle']
         for entry in mapped_agents
@@ -508,6 +532,8 @@ def public_loom_runtime_receipt(
                 'org_id': entry.get('org_id'),
                 'role': entry.get('role'),
                 'loom_handle': entry.get('loom_handle'),
+                'economy_key': entry.get('economy_key'),
+                'handle_candidates': list(entry.get('handle_candidates') or []),
                 'handle_source': entry.get('handle_source'),
                 'runtime_binding': {
                     'runtime_id': ((entry.get('runtime_binding') or {}).get('runtime_id', '')),

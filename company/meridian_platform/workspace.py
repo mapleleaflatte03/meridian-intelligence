@@ -311,6 +311,48 @@ def _canonical_meridian_user_id(user_id):
     return value
 
 
+def _public_org_record(org):
+    if not org:
+        return {}
+    record = dict(org)
+    record['owner_id'] = _canonical_meridian_user_id(record.get('owner_id', ''))
+    record['members'] = [
+        {
+            **dict(member or {}),
+            'user_id': _canonical_meridian_user_id((member or {}).get('user_id', '')),
+        }
+        for member in (record.get('members') or [])
+    ]
+    return record
+
+
+def _public_sprint_lead(lead_id, lead_auth, reg=None):
+    if not lead_id:
+        return {'agent_id': '', 'economy_key': '', 'agent_name': '', 'auth': lead_auth}
+    registry = reg or load_registry()
+    for agent in (registry.get('agents') or {}).values():
+        normalized = normalize_agent_record(agent)
+        candidates = {
+            (normalized.get('id') or '').strip(),
+            (normalized.get('economy_key') or '').strip(),
+            (normalized.get('name') or '').strip().lower(),
+        }
+        candidates.discard('')
+        if lead_id in candidates:
+            return {
+                'agent_id': normalized.get('id') or lead_id,
+                'economy_key': normalized.get('economy_key') or lead_id,
+                'agent_name': normalized.get('name') or '',
+                'auth': lead_auth,
+            }
+    return {
+        'agent_id': lead_id,
+        'economy_key': lead_id,
+        'agent_name': '',
+        'auth': lead_auth,
+    }
+
+
 def _get_founding_org():
     orgs = load_orgs()
     for oid, org in orgs['organizations'].items():
@@ -3373,7 +3415,7 @@ def api_status(context_source='founding_default', institution_context=None):
             'kill_switch': queue['kill_switch'],
             'pending_approvals': pending_approvals,
             'active_delegations': active_delegations,
-            'sprint_lead': {'agent_id': lead_id, 'auth': lead_auth},
+            'sprint_lead': _public_sprint_lead(lead_id, lead_auth, reg=reg),
         },
         'treasury': snap,
         'phase_machine': {
@@ -4172,7 +4214,7 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
             )
             return self._json(response)
         elif path == '/api/institution':
-            return self._json(org or {})
+            return self._json(_public_org_record(org))
         elif path == '/api/agents':
             reg = load_registry()
             return self._json([
@@ -4183,11 +4225,12 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
         elif path == '/api/authority':
             queue = _load_queue(org_id)
             lead_id, lead_auth = get_sprint_lead(org_id)
+            reg = load_registry()
             return self._json({
                 'kill_switch': queue['kill_switch'],
                 'pending_approvals': get_pending_approvals(org_id=org_id),
                 'delegations': [d for d in queue['delegations'].values() if d.get('org_id') in (None, '', org_id)],
-                'sprint_lead': {'agent_id': lead_id, 'auth': lead_auth},
+                'sprint_lead': _public_sprint_lead(lead_id, lead_auth, reg=reg),
             })
         elif path == '/api/treasury':
             host_identity, _admission_registry = _runtime_host_state(org_id)
