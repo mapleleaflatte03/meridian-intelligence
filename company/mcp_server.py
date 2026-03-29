@@ -151,6 +151,89 @@ def _blocked_runtime_message(route_name: str, requested_runtime: str) -> str:
     )
 
 
+def _company_info_payload(context: dict, wallet_addr: str) -> dict:
+    return {
+        'company': 'Meridian',
+        'tagline': 'Governed Digital Labor on a Constitutional Kernel',
+        'description': (
+            'Meridian is a constitutional operating system for governed digital labor. '
+            'On this host, Loom is the active execution runtime and competitor intelligence '
+            'is the first commercial wedge.'
+        ),
+        'commercial_wedge': {
+            'name': 'Competitive Intelligence',
+            'status': 'live',
+            'current_offer': 'founder-led managed intelligence with governed MCP access',
+        },
+        'live_host_truth': {
+            'primary_execution_runtime': 'Meridian Loom',
+            'runtime_id': 'loom_native',
+            'runtime_boundary': context.get('boundary_name', 'mcp_service'),
+            'service_scope': context.get('service_scope', 'founding_meridian_service'),
+            'institution_routing': 'founding_meridian_only',
+            'public_mcp_endpoint': 'https://app.welliam.codes/sse',
+            'public_mcp_transport': 'sse_bootstrap_plus_messages_session_channel',
+            'payment_mode': 'x402_fail_closed_for_paid_tools',
+        },
+        'current_workflows': [
+            'Competitive Intelligence — daily cited alerts, weekly briefs, battlecards (live)',
+            'On-demand research — topic-driven sourced findings (live)',
+            'QA verification — factual accuracy and claim checking (live)',
+        ],
+        'primitives': {
+            'Institution': 'Charter-governed organizations with lifecycle management and policy defaults',
+            'Agent': 'First-class managed entities with identity, scopes, budget, risk state, and economy participation',
+            'Authority': 'Approval queues, delegations, and kill switch — who can act and when',
+            'Treasury': 'Real-money accounting — balance, runway, reserve floor, spend tracking',
+            'Court': 'Violation records, sanctions, and appeals — constitutional enforcement',
+        },
+        'platform_capabilities': [
+            'Five constitutional primitives (Institution, Agent, Authority, Treasury, Court)',
+            'Agent registry with identity, scopes, budget, risk state, and lifecycle',
+            'Organization-scoped resources with charter and policy defaults',
+            'Audit logging for every significant action',
+            'Usage metering per org and per agent',
+            'Authority approval queues and kill switch',
+            'Court system with violations, sanctions, and appeals',
+        ],
+        'tools': {
+            'intelligence_latest_brief': {
+                'price': '$0.50 USDC',
+                'description': 'Daily competitor intelligence alert with cited findings',
+            },
+            'intelligence_on_demand_research': {
+                'price': '$2.00 USDC',
+                'description': 'On-demand competitive research on any company or topic',
+            },
+            'intelligence_competitor_snapshot': {
+                'price': '$3.00 USDC',
+                'description': 'Battlecard-ready competitor snapshot: recent moves, pricing, product, talking points',
+            },
+            'intelligence_qa_verify': {
+                'price': '$1.00 USDC',
+                'description': 'QA verification of competitive claims or intelligence text',
+            },
+            'intelligence_weekly_digest': {
+                'price': '$1.50 USDC',
+                'description': 'Weekly competitive digest: top developments across tracked competitors',
+            },
+            'company_info': {
+                'price': 'FREE',
+                'description': 'Meridian capabilities, runtime truth, and pricing',
+            },
+        },
+        'payment': {
+            'protocol': 'x402',
+            'chain': 'Base L2',
+            'asset': 'USDC',
+            'wallet': wallet_addr,
+        },
+        'institution_scope': context,
+        'sources_monitored': '30+ including provider blogs, changelogs, pricing pages, tech aggregators',
+        'pipeline': '7-agent nightly pipeline with multi-stage QA verification',
+    }
+
+
 def _env_truthy(name: str, default: bool = False) -> bool:
     raw = os.environ.get(name)
     if raw is None:
@@ -1661,67 +1744,7 @@ def create_server(free_mode: bool = False) -> FastMCP:
         except Exception:
             pass
 
-        return json.dumps({
-            'company': 'Meridian',
-            'tagline': 'Constitutional Operating System for Autonomous Institutions',
-            'description': 'Meridian is a constitutional operating system for running AI agents as managed, governed, billable digital labor. Built on five primitives: Institution, Agent, Authority, Treasury, and Court.',
-            'current_workflows': [
-                'Competitive Intelligence — daily cited alerts, weekly briefs, battlecards (live)',
-                'On-demand research — topic-driven sourced findings (live)',
-                'QA verification — factual accuracy and claim checking (live)',
-            ],
-            'primitives': {
-                'Institution': 'Charter-governed organizations with lifecycle management and policy defaults',
-                'Agent': 'First-class managed entities with identity, scopes, budget, risk state, and economy participation',
-                'Authority': 'Approval queues, delegations, and kill switch — who can act and when',
-                'Treasury': 'Real-money accounting — balance, runway, reserve floor, spend tracking',
-                'Court': 'Violation records, sanctions, and appeals — constitutional enforcement',
-            },
-            'platform_capabilities': [
-                'Five constitutional primitives (Institution, Agent, Authority, Treasury, Court)',
-                'Agent registry with identity, scopes, budget, risk state, and lifecycle',
-                'Organization-scoped resources with charter and policy defaults',
-                'Audit logging for every significant action',
-                'Usage metering per org and per agent',
-                'Authority approval queues and kill switch',
-                'Court system with violations, sanctions, and appeals',
-            ],
-            'tools': {
-                'intelligence_latest_brief': {
-                    'price': '$0.50 USDC',
-                    'description': 'Daily competitor intelligence alert with cited findings',
-                },
-                'intelligence_on_demand_research': {
-                    'price': '$2.00 USDC',
-                    'description': 'On-demand competitive research on any company or topic',
-                },
-                'intelligence_competitor_snapshot': {
-                    'price': '$3.00 USDC',
-                    'description': 'Battlecard-ready competitor snapshot: recent moves, pricing, product, talking points',
-                },
-                'intelligence_qa_verify': {
-                    'price': '$1.00 USDC',
-                    'description': 'QA verification of competitive claims or intelligence text',
-                },
-                'intelligence_weekly_digest': {
-                    'price': '$1.50 USDC',
-                    'description': 'Weekly competitive digest: top developments across tracked competitors',
-                },
-                'company_info': {
-                    'price': 'FREE',
-                    'description': 'Meridian capabilities and pricing',
-                },
-            },
-            'payment': {
-                'protocol': 'x402',
-                'chain': 'Base L2',
-                'asset': 'USDC',
-                'wallet': wallet_addr,
-            },
-            'institution_scope': context,
-            'sources_monitored': '30+ including provider blogs, changelogs, pricing pages, tech aggregators',
-            'pipeline': '7-agent nightly pipeline with multi-stage QA verification',
-        })
+        return json.dumps(_company_info_payload(context, wallet_addr))
 
     return mcp
 

@@ -51,6 +51,30 @@ mcp_server = _load_module(os.path.join(COMPANY_DIR, 'mcp_server.py'), 'company_m
 
 
 class McpRuntimeAdapterTests(unittest.TestCase):
+    def test_company_info_payload_exposes_live_host_truth(self):
+        context = {
+            'org_id': 'org_48b05c21',
+            'institution_name': 'Meridian',
+            'institution_slug': 'meridian',
+            'context_source': 'configured_org',
+            'identity_model': 'x402_payment',
+            'boundary_scope': 'founding_service_only',
+            'boundary_name': 'mcp_service',
+            'is_admitted': True,
+            'lifecycle_state': 'active',
+            'source': 'configured_org',
+            'service_scope': 'founding_meridian_service',
+            'supports_institution_routing': False,
+        }
+        info = mcp_server._company_info_payload(context, '0xwallet')
+        self.assertEqual(info['company'], 'Meridian')
+        self.assertEqual(info['commercial_wedge']['name'], 'Competitive Intelligence')
+        self.assertEqual(info['live_host_truth']['runtime_id'], 'loom_native')
+        self.assertEqual(info['live_host_truth']['public_mcp_endpoint'], 'https://app.welliam.codes/sse')
+        self.assertEqual(info['live_host_truth']['public_mcp_transport'], 'sse_bootstrap_plus_messages_session_channel')
+        self.assertEqual(info['live_host_truth']['payment_mode'], 'x402_fail_closed_for_paid_tools')
+        self.assertEqual(info['institution_scope']['org_id'], 'org_48b05c21')
+
     def test_research_defaults_to_loom(self):
         submit = mock.Mock(returncode=0, stdout=json.dumps({'job_id': 'job-default'}), stderr='')
         inspect = mock.Mock(returncode=0, stdout=json.dumps({'job_status': 'completed'}), stderr='')

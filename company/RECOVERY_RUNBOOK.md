@@ -131,6 +131,7 @@ loom schedule run-due "25911223-5a4a-44ae-a089-c1d8527e4e58" --timeout 120000  #
 | `python3 channel_deliver.py --dry-run --skip-preflight` | Before a fresh brief exists: reports `No brief available for channel delivery.` After a fresh brief exists: should show channel dry-run output instead of the no-brief message. |
 | Telegram @eggsama_bot `/start` | Bot responds |
 | `https://app.welliam.codes/workspace` | Browser prompts for owner auth, then workspace dashboard loads |
+| `https://app.welliam.codes/sse` | Returns SSE endpoint event, and the follow-up session POST path under `/messages/` stays reachable on the same origin |
 
 ---
 
@@ -138,6 +139,7 @@ loom schedule run-due "25911223-5a4a-44ae-a089-c1d8527e4e58" --timeout 120000  #
 
 - All local services running: caddy, meridian-workspace, meridian-mcp, Loom local control plane
 - Website serving at https://app.welliam.codes (200 OK)
+- Public MCP boundary serving at https://app.welliam.codes/sse with same-origin `/messages/` session routing
 - Workspace dashboard + API: responding after owner auth
 - Workspace API endpoints: 401 without owner credentials
 - Treasury route: /api/treasury/* correctly proxied to workspace server
