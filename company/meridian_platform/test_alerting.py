@@ -244,6 +244,63 @@ class AlertingTests(unittest.TestCase):
         self.assertEqual(queue['queue'][0]['dispatch_state'], 'acknowledged_pending')
         self.assertEqual(queue['queue'][0]['dispatch_attempt_count'], 1)
 
+    def test_alert_queue_ignores_historical_active_events_after_resolution(self):
+        warning_evaluation = {
+            'policy_name': 'meridian_observability_slo_v1',
+            'evaluated_at': '2026-03-25T01:00:00Z',
+            'status': 'warning',
+            'objectives': [
+                {
+                    'name': 'audit_freshness',
+                    'status': 'warning',
+                    'message': 'Latest sample age is 7200s',
+                    'metric': 'audit.latest_at',
+                    'warning_after_seconds': 3600,
+                    'breach_after_seconds': 86400,
+                    'observed_seconds': 7200,
+                },
+            ],
+            'alerts': [
+                {
+                    'objective': 'audit_freshness',
+                    'status': 'warning',
+                    'message': 'Latest sample age is 7200s',
+                },
+            ],
+            'alert_count': 1,
+        }
+        healthy_evaluation = {
+            'policy_name': 'meridian_observability_slo_v1',
+            'evaluated_at': '2026-03-25T01:05:00Z',
+            'status': 'healthy',
+            'objectives': [
+                {
+                    'name': 'audit_freshness',
+                    'status': 'healthy',
+                    'message': 'Latest sample age is 60s',
+                    'metric': 'audit.latest_at',
+                    'warning_after_seconds': 3600,
+                    'breach_after_seconds': 86400,
+                    'observed_seconds': 60,
+                },
+            ],
+            'alerts': [],
+            'alert_count': 0,
+        }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            alert_path = os.path.join(tmp, 'slo_alert_log.jsonl')
+            with mock.patch.object(alerting, 'ALERT_LOG_FILE', alert_path):
+                alerting.record_slo_alerts(warning_evaluation, org_id='org_demo')
+                alerting.record_slo_alerts(healthy_evaluation, org_id='org_demo')
+                queue = alerting.alert_queue_snapshot('org_demo')
+                surface = alerting.alert_surface_snapshot('org_demo')
+
+        self.assertEqual(queue['queue_count'], 0)
+        self.assertEqual(queue['pending_delivery_count'], 0)
+        self.assertEqual(surface['active_alert_count'], 0)
+        self.assertEqual(surface['queue_count'], 0)
+
 
 if __name__ == '__main__':
     unittest.main()

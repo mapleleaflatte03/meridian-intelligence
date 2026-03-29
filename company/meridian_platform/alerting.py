@@ -427,6 +427,13 @@ def alert_queue_snapshot(org_id: str, *, limit: int = 20) -> dict[str, Any]:
         if not event.get('active'):
             continue
         event_id = str(event.get('id', '') or '')
+        policy_name = str(event.get('policy_name', '') or '')
+        objective_name = str(event.get('objective', '') or '')
+        current_state = _load_current_state(org_id, policy_name, objective_name)
+        current_event_id = str((current_state or {}).get('current_event_id', '') or '')
+        current_status = str((current_state or {}).get('current_status', '') or '')
+        if current_event_id != event_id or current_status not in ACTIVE_STATUSES:
+            continue
         entry = _event_delivery_summary(event, deliveries_by_event.get(event_id, []))
         entry.update(_event_dispatch_summary(event, dispatches_by_event.get(event_id, [])))
         queue_entries.append(entry)
@@ -457,16 +464,17 @@ def alert_surface_snapshot(org_id: str, *, limit: int = 20) -> dict[str, Any]:
             'state_change': event.get('state_change', ''),
             'timestamp': event.get('timestamp', ''),
         })
-    active_count = sum(1 for event in events if event.get('active'))
+    queue_snapshot = alert_queue_snapshot(org_id, limit=limit)
+    active_count = int(queue_snapshot.get('queue_count', 0) or 0)
     return {
         'log_path': ALERT_LOG_FILE,
         'event_count': len(events),
         'delivery_count': len(deliveries),
         'active_alert_count': active_count,
-        'queue_count': len([event for event in events if event.get('active')]),
+        'queue_count': active_count,
         'events': events,
         'deliveries': deliveries,
-        'queue': alert_queue_snapshot(org_id, limit=limit),
+        'queue': queue_snapshot,
         'state': state_rows,
         'db': observability_store.db_status_for_log(ALERT_LOG_FILE),
     }
