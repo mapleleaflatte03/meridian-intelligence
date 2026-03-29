@@ -81,6 +81,14 @@ def _service_probe_command() -> List[str]:
     return [_loom_bin(), 'service', 'status', '--root', _loom_root(), '--format', 'json']
 
 
+def _memory_command() -> List[str]:
+    return [_loom_bin(), 'memory', 'status', '--root', _loom_root(), '--format', 'json']
+
+
+def _context_command() -> List[str]:
+    return [_loom_bin(), 'context', 'status', '--root', _loom_root(), '--format', 'json']
+
+
 def map_governed_agents_to_loom_handles(
     agents: Optional[Iterable[Mapping[str, Any]]] = None,
 ) -> List[Dict[str, Any]]:
@@ -330,6 +338,13 @@ def collect_loom_runtime_proof(
         'health': '',
         'transport': '',
     }
+    memory_context = {
+        'checked': False,
+        'memory_ok': False,
+        'context_ok': False,
+        'memory': {},
+        'context': {},
+    }
     if include_service_probe:
         probe = _run_command(service_probe_command or _service_probe_command(), timeout=20)
         try:
@@ -352,6 +367,29 @@ def collect_loom_runtime_proof(
             'health': parsed.get('health', ''),
             'transport': parsed.get('transport', ''),
         }
+        memory_probe = _run_command(_memory_command(), timeout=20)
+        context_probe = _run_command(_context_command(), timeout=20)
+        if memory_probe.get('ok'):
+            try:
+                memory_payload = json.loads(memory_probe['stdout']) if memory_probe['stdout'] else {}
+            except json.JSONDecodeError:
+                memory_payload = {}
+        else:
+            memory_payload = {}
+        if context_probe.get('ok'):
+            try:
+                context_payload = json.loads(context_probe['stdout']) if context_probe['stdout'] else {}
+            except json.JSONDecodeError:
+                context_payload = {}
+        else:
+            context_payload = {}
+        memory_context = {
+            'checked': True,
+            'memory_ok': bool(memory_probe.get('ok') and isinstance(memory_payload, dict)),
+            'context_ok': bool(context_probe.get('ok') and isinstance(context_payload, dict)),
+            'memory': memory_payload if isinstance(memory_payload, dict) else {},
+            'context': context_payload if isinstance(context_payload, dict) else {},
+        }
 
     return {
         'runtime_id': 'loom_native',
@@ -366,6 +404,7 @@ def collect_loom_runtime_proof(
             'stderr': '',
         },
         'service_probe': service_probe,
+        'memory_context': memory_context,
         'governed_agents': mapped_agents,
         'handle_overlap': sorted(health_handles & mapped_handles),
         'handle_gap': sorted(mapped_handles - health_handles),
@@ -387,6 +426,7 @@ def public_loom_runtime_receipt(
     health = dict(proof.get('health') or {})
     governed_agents = list(proof.get('governed_agents') or [])
     service_probe = dict(proof.get('service_probe') or {})
+    memory_context = dict(proof.get('memory_context') or {})
     runtime_health = {
         'status': health.get('status', 'unknown'),
         'health_ok': bool(health.get('health_ok')),
@@ -416,6 +456,13 @@ def public_loom_runtime_receipt(
             'health': service_probe.get('health', ''),
             'transport': service_probe.get('transport', ''),
             'output': service_probe.get('output', ''),
+        },
+        'memory_context': {
+            'checked': bool(memory_context.get('checked')),
+            'memory_ok': bool(memory_context.get('memory_ok')),
+            'context_ok': bool(memory_context.get('context_ok')),
+            'memory': dict(memory_context.get('memory') or {}),
+            'context': dict(memory_context.get('context') or {}),
         },
         'governed_agents': [
             {

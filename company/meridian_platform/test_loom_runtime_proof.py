@@ -72,6 +72,46 @@ class LoomRuntimeProofTests(unittest.TestCase):
             'health': 'healthy',
             'transport': 'socket+http',
         })
+        memory_status = json.dumps({
+            'agent_count': 1,
+            'total_entries': 2,
+            'total_bytes': 128,
+            'agents': [{'agent_id': 'atlas', 'entry_count': 2, 'categories': ['general'], 'total_bytes': 128}],
+        })
+        context_status = json.dumps({
+            'layer_count': 12,
+            'section_count': 6,
+            'mutable_count': 4,
+            'sections': ['agents', 'heartbeat', 'memory', 'soul', 'tools', 'user'],
+        })
+
+        def fake_run(command, timeout):
+            if 'service' in command:
+                return {
+                    'command': list(command),
+                    'ok': True,
+                    'returncode': 0,
+                    'stdout': service_status,
+                    'stderr': '',
+                }
+            if 'memory' in command:
+                return {
+                    'command': list(command),
+                    'ok': True,
+                    'returncode': 0,
+                    'stdout': memory_status,
+                    'stderr': '',
+                }
+            if 'context' in command:
+                return {
+                    'command': list(command),
+                    'ok': True,
+                    'returncode': 0,
+                    'stdout': context_status,
+                    'stderr': '',
+                }
+            raise AssertionError(f'unexpected command: {command}')
+
         with mock.patch.object(proof, 'load_registry', return_value={
             'agents': {
                 'agent_main': {
@@ -89,13 +129,7 @@ class LoomRuntimeProofTests(unittest.TestCase):
                     'runtime_binding': {'runtime_id': 'loom_native'},
                 },
             }
-        }), mock.patch.object(proof, '_run_command', return_value={
-            'command': ['loom', 'service', 'status', '--format', 'json'],
-            'ok': True,
-            'returncode': 0,
-            'stdout': service_status,
-            'stderr': '',
-        }):
+        }), mock.patch.object(proof, '_run_command', side_effect=fake_run):
             result = proof.collect_loom_runtime_proof(
                 health_output=json.dumps({
                     'status': 'healthy',
@@ -117,6 +151,11 @@ class LoomRuntimeProofTests(unittest.TestCase):
         self.assertEqual(result['deployment_truth']['scope'], 'single_host')
         self.assertFalse(result['deployment_truth']['generic_runtime_claim'])
         self.assertEqual(result['runtime_id'], 'loom_native')
+        self.assertTrue(result['memory_context']['checked'])
+        self.assertTrue(result['memory_context']['memory_ok'])
+        self.assertTrue(result['memory_context']['context_ok'])
+        self.assertEqual(result['memory_context']['memory']['total_entries'], 2)
+        self.assertEqual(result['memory_context']['context']['section_count'], 6)
 
     def test_public_receipt_filters_runtime_proof_for_public_route(self):
         receipt = proof.public_loom_runtime_receipt({
@@ -134,6 +173,13 @@ class LoomRuntimeProofTests(unittest.TestCase):
                 'session_total': 0,
             },
             'service_probe': {'checked': True, 'ok': True, 'output': 'service running', 'service_status': 'running', 'health': 'healthy', 'transport': 'socket+http'},
+            'memory_context': {
+                'checked': True,
+                'memory_ok': True,
+                'context_ok': True,
+                'memory': {'total_entries': 2},
+                'context': {'section_count': 6},
+            },
             'governed_agents': [
                 {
                     'agent_id': 'agent_main',
@@ -158,6 +204,9 @@ class LoomRuntimeProofTests(unittest.TestCase):
         self.assertTrue(receipt['runtime_health']['health_ok'])
         self.assertTrue(receipt['runtime_health']['service_probe_ok'])
         self.assertEqual(receipt['service_probe']['status'], 'running')
+        self.assertTrue(receipt['memory_context']['checked'])
+        self.assertTrue(receipt['memory_context']['memory_ok'])
+        self.assertTrue(receipt['memory_context']['context_ok'])
         self.assertEqual(receipt['health']['agent_handles'], ['main', 'atlas'])
         self.assertEqual(receipt['governed_agents'][0]['runtime_binding']['runtime_id'], 'loom_native')
 
