@@ -4069,6 +4069,40 @@ setInterval(refresh, 15000);
 # ── HTTP Request Handler ─────────────────────────────────────────────────────
 
 class WorkspaceHandler(BaseHTTPRequestHandler):
+    _HEAD_JSON_PATHS = {
+        '/api/status',
+        '/api/context',
+        '/api/institution',
+        '/api/agents',
+        '/api/authority',
+        '/api/treasury',
+        '/api/treasury/accounts',
+        '/api/treasury/funding-sources',
+        '/api/treasury/settlement-adapters',
+        '/api/subscriptions',
+        '/api/subscriptions/delivery-targets',
+        '/api/subscriptions/loom-delivery-jobs',
+        '/api/subscriptions/loom-delivery-runs',
+        '/api/subscriptions/preview-queue',
+        '/api/accounting',
+        '/api/pilot/intake',
+        '/api/pilot/intake/operator',
+        '/api/payouts',
+        '/api/federation',
+        '/api/federation/peers',
+        '/api/federation/inbox',
+        '/api/federation/execution-jobs',
+        '/api/federation/manifest',
+        '/api/federation/witness/archive',
+        '/api/alerts',
+        '/api/runtime-proof',
+        '/api/admission',
+        '/api/session/validate',
+        '/api/court',
+        '/api/warrants',
+        '/api/commitments',
+        '/api/cases',
+    }
 
     def _json(self, data, status=200):
         self.send_response(status)
@@ -4076,6 +4110,14 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
         self.send_header('Access-Control-Allow-Origin', '*')
         self.end_headers()
         self.wfile.write(json.dumps(data).encode())
+
+    def _headers_only(self, status=200, content_type='text/plain; charset=utf-8', *, www_authenticate=None):
+        self.send_response(status)
+        self.send_header('Content-Type', content_type)
+        self.send_header('Access-Control-Allow-Origin', '*')
+        if www_authenticate:
+            self.send_header('WWW-Authenticate', www_authenticate)
+        self.end_headers()
 
     def _html(self, html):
         self.send_response(200)
@@ -4176,6 +4218,45 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
         self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
         self.send_header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Meridian-Org-Id')
         self.end_headers()
+
+    def do_HEAD(self):
+        parsed = urlparse(self.path)
+        path = parsed.path
+        is_api = path.startswith('/api/')
+        protected = is_workspace_protected_path(path)
+        if protected and not self._is_authorized():
+            user, password, _credential_org_id, _credential_user_id = _load_workspace_credentials()
+            if not user or not password:
+                if WORKSPACE_AUTH_REQUIRED:
+                    return self._headers_only(503, 'application/json' if is_api else 'text/plain; charset=utf-8')
+            else:
+                return self._headers_only(
+                    401,
+                    'application/json' if is_api else 'text/plain; charset=utf-8',
+                    www_authenticate='Basic realm="Meridian Workspace"',
+                )
+
+        if path == '/' or path == '/workspace':
+            try:
+                _resolve_workspace_context()
+            except RuntimeError:
+                return self._headers_only(503, 'text/plain; charset=utf-8')
+            return self._headers_only(200, 'text/html; charset=utf-8')
+
+        if path in self._HEAD_JSON_PATHS:
+            try:
+                inst_ctx = _resolve_workspace_context()
+                _enforce_request_context(parsed, self.headers, inst_ctx.org_id)
+                session_claims = self._session_claims_from_request(expected_org_id=inst_ctx.org_id)
+                if self.headers.get('Authorization', '').startswith('Bearer ') and session_claims is None:
+                    return self._headers_only(403, 'application/json')
+            except RuntimeError:
+                return self._headers_only(503, 'application/json')
+            except ValueError:
+                return self._headers_only(400, 'application/json')
+            return self._headers_only(200, 'application/json')
+
+        return self._headers_only(404, 'application/json' if is_api else 'text/plain; charset=utf-8')
 
     def do_GET(self):
         parsed = urlparse(self.path)
