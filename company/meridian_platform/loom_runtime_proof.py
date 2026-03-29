@@ -213,6 +213,21 @@ def _parse_agent_runtime_detail(detail: str) -> List[Dict[str, Any]]:
     ]
 
 
+def _parse_int_field(detail: str, key: str) -> int:
+    match = re.search(rf'{re.escape(key)}=(\d+)', detail or '')
+    return int(match.group(1)) if match else 0
+
+
+def _parse_csv_field(detail: str, key: str) -> List[str]:
+    match = re.search(rf'{re.escape(key)}=([^ ]+)', detail or '')
+    if not match:
+        return []
+    raw = (match.group(1) or '').strip()
+    if not raw or raw == '(none)':
+        return []
+    return [item.strip() for item in raw.split(',') if item.strip()]
+
+
 def _parse_loom_health_json(output: str) -> Dict[str, Any]:
     payload = json.loads(output)
     if isinstance(payload, list):
@@ -227,13 +242,17 @@ def _parse_loom_health_json(output: str) -> Dict[str, Any]:
     agents = _parse_agent_runtime_detail((agent_runtime.get('detail') or '').strip())
     channel_detail = (channel_runtime.get('detail') or '').strip()
     channel_handles = []
-    channel_match = re.search(r'channels=([^ ]+)', channel_detail)
-    if channel_match:
-        channel_handles = [item.strip() for item in channel_match.group(1).split(',') if item.strip()]
-    enabled_match = re.search(r'enabled=(\d+)', channel_detail)
-    enabled_count = int(enabled_match.group(1)) if enabled_match else 0
-    session_match = re.search(r'total=(\d+)', (session_runtime.get('detail') or '').strip())
-    session_total = int(session_match.group(1)) if session_match else 0
+    channel_handles = _parse_csv_field(channel_detail, 'channels')
+    enabled_count = _parse_int_field(channel_detail, 'enabled')
+    session_detail = (session_runtime.get('detail') or '').strip()
+    session_total = _parse_int_field(session_detail, 'total')
+    session_active = _parse_int_field(session_detail, 'active')
+    session_archived = _parse_int_field(session_detail, 'archived')
+    if session_total and session_active == 0 and session_archived == 0:
+        session_active = session_total
+
+    channel_active_deliveries = _parse_int_field(channel_detail, 'active_deliveries')
+    channel_archived_deliveries = _parse_int_field(channel_detail, 'archived_deliveries')
 
     return {
         'checked_at': _now(),
@@ -252,6 +271,20 @@ def _parse_loom_health_json(output: str) -> Dict[str, Any]:
         'health_ok': (payload.get('status') or '').strip().lower() == 'healthy',
         'session_total': session_total,
         'agent_count': len(agents),
+        'session_runtime': {
+            'total_count': session_total,
+            'active_count': session_active,
+            'archived_count': session_archived,
+            'session_keys': _parse_csv_field(session_detail, 'sessions'),
+        },
+        'channel_runtime': {
+            'total_count': _parse_int_field(channel_detail, 'total'),
+            'enabled_count': enabled_count,
+            'ingress_count': _parse_int_field(channel_detail, 'ingress'),
+            'active_delivery_count': channel_active_deliveries,
+            'archived_delivery_count': channel_archived_deliveries,
+            'channel_ids': channel_handles,
+        },
     }
 
 
@@ -447,6 +480,10 @@ def public_loom_runtime_receipt(
             'heartbeat_interval': (health.get('heartbeat') or {}).get('interval'),
             'primary_agent': (health.get('heartbeat') or {}).get('primary_agent'),
             'session_total': health.get('session_total', 0),
+        },
+        'runtime_surfaces': {
+            'session_provenance': dict(health.get('session_runtime') or {}),
+            'channel_runtime': dict(health.get('channel_runtime') or {}),
         },
         'runtime_health': runtime_health,
         'service_probe': {

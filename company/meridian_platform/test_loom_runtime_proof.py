@@ -38,6 +38,9 @@ class LoomRuntimeProofTests(unittest.TestCase):
         self.assertEqual(parsed['agent_count'], 3)
         self.assertEqual(parsed['agents'][0]['handle'], 'leviathann')
         self.assertEqual(parsed['session_total'], 3)
+        self.assertEqual(parsed['session_runtime']['active_count'], 3)
+        self.assertEqual(parsed['session_runtime']['archived_count'], 0)
+        self.assertEqual(parsed['channel_runtime']['channel_ids'], ['web_api', 'telegram'])
 
     def test_map_governed_agents_uses_runtime_binding_truth(self):
         agents = [
@@ -135,8 +138,8 @@ class LoomRuntimeProofTests(unittest.TestCase):
                     'status': 'healthy',
                     'checks': [
                         {'level': 'OK', 'label': 'agent_runtime', 'detail': 'profiles=7 agents=main,atlas,sentinel memory_ready=7/7 session_ready=7/7'},
-                        {'level': 'OK', 'label': 'channel_runtime', 'detail': 'total=2 enabled=2 ingress=0 delivery_path=/tmp inbox_path=/tmp channels=web_api,telegram'},
-                        {'level': 'OK', 'label': 'session_provenance', 'detail': 'total=0 sessions=(none)'},
+                        {'level': 'OK', 'label': 'channel_runtime', 'detail': 'total=2 enabled=2 ingress=0 active_deliveries=4 archived_deliveries=1 delivery_path=/tmp inbox_path=/tmp channels=web_api,telegram'},
+                        {'level': 'OK', 'label': 'session_provenance', 'detail': 'total=3 active=2 archived=1 sessions=web_api:owner,telegram:founder'},
                     ],
                 }),
                 include_service_probe=True,
@@ -156,6 +159,10 @@ class LoomRuntimeProofTests(unittest.TestCase):
         self.assertTrue(result['memory_context']['context_ok'])
         self.assertEqual(result['memory_context']['memory']['total_entries'], 2)
         self.assertEqual(result['memory_context']['context']['section_count'], 6)
+        self.assertEqual(result['health']['session_runtime']['active_count'], 2)
+        self.assertEqual(result['health']['session_runtime']['archived_count'], 1)
+        self.assertEqual(result['health']['channel_runtime']['active_delivery_count'], 4)
+        self.assertEqual(result['health']['channel_runtime']['archived_delivery_count'], 1)
 
     def test_public_receipt_filters_runtime_proof_for_public_route(self):
         receipt = proof.public_loom_runtime_receipt({
@@ -171,6 +178,8 @@ class LoomRuntimeProofTests(unittest.TestCase):
                 'agents': [{'handle': 'main'}, {'handle': 'atlas'}],
                 'heartbeat': {'interval': None, 'primary_agent': None},
                 'session_total': 0,
+                'session_runtime': {'total_count': 6, 'active_count': 4, 'archived_count': 2},
+                'channel_runtime': {'total_count': 2, 'enabled_count': 2, 'ingress_count': 16, 'active_delivery_count': 13, 'archived_delivery_count': 16},
             },
             'service_probe': {'checked': True, 'ok': True, 'output': 'service running', 'service_status': 'running', 'health': 'healthy', 'transport': 'socket+http'},
             'memory_context': {
@@ -204,6 +213,8 @@ class LoomRuntimeProofTests(unittest.TestCase):
         self.assertTrue(receipt['runtime_health']['health_ok'])
         self.assertTrue(receipt['runtime_health']['service_probe_ok'])
         self.assertEqual(receipt['service_probe']['status'], 'running')
+        self.assertEqual(receipt['runtime_surfaces']['session_provenance']['active_count'], 4)
+        self.assertEqual(receipt['runtime_surfaces']['channel_runtime']['archived_delivery_count'], 16)
         self.assertTrue(receipt['memory_context']['checked'])
         self.assertTrue(receipt['memory_context']['memory_ok'])
         self.assertTrue(receipt['memory_context']['context_ok'])
