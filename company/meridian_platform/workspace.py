@@ -601,11 +601,29 @@ def _commitment_snapshot(bound_org_id):
 
 
 def _payout_snapshot(bound_org_id, *, host_supported_adapters=None):
+    phase_num, phase_details = _phase_mod.evaluate(bound_org_id)
+    phase_gate_ok = phase_num >= 5
     return {
         'bound_org_id': bound_org_id,
         'management_mode': 'founding_workspace_local',
         'mutation_enabled': True,
         'mutation_disabled_reason': '',
+        'phase_machine': {
+            'number': phase_num,
+            'name': phase_details.get('name', ''),
+            'next_phase': phase_details.get('next_phase'),
+            'next_phase_name': phase_details.get('next_phase_name'),
+            'next_unlock': phase_details.get('next_unlock'),
+        },
+        'execution_gate': {
+            'phase_ok': phase_gate_ok,
+            'phase_required': 5,
+            'reason': (
+                f"Phase {phase_num} ({phase_details.get('name', '')}) permits contributor payouts"
+                if phase_gate_ok
+                else f"Phase {phase_num} ({phase_details.get('name', '')}) does not allow contributor payouts yet"
+            ),
+        },
         'summary': payout_proposal_summary(bound_org_id),
         'proposals': list_payout_proposals(bound_org_id),
         'policy': load_payout_proposals(bound_org_id).get('state_machine', {}),
