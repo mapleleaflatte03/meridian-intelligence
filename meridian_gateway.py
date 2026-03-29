@@ -1087,6 +1087,7 @@ class TelegramAdapter(ChannelAdapter):
         with self.active_lock:
             targets = list(self.active_chats)
         for chat_id in targets:
+            session_key = f"telegram:{chat_id}"
             delivery = _loom_channel_send("telegram", str(chat_id), text)
             delivery_payload = delivery.get("payload") if isinstance(delivery, dict) else {}
             delivery_id = str((delivery_payload or {}).get("delivery_id") or "").strip()
@@ -1096,6 +1097,12 @@ class TelegramAdapter(ChannelAdapter):
                     delivery_id,
                     "delivered",
                     external_ref=str((result or {}).get("message_id") or str(chat_id)).strip(),
+                )
+                _loom_session_route(
+                    session_key,
+                    agent_id=TEAM_MANAGER_AGENT_ID,
+                    org_id=LOOM_ORG_ID,
+                    delivery_id=delivery_id,
                 )
             except Exception as exc:
                 _loom_channel_update(delivery_id, "failed", detail=f"{exc.__class__.__name__}: {exc}")
@@ -1282,12 +1289,19 @@ class WebAPIAdapter(ChannelAdapter):
             self.server.server_close()
 
     def send_message(self, text: str, *, source: str = "runtime") -> None:
+        session_key = f"web_api:{LOOM_ORG_ID}"
         delivery = _loom_channel_send("web_api", LOOM_ORG_ID, text)
         delivery_payload = delivery.get("payload") if isinstance(delivery, dict) else {}
         delivery_id = str((delivery_payload or {}).get("delivery_id") or "").strip()
         self.notifications.put({"source": source, "text": text, "ts": str(int(time.time()))})
         if delivery_id:
             _loom_channel_update(delivery_id, "delivered", external_ref="notification_queue")
+            _loom_session_route(
+                session_key,
+                agent_id=TEAM_MANAGER_AGENT_ID,
+                org_id=LOOM_ORG_ID,
+                delivery_id=delivery_id,
+            )
 
 
 class HeartbeatEngine(threading.Thread):
