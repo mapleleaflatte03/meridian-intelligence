@@ -221,6 +221,22 @@ def _sudo_loom_research_preflight(capability_name: str, runtime_env: dict) -> di
             preflight['errors'].append('loom capability show returned non-JSON output')
         else:
             preflight['capability'] = capability_payload
+            normalize_capability = getattr(_mcp_mod, '_normalize_loom_import_metadata', None)
+            if callable(normalize_capability):
+                normalized = normalize_capability(capability_payload)
+                preflight['normalized_import_metadata'] = normalized
+                if normalized.get('source_kind'):
+                    preflight['capability']['source_kind'] = normalized['source_kind']
+                if normalized.get('worker_entry'):
+                    preflight['capability']['worker_entry'] = normalized['worker_entry']
+                if normalized.get('source_manifest'):
+                    preflight['capability']['source_manifest'] = normalized['source_manifest']
+                if normalized.get('source_path'):
+                    preflight['capability']['source_path'] = normalized['source_path']
+                if not normalized.get('supported', True):
+                    preflight['errors'].append(
+                        f"loom imported skill subset unsupported: {normalized.get('unsupported_reason') or 'unknown'}"
+                    )
             if not capability_payload.get('enabled', False):
                 preflight['errors'].append('loom capability is disabled')
             if capability_payload.get('verification_status') not in {'verified', 'builtin'}:
@@ -240,19 +256,20 @@ def _route_cutovers():
     requested_runtime = _mcp_mod._normalize_runtime(route_override or research_runtime or exec_runtime)
     fallback_enabled = (runtime_env.get('MERIDIAN_INTELLIGENCE_ON_DEMAND_RESEARCH_ALLOW_FALLBACK') or '').strip().lower() in {'1', 'true', 'yes', 'on'}
     capability_name = (runtime_env.get('MERIDIAN_LOOM_RESEARCH_CAPABILITY') or '').strip()
+    owner = 'loom' if requested_runtime == 'loom' else 'blocked'
     route = {
         'route': 'intelligence_on_demand_research',
-        'owner': 'loom' if requested_runtime == 'loom' else 'legacy',
+        'owner': owner,
         'requested_runtime': requested_runtime,
         'runtime_source': 'route_override' if route_override else 'research_runtime_inherit',
-        'fallback_enabled': fallback_enabled,
+        'fallback_enabled': fallback_enabled if requested_runtime == 'loom' else False,
         'loom_capability_name': capability_name,
     }
     transcript_bits = [
         'route=intelligence_on_demand_research',
         f'requested={requested_runtime}',
-        f"owner={'loom' if requested_runtime == 'loom' else 'legacy'}",
-        f"fallback={'on' if fallback_enabled else 'off'}",
+        f'owner={owner}',
+        f"fallback={'on' if (fallback_enabled and requested_runtime == 'loom') else 'off'}",
         f"source={'route_override' if route_override else 'research_runtime_inherit'}",
     ]
     if capability_name:
@@ -284,7 +301,7 @@ def _route_cutovers():
             if errors:
                 transcript_bits.append(f"preflight_errors={len(errors)}")
     else:
-        transcript_bits.append('preflight=skipped')
+        transcript_bits.append('preflight=blocked_non_loom_runtime')
     route['transcript'] = ' | '.join(transcript_bits)
     return {'intelligence_on_demand_research': route}
 

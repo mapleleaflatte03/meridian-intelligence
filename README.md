@@ -69,7 +69,7 @@ Some of those surfaces are live local primitives today. Others remain declared o
 - The public web surface, pilot flow, support path, and live host truth pages.
 - Competitor intelligence as the first managed vertical.
 - Loom as the installable local runtime surface with a Mantis-branded CLI and installer.
-- A bounded live-host stance: Meridian Loom is the primary runtime, with legacy paths remaining for routes not yet migrated to Loom-native dispatch.
+- A bounded live-host stance: Meridian Loom is the primary runtime, and Meridian-facing execution routes on this host now fail closed instead of silently falling back to older runtime paths.
 
 ## What Is Not Claimed
 

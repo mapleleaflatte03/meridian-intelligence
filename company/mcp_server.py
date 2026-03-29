@@ -143,6 +143,14 @@ def _normalize_runtime(runtime: str) -> str:
     return 'loom' if runtime in {'loom', ''} else 'legacy'
 
 
+def _blocked_runtime_message(route_name: str, requested_runtime: str) -> str:
+    runtime_label = (requested_runtime or 'unknown').strip() or 'unknown'
+    return (
+        f"Requested runtime '{runtime_label}' is not enabled on this host. "
+        f"Meridian serves {route_name} through Loom-managed execution only."
+    )
+
+
 def _env_truthy(name: str, default: bool = False) -> bool:
     raw = os.environ.get(name)
     if raw is None:
@@ -389,6 +397,21 @@ def _normalize_loom_skill_slug(value: str) -> str:
     return re.sub(r'-{2,}', '-', value).strip('-')
 
 
+def _normalize_import_source_kind(value: str) -> str:
+    source_kind = (value or '').strip()
+    if source_kind.startswith('legacy_v1_'):
+        source_kind = source_kind[len('legacy_v1_'):]
+    legacy_map = {
+        'legacy_workspace_skill': 'loom_workspace_skill_import',
+        'workspace_skill': 'loom_workspace_skill_import',
+        'legacy_plugin_skill': 'loom_plugin_skill_import',
+        'plugin_skill': 'loom_plugin_skill_import',
+        'legacy_plugin_packaged_skill': 'loom_plugin_packaged_skill_import',
+        'plugin_packaged_skill': 'loom_plugin_packaged_skill_import',
+    }
+    return legacy_map.get(source_kind, source_kind)
+
+
 def _normalize_loom_import_metadata(capability_payload: dict) -> dict:
     payload = dict(capability_payload or {})
     source_manifest = (payload.get('source_manifest') or '').strip()
@@ -400,7 +423,7 @@ def _normalize_loom_import_metadata(capability_payload: dict) -> dict:
     adapter_kind = (payload.get('adapter_kind') or '').strip()
     dependency_mode = (payload.get('dependency_mode') or '').strip()
     import_provenance = (payload.get('import_provenance') or '').strip()
-    source_kind = (payload.get('source_kind') or '').strip()
+    source_kind = _normalize_import_source_kind(payload.get('source_kind') or '')
     env_contract = (payload.get('env_contract') or '').strip()
     capability_name = (payload.get('name') or '').strip()
 
@@ -459,15 +482,21 @@ def _normalize_loom_import_metadata(capability_payload: dict) -> dict:
         unsupported_reasons.append(f'import_provenance={import_provenance}')
     if normalized_worker_entry and worker_entry and worker_entry != normalized_worker_entry:
         unsupported_reasons.append(f'worker_entry={worker_entry}')
-    if source_kind.startswith('legacy_v1_'):
-        source_kind = f"legacy_{source_kind[len('legacy_v1_'):]}"
-    if source_kind and source_kind not in {'loom_workspace_skill', 'loom_plugin_skill', 'loom_plugin_packaged_skill', 'legacy_workspace_skill', 'legacy_plugin_skill', 'legacy_plugin_packaged_skill'}:
+    supported_source_kinds = {
+        'loom_workspace_skill',
+        'loom_plugin_skill',
+        'loom_plugin_packaged_skill',
+        'loom_workspace_skill_import',
+        'loom_plugin_skill_import',
+        'loom_plugin_packaged_skill_import',
+    }
+    if source_kind and source_kind not in supported_source_kinds:
         if '_' in source_kind:
             suffix = source_kind.split('_', 1)[1]
-            legacy_candidate = f'legacy_{suffix}'
-            if legacy_candidate in {'legacy_workspace_skill', 'legacy_plugin_skill', 'legacy_plugin_packaged_skill'}:
-                source_kind = legacy_candidate
-    if source_kind and source_kind not in {'loom_workspace_skill', 'loom_plugin_skill', 'loom_plugin_packaged_skill', 'legacy_workspace_skill', 'legacy_plugin_skill', 'legacy_plugin_packaged_skill'}:
+            normalized_candidate = _normalize_import_source_kind(suffix)
+            if normalized_candidate in supported_source_kinds:
+                source_kind = normalized_candidate
+    if source_kind and source_kind not in supported_source_kinds:
         unsupported_reasons.append(f'source_kind={source_kind}')
 
     supported = not unsupported_reasons
@@ -1137,10 +1166,16 @@ def do_on_demand_research(
 ) -> dict:
     """Run research through the configured runtime adapter."""
     prompt = _on_demand_research_prompt(topic, depth)
-    if _intelligence_exec_runtime('research') == 'loom':
+    requested_runtime = _intelligence_exec_runtime('research')
+    if requested_runtime == 'loom':
         result, _ = _run_loom_on_demand_research(topic, depth, prompt, agent_id=agent_id, session_id=session_id)
         return result
-    return _run_legacy_on_demand_research(topic, depth, prompt)
+    return {
+        'topic': topic,
+        'depth': depth,
+        'runtime': 'blocked',
+        'error': _blocked_runtime_message('intelligence_on_demand_research', requested_runtime),
+    }
 
 
 def do_on_demand_research_route(
@@ -1155,9 +1190,26 @@ def do_on_demand_research_route(
     prompt = _on_demand_research_prompt(topic, depth)
 
     if requested_runtime != 'loom':
-        fallback_enabled = _intelligence_route_fallback('on_demand_research', default=False)
-        result = _run_legacy_on_demand_research(topic, depth, prompt)
-        return _with_on_demand_research_cutover(result, requested_runtime, 'legacy', fallback_enabled)
+        blocked_message = _blocked_runtime_message('intelligence_on_demand_research', requested_runtime)
+        fallback_state = {
+            'used': False,
+            'from_runtime': requested_runtime,
+            'reason': blocked_message,
+            'state': 'blocked_non_loom_runtime',
+        }
+        result = {
+            'topic': topic,
+            'depth': depth,
+            'runtime': 'blocked',
+            'error': blocked_message,
+        }
+        return _with_on_demand_research_cutover(
+            result,
+            requested_runtime,
+            'blocked',
+            False,
+            fallback_state=fallback_state,
+        )
 
     loom_preflight = _loom_research_preflight(_loom_research_capability())
     if not loom_preflight.get('ok'):
@@ -1224,7 +1276,8 @@ def do_qa_verify(
         f"Text to verify:\n\n{text[:3000]}"
     )
 
-    if _intelligence_exec_runtime('qa') == 'loom':
+    requested_runtime = _intelligence_exec_runtime('qa')
+    if requested_runtime == 'loom':
         loom_result = _run_loom_capability(
             _loom_qa_capability(),
             {'text': text, 'criteria': criteria, 'prompt': prompt},
@@ -1251,20 +1304,10 @@ def do_qa_verify(
             'job_id': loom_result.get('job_id', ''),
             'error': loom_result.get('error', 'Loom runtime failed'),
         }
-
-    result = _run_legacy_agent('aegis', prompt, timeout=60)
-    if result.get('ok'):
-        return {
-            'criteria': criteria,
-            'verification': result.get('content', ''),
-            'agent': 'Aegis',
-            'runtime': 'legacy',
-            'source': 'Meridian QA Pipeline',
-        }
     return {
         'criteria': criteria,
-        'runtime': 'legacy',
-        'error': result.get('error', 'Legacy runtime failed'),
+        'runtime': 'blocked',
+        'error': _blocked_runtime_message('intelligence_qa_verify', requested_runtime),
     }
 
 
@@ -1285,22 +1328,19 @@ def do_qa_verify_route(
     )
 
     if requested_runtime != 'loom':
-        result = _run_legacy_agent('aegis', prompt, timeout=60)
-        if result.get('ok'):
-            result = {
-                'criteria': criteria,
-                'verification': result.get('content', ''),
-                'agent': 'Aegis',
-                'runtime': 'legacy',
-                'source': 'Meridian QA Pipeline',
-            }
-        else:
-            result = {
-                'criteria': criteria,
-                'runtime': 'legacy',
-                'error': result.get('error', 'Legacy runtime failed'),
-            }
-        return _with_qa_verify_cutover(result, requested_runtime, 'legacy', fallback_enabled)
+        blocked_message = _blocked_runtime_message('intelligence_qa_verify', requested_runtime)
+        fallback_state = {
+            'used': False,
+            'from_runtime': requested_runtime,
+            'reason': blocked_message,
+            'state': 'blocked_non_loom_runtime',
+        }
+        result = {
+            'criteria': criteria,
+            'runtime': 'blocked',
+            'error': blocked_message,
+        }
+        return _with_qa_verify_cutover(result, requested_runtime, 'blocked', False, fallback_state=fallback_state)
 
     loom_preflight = _loom_qa_preflight(_loom_qa_capability())
     if not loom_preflight.get('ok'):

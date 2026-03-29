@@ -13,7 +13,7 @@ It is not promotional copy. Every claim is tagged verified, inferred, or unknown
 | Component | Status | Source |
 |-----------|--------|--------|
 | Agent runtime | HEALTHY — `loom doctor` OK and the Loom service-state probe verified healthy at closeout; this host remains a single-host Loom proof surface with bounded compatibility paths | `loom health --format json`, `loom service status --format json` |
-| Live route cutover | VERIFIED — `intelligence_on_demand_research` is the only Loom-owned cutover on this host; fallback is disabled | `readiness.py --json`, live route checks |
+| Live route cutover | VERIFIED — Meridian-facing MCP execution on this host is Loom-owned or fail-closed; non-Loom route requests are blocked instead of falling back silently | `readiness.py --json`, live route checks |
 | Runtime proof receipt | VERIFIED — public `GET /api/runtime-proof` now turns the host's Loom health, canonical Loom service-state probe, runtime inventory, and governed-agent alignment into a structured proof receipt | localhost GET to `http://127.0.0.1:18901/api/runtime-proof` |
 | Night-shift pipeline | BLOCKED — treasury $48 below reserve floor | `ci_vertical.py preflight` |
 | Constitutional preflight | BLOCKED — treasury $48 below reserve floor | `treasury.py runway` |

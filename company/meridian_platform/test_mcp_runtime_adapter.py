@@ -179,23 +179,21 @@ class McpRuntimeAdapterTests(unittest.TestCase):
         self.assertEqual(payload['url'], 'https://duckduckgo.com/html/?q=OpenAI+pricing')
         self.assertEqual(payload['urls'], ['https://duckduckgo.com/html/?q=OpenAI+pricing'])
 
-    def test_on_demand_research_route_override_legacy_beats_global_loom(self):
-        stdout = json.dumps({'response': 'legacy route result'})
-        completed = mock.Mock(returncode=0, stdout=stdout, stderr='')
+    def test_on_demand_research_route_override_legacy_fails_closed(self):
         env = {
             'MERIDIAN_INTELLIGENCE_RESEARCH_RUNTIME': 'loom',
             'MERIDIAN_INTELLIGENCE_ON_DEMAND_RESEARCH_RUNTIME': 'legacy',
         }
         with mock.patch.dict(os.environ, env, clear=False):
-            with mock.patch.object(mcp_server.subprocess, 'run', return_value=completed):
-                result = mcp_server.do_on_demand_research_route('OpenAI pricing', 'quick')
+            result = mcp_server.do_on_demand_research_route('OpenAI pricing', 'quick')
 
-        self.assertEqual(result['runtime'], 'legacy')
+        self.assertEqual(result['runtime'], 'blocked')
         self.assertEqual(result['route_cutover']['requested_runtime'], 'legacy')
-        self.assertEqual(result['route_cutover']['selected_runtime'], 'legacy')
+        self.assertEqual(result['route_cutover']['selected_runtime'], 'blocked')
         self.assertFalse(result['route_cutover']['fallback_enabled'])
         self.assertIn('requested=legacy', result['route_cutover']['transcript'])
-        self.assertIn('selected=legacy', result['route_cutover']['transcript'])
+        self.assertIn('selected=blocked', result['route_cutover']['transcript'])
+        self.assertIn('not enabled on this host', result['error'])
 
     def test_on_demand_research_route_uses_loom_with_cutover_metadata(self):
         service_status = mock.Mock(
@@ -352,7 +350,8 @@ class McpRuntimeAdapterTests(unittest.TestCase):
         self.assertTrue(normalized['supported'])
         self.assertEqual(normalized['subset'], 'loom_plugin_skill_subset')
         self.assertEqual(normalized['skill_slug'], 'safe-web-research')
-        self.assertEqual(normalized['source_kind'], 'legacy_workspace_skill')
+        self.assertEqual(normalized['source_kind'], 'loom_workspace_skill_import')
+        self.assertEqual(preflight['capability']['source_kind'], 'loom_workspace_skill_import')
         self.assertEqual(normalized['source_manifest'], '/home/ubuntu/.meridian/workspace/skills/safe-web-research/SKILL.md')
         self.assertEqual(normalized['source_path'], '/home/ubuntu/.meridian/workspace/skills/safe-web-research')
         self.assertEqual(normalized['worker_kind'], 'python')
@@ -443,24 +442,21 @@ class McpRuntimeAdapterTests(unittest.TestCase):
         self.assertEqual(result['verification'], 'PASS with confidence 92')
 
 
-    def test_qa_route_override_legacy_beats_global_loom(self):
-        stdout = json.dumps({'response': 'legacy qa route result'})
-        completed = mock.Mock(returncode=0, stdout=stdout, stderr='')
+    def test_qa_route_override_legacy_fails_closed(self):
         env = {
             'MERIDIAN_INTELLIGENCE_QA_RUNTIME': 'loom',
             'MERIDIAN_INTELLIGENCE_QA_VERIFY_RUNTIME': 'legacy',
         }
         with mock.patch.dict(os.environ, env, clear=False):
-            with mock.patch.object(mcp_server.subprocess, 'run', return_value=completed):
-                result = mcp_server.do_qa_verify_route('text to verify', 'factual')
+            result = mcp_server.do_qa_verify_route('text to verify', 'factual')
 
-        self.assertEqual(result['runtime'], 'legacy')
-        self.assertEqual(result['verification'], 'legacy qa route result')
+        self.assertEqual(result['runtime'], 'blocked')
         self.assertEqual(result['route_cutover']['requested_runtime'], 'legacy')
-        self.assertEqual(result['route_cutover']['selected_runtime'], 'legacy')
+        self.assertEqual(result['route_cutover']['selected_runtime'], 'blocked')
         self.assertFalse(result['route_cutover']['fallback_enabled'])
         self.assertIn('requested=legacy', result['route_cutover']['transcript'])
-        self.assertIn('selected=legacy', result['route_cutover']['transcript'])
+        self.assertIn('selected=blocked', result['route_cutover']['transcript'])
+        self.assertIn('not enabled on this host', result['error'])
 
     def test_qa_route_uses_loom_with_cutover_metadata(self):
         service_status = mock.Mock(

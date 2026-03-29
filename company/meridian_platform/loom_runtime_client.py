@@ -121,6 +121,14 @@ def capability_preflight(
                 if normalize_capability is not None:
                     normalized = normalize_capability(capability_payload)
                     preflight['normalized_import_metadata'] = normalized
+                    if normalized.get('source_kind'):
+                        preflight['capability']['source_kind'] = normalized['source_kind']
+                    if normalized.get('worker_entry'):
+                        preflight['capability']['worker_entry'] = normalized['worker_entry']
+                    if normalized.get('source_manifest'):
+                        preflight['capability']['source_manifest'] = normalized['source_manifest']
+                    if normalized.get('source_path'):
+                        preflight['capability']['source_path'] = normalized['source_path']
                     if not normalized.get('supported', True):
                         reason = normalized.get('unsupported_reason') or 'unknown'
                         preflight['errors'].append(f'loom imported skill subset unsupported: {reason}')
