@@ -26,6 +26,7 @@ if PLATFORM_DIR not in sys.path:
     sys.path.insert(0, PLATFORM_DIR)
 
 from agent_registry import load_registry, normalize_agent_record  # noqa: E402
+from constitutional_model import constitutional_model  # noqa: E402
 from loom_runtime_discovery import preferred_loom_bin, preferred_loom_root  # noqa: E402
 
 
@@ -494,6 +495,7 @@ def public_loom_runtime_receipt(
         'proof_type': proof.get('proof_type', 'live_single_host_loom_deployment'),
         'checked_at': proof.get('checked_at', _now()),
         'bound_org_id': bound_org_id,
+        'constitutional_model': constitutional_model(),
         'deployment_truth': dict(proof.get('deployment_truth') or {}),
         'health': {
             'status': health.get('status', 'unknown'),

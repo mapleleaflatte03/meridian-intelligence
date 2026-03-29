@@ -215,6 +215,7 @@ import status_surface
 import pilot_intake
 import subscription_preview_queue
 import subscription_service
+from constitutional_model import constitutional_model
 from federation import (
     FederationAuthority,
     ReplayStore,
@@ -3396,6 +3397,7 @@ def api_status(context_source='founding_default', institution_context=None):
     result = {
         'runtime_id': 'loom_native',
         'proof_mode': 'live_host_runtime_probe',
+        'constitutional_model': constitutional_model(),
         'context': {
             'mode': 'process_bound',
             'bound_org_id': org_id,

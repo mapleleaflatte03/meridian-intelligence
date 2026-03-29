@@ -5,7 +5,7 @@
 <p align="center">
   <strong>Meridian — Governed Competitor Intelligence on a Constitutional Kernel</strong><br>
   First commercial wedge proving governed digital labor.<br>
-  Loom is the primary execution entrypoint.
+  Loom is the live execution runtime on this host.
 </p>
 
 <p align="center">
@@ -32,8 +32,9 @@ This repo is the public intelligence surface for Meridian's first commercial wed
 Meridian v0.1.0 launches with a premium public surface around three ideas:
 
 - Governed competitor intelligence as the first commercial wedge proving governed digital labor.
-- Meridian Loom as the primary hands-on execution surface and installable runtime.
-- A truthful boundary that separates installable local runtime proof from broader live-host claims.
+- Meridian Loom as the live execution runtime on this host and the installable local runtime.
+- A truthful constitutional boundary: the kernel contributes five governance primitives, while the Meridian platform composes Commitment as the sixth platform primitive.
+- A truthful host boundary that separates verified live routes from future deployment claims.
 
 ## 1-Command Install
 
@@ -45,31 +46,29 @@ curl -fsSL https://raw.githubusercontent.com/mapleleaflatte03/meridian-loom/main
 
 The installer story belongs to Meridian Loom. This intelligence repo links to that runtime surface while keeping the live customer and host boundary honest.
 
-## Runtime Story
+## Constitutional Model
 
-The current v0.1.0 primitive story across the stack is:
+The current v0.1.0 Meridian story across the stack is:
 
-- Terminal Execution
-- Browser Vision
-- Omni-channel Presence
-- Persistent Memory
-- Heartbeat / Background Autonomy
-- Dynamic Skill Loading
+- **Kernel boundary:** five governance primitives — Institution, Agent, Authority, Treasury, Court.
+- **Meridian platform:** six platform primitives — Institution, Agent, Authority, Treasury, Court, Commitment.
+- **Loom runtime:** the live execution runtime on this host, plus the installable local runtime.
 
-Some of those surfaces are live local primitives today. Others remain declared or bounded architecture surfaces. The public boundary note stays canonical for what is actually live on the hosted system.
+Loom carries execution, sessions, channels, skills, and memory/context. Commitment is not a sixth kernel primitive; it is the sixth Meridian platform primitive composed above the kernel and exercised through Meridian-facing services.
 
 ## Three-Part Architecture
 
 - [meridian-kernel](https://github.com/mapleleaflatte03/meridian-kernel): governance truth, institution, authority, treasury, and court.
-- [meridian-intelligence](https://github.com/mapleleaflatte03/meridian-intelligence): public intelligence surface, launch pages, subscriptions, and MCP routes.
-- [meridian-loom](https://github.com/mapleleaflatte03/meridian-loom): installable local runtime, Mantis CLI surface, and execution primitives.
+- [meridian-intelligence](https://github.com/mapleleaflatte03/meridian-intelligence): public intelligence surface, launch pages, subscriptions, MCP routes, and the Commitment-facing product layer.
+- [meridian-loom](https://github.com/mapleleaflatte03/meridian-loom): live execution runtime on this host and the installable local runtime.
 
 ## What Is Live Today
 
 - The public web surface, pilot flow, support path, and live host truth pages.
 - Competitor intelligence as the first managed vertical.
-- Loom as the installable local runtime surface with a Mantis-branded CLI and installer.
-- A bounded live-host stance: Meridian Loom is the primary runtime, and Meridian-facing execution routes on this host now fail closed instead of silently falling back to older runtime paths.
+- Loom as both the live execution runtime on this host and the installable local runtime.
+- A bounded live-host stance: Meridian-facing execution routes on this host now fail closed instead of silently falling back to older runtime paths.
+- Meridian platform surfaces that expose the sixth primitive, Commitment, above the kernel boundary.
 
 ## What Is Not Claimed
 
@@ -200,4 +199,4 @@ Constitutional 3-ledger internal economy:
 
 ---
 
-*Governance kernel for managed digital labor. Built on Meridian Loom runtime. Running since 2026-03-15.*
+*Meridian platform for governed digital labor. Built on the Meridian Constitutional Kernel and the Meridian Loom runtime. Running since 2026-03-15.*

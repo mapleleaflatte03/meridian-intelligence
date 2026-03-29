@@ -472,7 +472,7 @@ an explicit `founding_locked` rejection instead of implying shared admission.
 
 ## Principles
 
-1. Five primitives govern everything — Institution, Agent, Authority, Treasury, Court
+1. Kernel and platform boundaries stay explicit — the kernel contributes five governance primitives, and the Meridian platform composes Commitment as the sixth platform primitive
 2. Compose over economy — import and extend, never rewrite
 3. Every action is auditable — who did what, when, with what authority
 4. Institutions should own their own resources; remaining founding-org shared state is technical debt, not doctrine

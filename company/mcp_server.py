@@ -71,6 +71,7 @@ except ImportError:
 
 try:
     from organizations import load_orgs, get_org
+    from constitutional_model import constitutional_model
     from institution_context import InstitutionContext, MCP_SERVICE_BOUNDARY
     from capsule import ensure_payment_monitor_aliases
     from capsule import payment_events_log_path as capsule_payment_events_log_path
@@ -152,15 +153,18 @@ def _blocked_runtime_message(route_name: str, requested_runtime: str) -> str:
 
 
 def _company_info_payload(context: dict, wallet_addr: str) -> dict:
+    model = constitutional_model()
     return {
         'company': 'Meridian',
         'tagline': 'Governed Digital Labor on a Constitutional Kernel',
         'description': (
             'Meridian is a constitutional operating system for governed digital labor. '
             'On this host, Loom is the active execution runtime and competitor intelligence '
-            'is the first commercial wedge. Meridian is currently articulated through six '
-            'primitives: Institution, Agent, Authority, Treasury, Court, and Commitment.'
+            'is the first commercial wedge. The kernel contributes five governance '
+            'primitives, and the Meridian platform composes Commitment as the sixth '
+            'platform primitive.'
         ),
+        'constitutional_model': model,
         'commercial_wedge': {
             'name': 'Competitive Intelligence',
             'status': 'live',
@@ -190,7 +194,7 @@ def _company_info_payload(context: dict, wallet_addr: str) -> dict:
             'Commitment': 'Capsule-backed obligations, lifecycle transitions, and federation delivery references',
         },
         'platform_capabilities': [
-            'Six constitutional primitives (Institution, Agent, Authority, Treasury, Court, Commitment)',
+            'Kernel: five governance primitives; platform: six with Commitment',
             'Agent registry with identity, scopes, budget, risk state, and lifecycle',
             'Organization-scoped resources with charter and policy defaults',
             'Audit logging for every significant action',
