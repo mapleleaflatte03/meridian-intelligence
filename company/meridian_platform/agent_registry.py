@@ -29,6 +29,11 @@ try:
 except ImportError:
     from .capsule import ensure_treasury_aliases, ledger_path as capsule_ledger_path
 
+try:
+    from loom_runtime_discovery import runtime_value as loom_runtime_value
+except ImportError:
+    from .loom_runtime_discovery import runtime_value as loom_runtime_value
+
 VALID_ROLLOUT_STATES = ('active', 'staged', 'quarantined', 'disabled')
 VALID_ROLES = ('manager', 'analyst', 'verifier', 'executor', 'writer', 'qa_gate', 'compressor')
 VALID_RISK_STATES = ('nominal', 'elevated', 'critical', 'suspended')
@@ -50,7 +55,11 @@ def _now():
 
 def runtime_binding_for_org(org_id, context_source='agent_registry', runtime_binding=None):
     binding = dict(runtime_binding or {})
-    runtime_id = (binding.get('runtime_id') or '').strip() or DEFAULT_RUNTIME_ID
+    runtime_id = (
+        (binding.get('runtime_id') or '').strip()
+        or loom_runtime_value('runtime_id', DEFAULT_RUNTIME_ID)
+        or DEFAULT_RUNTIME_ID
+    )
     runtime_registered = runtime_id == DEFAULT_RUNTIME_ID
     return {
         'runtime_id': runtime_id,
