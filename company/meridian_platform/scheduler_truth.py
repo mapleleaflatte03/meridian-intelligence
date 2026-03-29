@@ -18,7 +18,11 @@ import argparse
 import datetime as dt
 import json
 import os
-import subprocess
+
+try:
+    from loom_runtime_discovery import preferred_loom_bin, preferred_loom_root, run_loom_json
+except ImportError:
+    from .loom_runtime_discovery import preferred_loom_bin, preferred_loom_root, run_loom_json
 
 
 CRON_DIR = os.path.expanduser('~/.meridian/cron')
@@ -63,17 +67,26 @@ def latest_run_entry(job_id):
     return max(entries, key=lambda entry: entry.get('ts', 0))
 
 
-def _runtime_ok():
-    try:
-        result = subprocess.run(
-            ['loom', 'doctor', '--format', 'json'],
-            capture_output=True,
-            text=True,
-            timeout=20,
-        )
-        return result.returncode == 0
-    except Exception:
-        return False
+def _runtime_truth():
+    response = run_loom_json(['doctor'], timeout=20)
+    payload = response.get('payload') or []
+    checks = payload.get('checks', payload) if isinstance(payload, dict) else payload
+    critical = 0
+    warn = 0
+    for check in checks if isinstance(checks, list) else []:
+        level = str(check.get('level', '')).upper()
+        if level == 'CRITICAL':
+            critical += 1
+        elif level == 'WARN':
+            warn += 1
+    return {
+        'loom_health_ok': bool(response.get('ok')) and critical == 0,
+        'doctor_ok': bool(response.get('ok')),
+        'critical_count': critical,
+        'warn_count': warn,
+        'binary_path': preferred_loom_bin(),
+        'runtime_root': preferred_loom_root(),
+    }
 
 
 def _error_code(text):
@@ -165,7 +178,9 @@ def _contradictions(job, latest_run):
     return contradictions
 
 
-def job_view(job, runtime_ok=False):
+def job_view(job, runtime_truth=None):
+    runtime_truth = dict(runtime_truth or {})
+    runtime_ok = bool(runtime_truth.get('loom_health_ok'))
     latest_run = _latest_run(job)
     note = ''
     if latest_run['error_code'] == 'deactivated_workspace' and runtime_ok:
@@ -175,35 +190,37 @@ def job_view(job, runtime_ok=False):
         'name': job.get('name', job['id']),
         'schedule_config': _schedule_config(job),
         'latest_run': latest_run,
-        'current_runtime': {
-            'loom_health_ok': runtime_ok,
-        },
+        'current_runtime': runtime_truth,
         'contradictions': _contradictions(job, latest_run),
         'note': note,
     }
 
 
 def all_job_truth():
-    runtime_ok = _runtime_ok()
+    runtime_truth = _runtime_truth()
     return {
-        'current_runtime': {
-            'loom_health_ok': runtime_ok,
-        },
-        'jobs': [job_view(job, runtime_ok=runtime_ok) for job in load_jobs()],
+        'current_runtime': runtime_truth,
+        'jobs': [job_view(job, runtime_truth=runtime_truth) for job in load_jobs()],
     }
 
 
-def job_truth(job_name_or_id, runtime_ok=None):
-    runtime_ok = _runtime_ok() if runtime_ok is None else runtime_ok
+def job_truth(job_name_or_id, runtime_truth=None):
+    runtime_truth = _runtime_truth() if runtime_truth is None else runtime_truth
     for job in load_jobs():
         if job['id'] == job_name_or_id or job.get('name') == job_name_or_id:
-            return job_view(job, runtime_ok=runtime_ok)
+            return job_view(job, runtime_truth=runtime_truth)
     return None
 
 
-def _print_table(rows, runtime_ok):
-    runtime_label = 'healthy' if runtime_ok else 'unhealthy'
-    print(f'Current runtime: {runtime_label}')
+def _print_table(rows, runtime_truth):
+    runtime_label = 'healthy' if runtime_truth.get('loom_health_ok') else 'unhealthy'
+    print(
+        'Current runtime: '
+        f"{runtime_label} "
+        f"(doctor_ok={runtime_truth.get('doctor_ok')} "
+        f"critical={runtime_truth.get('critical_count', 0)} "
+        f"warn={runtime_truth.get('warn_count', 0)})"
+    )
     print(f"{'Job':<22} {'Run':<8} {'Delivery':<12} {'Source':<8} {'Finished'}")
     print(f"{'-'*22} {'-'*8} {'-'*12} {'-'*8} {'-'*20}")
     for row in rows:
@@ -225,8 +242,8 @@ def main():
     args = parser.parse_args()
 
     if args.job:
-        runtime_ok = _runtime_ok()
-        data = job_truth(args.job, runtime_ok=runtime_ok)
+        runtime_truth = _runtime_truth()
+        data = job_truth(args.job, runtime_truth=runtime_truth)
         if data is None:
             raise SystemExit(f'Unknown job: {args.job}')
     else:
@@ -236,9 +253,9 @@ def main():
         print(json.dumps(data, indent=2))
     else:
         if isinstance(data, dict) and 'jobs' in data:
-            _print_table(data['jobs'], data['current_runtime']['loom_health_ok'])
+            _print_table(data['jobs'], data['current_runtime'])
         else:
-            _print_table([data], data['current_runtime']['loom_health_ok'])
+            _print_table([data], data['current_runtime'])
 
 
 if __name__ == '__main__':
