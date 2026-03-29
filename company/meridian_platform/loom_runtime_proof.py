@@ -26,6 +26,7 @@ if PLATFORM_DIR not in sys.path:
     sys.path.insert(0, PLATFORM_DIR)
 
 from agent_registry import load_registry, normalize_agent_record  # noqa: E402
+from loom_runtime_discovery import preferred_loom_bin, preferred_loom_root  # noqa: E402
 
 
 AGENT_HANDLE_FIELDS = ('economy_key', 'name', 'id')
@@ -65,28 +66,11 @@ def _agent_handle(agent: Mapping[str, Any]) -> str:
 
 
 def _loom_bin() -> str:
-    candidates = [
-        (os.environ.get('MERIDIAN_LOOM_BIN') or '').strip(),
-        '/home/ubuntu/.local/share/meridian-loom/current/bin/loom',
-        '/root/.local/share/meridian-loom/current/bin/loom',
-        shutil.which('loom') or '',
-    ]
-    for candidate in candidates:
-        if candidate and os.path.exists(candidate):
-            return candidate
-    return candidates[0] or 'loom'
+    return preferred_loom_bin()
 
 
 def _loom_root() -> str:
-    candidates = [
-        (os.environ.get('MERIDIAN_LOOM_ROOT') or '').strip(),
-        '/home/ubuntu/.local/share/meridian-loom/runtime/default',
-        '/root/.local/share/meridian-loom/runtime/default',
-    ]
-    for candidate in candidates:
-        if candidate and os.path.exists(candidate):
-            return candidate
-    return candidates[0] or '/home/ubuntu/.local/share/meridian-loom/runtime/default'
+    return preferred_loom_root()
 
 
 def _health_command() -> List[str]:
