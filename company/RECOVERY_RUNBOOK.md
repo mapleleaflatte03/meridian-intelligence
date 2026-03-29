@@ -33,7 +33,7 @@ python3 company/meridian_platform/readiness.py
 | Tests rewritten | `unittest.TestCase` coverage now includes economy integrity plus company money-integrity checks |
 | Pipeline bootstrap files | Created `night-shift/BACKLOG.md` and `night-shift/LAST_HANDOFF.md` |
 | Caddy credentials | Stored at `/etc/caddy/.workspace_credentials` (mode 0600, `org_id` and `user_id` pinned to founding Meridian owner context) |
-| Systemd org binding | `meridian-workspace.service` and `soncompany-mcp.service` now have drop-ins under `/etc/systemd/system/*.service.d/org-bind.conf` pinning `org_48b05c21` explicitly |
+| Systemd org binding | `meridian-workspace.service` and `meridian-mcp.service` now have drop-ins under `/etc/systemd/system/*.service.d/org-bind.conf` pinning `org_48b05c21` explicitly |
 | Sentinel authority drift | `lift_sanction()` now restores minimum AUTH when lifting `zero_authority`; Sentinel reconciled to AUTH=6 |
 
 ## What Still Requires Engineering Work
@@ -136,7 +136,7 @@ loom schedule run-due "25911223-5a4a-44ae-a089-c1d8527e4e58" --timeout 120000  #
 
 ## What Is Healthy (Verified 2026-03-20)
 
-- All local services running: caddy, meridian-workspace, soncompany-mcp, Loom local control plane
+- All local services running: caddy, meridian-workspace, meridian-mcp, Loom local control plane
 - Website serving at https://app.welliam.codes (200 OK)
 - Workspace dashboard + API: responding after owner auth
 - Workspace API endpoints: 401 without owner credentials

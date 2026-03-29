@@ -19,8 +19,8 @@ if [[ -f "$ENV_FILE" ]]; then
 fi
 
 if [[ "$RESTART_CHECK" == "1" ]]; then
-  sudo -n systemctl restart soncompany-mcp.service
-  sudo -n systemctl is-active soncompany-mcp.service
+  sudo -n systemctl restart meridian-mcp.service
+  sudo -n systemctl is-active meridian-mcp.service
 fi
 
 run_case() {
