@@ -19,6 +19,9 @@ from capsule import (
     subscriptions_backup_path,
     subscriptions_lock_path,
 )
+from loom_runtime_client import LoomRuntimeContext
+from loom_runtime_client import capability_preflight as shared_loom_capability_preflight
+from loom_runtime_client import run_capability as shared_run_loom_capability
 
 
 TRIAL_DAYS = 7
@@ -380,6 +383,18 @@ def _loom_delivery_capability():
         if capability:
             return capability
     return ''
+
+
+def _loom_runtime_context():
+    return LoomRuntimeContext(
+        loom_bin=_loom_bin(),
+        loom_root=_loom_root(),
+        org_id=_loom_org_id(),
+        agent_id=(os.environ.get('MERIDIAN_LOOM_AGENT_ID') or 'leviathann').strip(),
+        service_token=_loom_service_token(),
+        cwd=WORKSPACE,
+        runtime_env=os.environ,
+    )
 
 
 def _load_json_file(path, default=None):
@@ -810,221 +825,34 @@ def _normalize_loom_delivery_run(run, org_id=None, existing=None):
 
 
 def _loom_delivery_preflight(capability_name):
-    preflight = {
-        'ok': False,
-        'runtime': 'loom',
-        'capability_name': capability_name,
-        'errors': [],
-    }
+    preflight = shared_loom_capability_preflight(
+        _loom_runtime_context(),
+        capability_name,
+        route='subscription_delivery',
+        runner=subprocess.run,
+        transport_allowlist=('http', 'socket+http', ''),
+    )
     if not capability_name:
-        preflight['errors'].append('Loom subscription delivery capability is not configured')
-        return preflight
-
-    env = os.environ.copy()
-    service_token = _loom_service_token()
-    if service_token:
-        env['LOOM_SERVICE_TOKEN'] = service_token
-
-    service_cmd = [_loom_bin(), 'service', 'status', '--root', _loom_root(), '--format', 'json']
-    capability_cmd = [_loom_bin(), 'capability', 'show', '--root', _loom_root(), '--name', capability_name, '--format', 'json']
-
-    try:
-        service = subprocess.run(service_cmd, capture_output=True, text=True, timeout=15, cwd=WORKSPACE, env=env)
-    except subprocess.TimeoutExpired:
-        preflight['errors'].append('loom service status timed out')
-        service = None
-    except Exception as exc:
-        preflight['errors'].append(str(exc))
-        service = None
-
-    if service is not None:
-        if service.returncode != 0:
-            preflight['errors'].append(f'loom service status failed: {service.stderr[:500]}')
-        else:
-            try:
-                payload = json.loads((service.stdout or '').strip())
-            except json.JSONDecodeError:
-                preflight['errors'].append('loom service status returned non-JSON output')
-            else:
-                preflight['service'] = payload
-                if not payload.get('running'):
-                    preflight['errors'].append('loom service is not running')
-                if payload.get('service_status') != 'running':
-                    preflight['errors'].append(f"loom service_status={payload.get('service_status', '')}")
-                if payload.get('health') != 'healthy':
-                    preflight['errors'].append(f"loom health={payload.get('health', '')}")
-
-    try:
-        capability = subprocess.run(capability_cmd, capture_output=True, text=True, timeout=15, cwd=WORKSPACE, env=env)
-    except subprocess.TimeoutExpired:
-        preflight['errors'].append('loom capability show timed out')
-        capability = None
-    except Exception as exc:
-        preflight['errors'].append(str(exc))
-        capability = None
-
-    if capability is not None:
-        if capability.returncode != 0:
-            message = capability.stderr.strip() or capability.stdout.strip() or 'unknown error'
-            preflight['errors'].append(f'loom capability show failed: {message[:500]}')
-        else:
-            try:
-                payload = json.loads((capability.stdout or '').strip())
-            except json.JSONDecodeError:
-                preflight['errors'].append('loom capability show returned non-JSON output')
-            else:
-                preflight['capability'] = payload
-                if not payload.get('enabled', False):
-                    preflight['errors'].append('loom capability is disabled')
-                if payload.get('verification_status') not in {'verified', 'builtin'}:
-                    preflight['errors'].append(f"loom capability verification={payload.get('verification_status', '')}")
-                if payload.get('promotion_state') not in {'promoted', 'builtin'}:
-                    preflight['errors'].append(f"loom capability promotion={payload.get('promotion_state', '')}")
-
-    preflight['ok'] = not preflight['errors']
+        preflight['errors'] = ['Loom subscription delivery capability is not configured']
+        preflight['ok'] = False
     return preflight
 
 
 def _run_loom_delivery_capability(capability_name, payload, timeout):
-    if not capability_name:
-        return {
-            'ok': False,
-            'runtime': 'loom',
-            'capability_name': '',
-            'error': 'Loom subscription delivery capability is not configured',
-        }
-
-    env = os.environ.copy()
-    service_token = _loom_service_token()
-    if service_token:
-        env['LOOM_SERVICE_TOKEN'] = service_token
-
-    submit_cmd = [
-        _loom_bin(),
-        'service',
-        'submit',
-        '--root',
-        _loom_root(),
-        '--org-id',
-        _loom_org_id(),
-        '--agent-id',
-        (os.environ.get('MERIDIAN_LOOM_AGENT_ID') or 'leviathann').strip(),
-        '--capability',
+    result = shared_run_loom_capability(
+        _loom_runtime_context(),
         capability_name,
-        '--estimated-cost-usd',
-        '0',
-        '--payload-json',
-        json.dumps(payload),
-        '--format',
-        'json',
-    ]
-    if service_token:
-        submit_cmd.extend(['--service-token', service_token])
-
-    try:
-        submit = subprocess.run(submit_cmd, capture_output=True, text=True, timeout=min(timeout, 30), cwd=WORKSPACE, env=env)
-    except subprocess.TimeoutExpired:
-        return {
-            'ok': False,
-            'runtime': 'loom',
-            'capability_name': capability_name,
-            'error': 'Loom service submit timed out',
-        }
-    except Exception as exc:
-        return {
-            'ok': False,
-            'runtime': 'loom',
-            'capability_name': capability_name,
-            'error': str(exc),
-        }
-
-    if submit.returncode != 0:
-        return {
-            'ok': False,
-            'runtime': 'loom',
-            'capability_name': capability_name,
-            'error': f'Loom service submit failed: {submit.stderr[:500]}',
-        }
-
-    try:
-        submit_payload = json.loads((submit.stdout or '').strip())
-    except json.JSONDecodeError:
-        return {
-            'ok': False,
-            'runtime': 'loom',
-            'capability_name': capability_name,
-            'error': 'Loom service submit returned non-JSON output',
-        }
-
-    job_id = (submit_payload.get('job_id') or '').strip()
-    if not job_id:
-        return {
-            'ok': False,
-            'runtime': 'loom',
-            'capability_name': capability_name,
-            'error': 'Loom service submit did not return a job_id',
-            'submit': submit_payload,
-        }
-
-    inspect_cmd = [
-        _loom_bin(),
-        'job',
-        'inspect',
-        '--root',
-        _loom_root(),
-        '--job-id',
-        job_id,
-        '--format',
-        'json',
-    ]
-    deadline = time.time() + timeout
-    last_snapshot = None
-    while time.time() < deadline:
-        try:
-            inspect = subprocess.run(inspect_cmd, capture_output=True, text=True, timeout=15, cwd=WORKSPACE, env=env)
-        except subprocess.TimeoutExpired:
-            inspect = None
-        if inspect and inspect.returncode == 0:
-            try:
-                last_snapshot = json.loads((inspect.stdout or '').strip())
-            except json.JSONDecodeError:
-                last_snapshot = None
-            if isinstance(last_snapshot, dict):
-                status = (last_snapshot.get('job_status') or '').strip().lower()
-                if status == 'completed':
-                    result_path = os.path.join(_loom_root(), 'state', 'runtime', 'jobs', job_id, 'result.json')
-                    worker_result = _load_json_file(result_path, default={}) or {}
-                    return {
-                        'ok': True,
-                        'runtime': 'loom',
-                        'capability_name': capability_name,
-                        'job_id': job_id,
-                        'submit': submit_payload,
-                        'snapshot': last_snapshot,
-                        'worker_result': worker_result,
-                        'result_path': result_path,
-                    }
-                if status in {'failed', 'denied', 'cancelled'}:
-                    return {
-                        'ok': False,
-                        'runtime': 'loom',
-                        'capability_name': capability_name,
-                        'job_id': job_id,
-                        'submit': submit_payload,
-                        'snapshot': last_snapshot,
-                        'error': f'Loom job ended with status={status}',
-                    }
-        time.sleep(1)
-
-    return {
-        'ok': False,
-        'runtime': 'loom',
-        'capability_name': capability_name,
-        'job_id': job_id,
-        'submit': submit_payload,
-        'snapshot': last_snapshot,
-        'error': f'Loom job timed out ({timeout}s limit)',
-    }
+        payload,
+        timeout,
+        runner=subprocess.run,
+        sleeper=time.sleep,
+        result_loader=_load_json_file,
+    )
+    if result.get('ok') and result.get('job_id'):
+        result['result_path'] = os.path.join(_loom_root(), 'state', 'runtime', 'jobs', result['job_id'], 'result.json')
+    if not capability_name:
+        result['error'] = 'Loom subscription delivery capability is not configured'
+    return result
 
 
 def _normalize_loom_delivery_job(job, org_id=None, existing=None):

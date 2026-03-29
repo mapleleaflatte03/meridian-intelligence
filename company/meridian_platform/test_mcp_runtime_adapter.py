@@ -308,7 +308,9 @@ class McpRuntimeAdapterTests(unittest.TestCase):
         self.assertEqual(result['route_cutover']['fallback']['from_runtime'], 'loom')
         self.assertEqual(result['route_cutover']['fallback']['state'], 'preflight_failed')
         self.assertIn('missing capability', result['route_cutover']['fallback']['reason'])
-        self.assertEqual(len(run_mock.call_args_list), 2)
+        commands = [call.args[0][1:3] for call in run_mock.call_args_list]
+        self.assertGreaterEqual(len(commands), 2)
+        self.assertEqual(commands[-2:], [['service', 'status'], ['capability', 'show']])
 
     def test_research_loom_plugin_skill_import_metadata_is_normalized(self):
         service_status = mock.Mock(
@@ -548,7 +550,9 @@ class McpRuntimeAdapterTests(unittest.TestCase):
         self.assertIn('missing qa capability', result['route_cutover']['fallback']['reason'])
         self.assertIn('fallback=off', result['route_cutover']['transcript'])
         self.assertIn('preflight=blocked', result['route_cutover']['transcript'])
-        self.assertEqual(len(run_mock.call_args_list), 2)
+        commands = [call.args[0][1:3] for call in run_mock.call_args_list]
+        self.assertGreaterEqual(len(commands), 2)
+        self.assertEqual(commands[-2:], [['service', 'status'], ['capability', 'show']])
 
 
 if __name__ == '__main__':

@@ -88,6 +88,9 @@ except ImportError:
 from loom_runtime_discovery import preferred_loom_bin as _shared_preferred_loom_bin
 from loom_runtime_discovery import preferred_loom_root as _shared_preferred_loom_root
 from loom_runtime_discovery import runtime_value as _shared_runtime_value
+from loom_runtime_client import LoomRuntimeContext
+from loom_runtime_client import capability_preflight as _shared_loom_capability_preflight
+from loom_runtime_client import run_capability as _shared_run_loom_capability
 
 # Founding institution binding — resolved once at startup.
 # All audit, metering, treasury, and revenue calls use this org_id.
@@ -199,6 +202,18 @@ def _loom_research_capability() -> str:
 
 def _loom_qa_capability() -> str:
     return (os.environ.get('MERIDIAN_LOOM_QA_CAPABILITY') or '').strip()
+
+
+def _loom_runtime_context() -> LoomRuntimeContext:
+    return LoomRuntimeContext(
+        loom_bin=_loom_bin(),
+        loom_root=_loom_root(),
+        org_id=_loom_org_id(),
+        agent_id=_loom_agent_id(),
+        service_token=_loom_service_token(),
+        cwd=WORKSPACE,
+        runtime_env=os.environ,
+    )
 
 
 def _load_json_file(path: str, default=None):
@@ -425,93 +440,13 @@ def _on_demand_research_prompt(topic: str, depth: str = 'standard') -> str:
 
 
 def _loom_capability_preflight(capability_name: str, *, route: str) -> dict:
-    preflight = {
-        'ok': False,
-        'runtime': 'loom',
-        'route': route,
-        'capability_name': capability_name,
-        'errors': [],
-    }
-    env = os.environ.copy()
-    service_token = _loom_service_token()
-    if service_token:
-        env['LOOM_SERVICE_TOKEN'] = service_token
-
-    if not capability_name:
-        preflight['errors'].append(f'{route} capability is not configured')
-        return preflight
-
-    service_cmd = [_loom_bin(), 'service', 'status', '--root', _loom_root(), '--format', 'json']
-    capability_cmd = [_loom_bin(), 'capability', 'show', '--root', _loom_root(), '--name', capability_name, '--format', 'json']
-
-    try:
-        service = subprocess.run(service_cmd, capture_output=True, text=True, timeout=15, cwd=WORKSPACE, env=env)
-    except subprocess.TimeoutExpired:
-        preflight['errors'].append('loom service status timed out')
-        service = None
-    except Exception as exc:
-        preflight['errors'].append(str(exc))
-        service = None
-
-    if service is not None:
-        if service.returncode != 0:
-            preflight['errors'].append(f'loom service status failed: {service.stderr[:500]}')
-        else:
-            try:
-                service_payload = json.loads((service.stdout or '').strip())
-            except json.JSONDecodeError:
-                preflight['errors'].append('loom service status returned non-JSON output')
-            else:
-                preflight['service'] = service_payload
-                if not service_payload.get('running'):
-                    preflight['errors'].append('loom service is not running')
-                if service_payload.get('service_status') != 'running':
-                    preflight['errors'].append(f"loom service_status={service_payload.get('service_status', '')}")
-                if service_payload.get('health') != 'healthy':
-                    preflight['errors'].append(f"loom health={service_payload.get('health', '')}")
-                if service_payload.get('transport') not in {'http', 'socket+http'}:
-                    preflight['errors'].append(f"loom transport={service_payload.get('transport', '')}")
-
-    try:
-        capability = subprocess.run(capability_cmd, capture_output=True, text=True, timeout=15, cwd=WORKSPACE, env=env)
-    except subprocess.TimeoutExpired:
-        preflight['errors'].append('loom capability show timed out')
-        capability = None
-    except Exception as exc:
-        preflight['errors'].append(str(exc))
-        capability = None
-
-    if capability is not None:
-        if capability.returncode != 0:
-            message = capability.stderr.strip() or capability.stdout.strip() or 'unknown error'
-            preflight['errors'].append(f'loom capability show failed: {message[:500]}')
-        else:
-            try:
-                capability_payload = json.loads((capability.stdout or '').strip())
-            except json.JSONDecodeError:
-                preflight['errors'].append('loom capability show returned non-JSON output')
-            else:
-                preflight['capability'] = capability_payload
-                normalized_import_metadata = _normalize_loom_import_metadata(capability_payload)
-                preflight['normalized_import_metadata'] = normalized_import_metadata
-                if not normalized_import_metadata['supported']:
-                    preflight['errors'].append(
-                        'loom imported skill subset unsupported: '
-                        + normalized_import_metadata['unsupported_reason']
-                    )
-                if not capability_payload.get('enabled', False):
-                    preflight['errors'].append('loom capability is disabled')
-                if capability_payload.get('verification_status') not in {'verified', 'builtin'}:
-                    preflight['errors'].append(
-                        f"loom capability verification={capability_payload.get('verification_status', '')}"
-                    )
-                if capability_payload.get('promotion_state') not in {'promoted', 'builtin'}:
-                    preflight['errors'].append(
-                        f"loom capability promotion={capability_payload.get('promotion_state', '')}"
-                    )
-
-    preflight['ok'] = not preflight['errors']
-    return preflight
+    return _shared_loom_capability_preflight(
+        _loom_runtime_context(),
+        capability_name,
+        route=route,
+        runner=subprocess.run,
+        normalize_capability=_normalize_loom_import_metadata,
+    )
 
 
 def _loom_research_preflight(capability_name: str) -> dict:
@@ -717,160 +652,15 @@ def _extract_loom_research_content(worker_result: dict) -> str:
 
 
 def _run_loom_capability(capability_name: str, payload: dict, timeout: int) -> dict:
-    if not capability_name:
-        return {
-            'ok': False,
-            'runtime': 'loom',
-            'capability_name': '',
-            'error': 'Loom runtime selected but capability is not configured',
-        }
-
-    env = os.environ.copy()
-    service_token = _loom_service_token()
-    if service_token:
-        env['LOOM_SERVICE_TOKEN'] = service_token
-
-    submit_cmd = [
-        _loom_bin(),
-        'service',
-        'submit',
-        '--root',
-        _loom_root(),
-        '--org-id',
-        _loom_org_id(),
-        '--agent-id',
-        _loom_agent_id(),
-        '--capability',
+    return _shared_run_loom_capability(
+        _loom_runtime_context(),
         capability_name,
-        '--estimated-cost-usd',
-        '0',
-        '--payload-json',
-        json.dumps(payload),
-    ]
-    if service_token:
-        submit_cmd.extend(['--service-token', service_token])
-    submit_cmd.extend([
-        '--format',
-        'json',
-    ])
-
-    try:
-        submit = subprocess.run(
-            submit_cmd,
-            capture_output=True,
-            text=True,
-            timeout=min(timeout, 30),
-            cwd=WORKSPACE,
-            env=env,
-        )
-    except subprocess.TimeoutExpired:
-        return {
-            'ok': False,
-            'runtime': 'loom',
-            'capability_name': capability_name,
-            'error': 'Loom service submit timed out',
-        }
-    except Exception as exc:
-        return {
-            'ok': False,
-            'runtime': 'loom',
-            'capability_name': capability_name,
-            'error': str(exc),
-        }
-
-    if submit.returncode != 0:
-        return {
-            'ok': False,
-            'runtime': 'loom',
-            'capability_name': capability_name,
-            'error': f'Loom service submit failed: {submit.stderr[:500]}',
-        }
-
-    try:
-        submit_payload = json.loads((submit.stdout or '').strip())
-    except json.JSONDecodeError:
-        return {
-            'ok': False,
-            'runtime': 'loom',
-            'capability_name': capability_name,
-            'error': 'Loom service submit returned non-JSON output',
-        }
-
-    job_id = (submit_payload.get('job_id') or '').strip()
-    if not job_id:
-        return {
-            'ok': False,
-            'runtime': 'loom',
-            'capability_name': capability_name,
-            'error': 'Loom service submit did not return a job_id',
-            'submit': submit_payload,
-        }
-
-    inspect_cmd = [
-        _loom_bin(),
-        'job',
-        'inspect',
-        '--root',
-        _loom_root(),
-        '--job-id',
-        job_id,
-        '--format',
-        'json',
-    ]
-    deadline = time.time() + timeout
-    last_snapshot = None
-    while time.time() < deadline:
-        try:
-            inspect = subprocess.run(
-                inspect_cmd,
-                capture_output=True,
-                text=True,
-                timeout=15,
-                cwd=WORKSPACE,
-                env=env,
-            )
-        except subprocess.TimeoutExpired:
-            inspect = None
-        if inspect and inspect.returncode == 0:
-            try:
-                last_snapshot = json.loads((inspect.stdout or '').strip())
-            except json.JSONDecodeError:
-                last_snapshot = None
-            if isinstance(last_snapshot, dict):
-                status = (last_snapshot.get('job_status') or '').strip().lower()
-                if status == 'completed':
-                    result_path = os.path.join(_loom_root(), 'state', 'runtime', 'jobs', job_id, 'result.json')
-                    worker_result = _load_json_file(result_path, default={}) or {}
-                    return {
-                        'ok': True,
-                        'runtime': 'loom',
-                        'capability_name': capability_name,
-                        'job_id': job_id,
-                        'submit': submit_payload,
-                        'snapshot': last_snapshot,
-                        'worker_result': worker_result,
-                    }
-                if status in {'failed', 'denied', 'cancelled'}:
-                    return {
-                        'ok': False,
-                        'runtime': 'loom',
-                        'capability_name': capability_name,
-                        'job_id': job_id,
-                        'submit': submit_payload,
-                        'snapshot': last_snapshot,
-                        'error': f'Loom job ended with status={status}',
-                    }
-        time.sleep(1)
-
-    return {
-        'ok': False,
-        'runtime': 'loom',
-        'capability_name': capability_name,
-        'job_id': job_id,
-        'submit': submit_payload,
-        'snapshot': last_snapshot,
-        'error': f'Loom job timed out ({timeout}s limit)',
-    }
+        payload,
+        timeout,
+        runner=subprocess.run,
+        sleeper=time.sleep,
+        result_loader=_load_json_file,
+    )
 
 
 def _resolve_mcp_context():
