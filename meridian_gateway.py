@@ -1192,7 +1192,7 @@ class WebAPIAdapter(ChannelAdapter):
                 ingress_payload = ingress.get("payload") if isinstance(ingress, dict) else {}
                 session_key = str((ingress_payload or {}).get("session_key") or f"web_api:{LOOM_ORG_ID}").strip()
                 ingress_request_id = str((ingress_payload or {}).get("ingress_id") or "").strip()
-                answer = adapter.runtime.run_goal(goal.strip())
+                answer, team_meta = _run_team_route(goal.strip(), session_key, adapter.runtime)
                 delivery_id = ""
                 if answer:
                     delivery = _loom_channel_send("web_api", LOOM_ORG_ID, answer)
@@ -1200,10 +1200,11 @@ class WebAPIAdapter(ChannelAdapter):
                     delivery_id = str((delivery_payload or {}).get("delivery_id") or "").strip()
                 _loom_session_route(
                     session_key,
-                    agent_id=str((ingress_payload or {}).get("agent_id") or ""),
+                    agent_id=TEAM_MANAGER_AGENT_ID,
                     org_id=LOOM_ORG_ID,
                     ingress_request_id=ingress_request_id,
                     delivery_id=delivery_id,
+                    job_id=str((team_meta or {}).get("job_id") or "").strip(),
                 )
                 self._send_json(200, {"status": "success", "output": answer})
 
