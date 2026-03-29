@@ -328,7 +328,16 @@ def _public_org_record(org):
 
 def _public_sprint_lead(lead_id, lead_auth, reg=None):
     if not lead_id:
-        return {'agent_id': '', 'economy_key': '', 'agent_name': '', 'auth': lead_auth}
+        return {
+            'agent_id': '',
+            'economy_key': '',
+            'agent_name': '',
+            'auth': lead_auth,
+            'auth_source': 'economy_sprint_lead',
+            'registry_authority_units': None,
+            'registry_reputation_units': None,
+            'authority_alignment': 'no_agent',
+        }
     registry = reg or load_registry()
     for agent in (registry.get('agents') or {}).values():
         normalized = normalize_agent_record(agent)
@@ -344,12 +353,24 @@ def _public_sprint_lead(lead_id, lead_auth, reg=None):
                 'economy_key': normalized.get('economy_key') or lead_id,
                 'agent_name': normalized.get('name') or '',
                 'auth': lead_auth,
+                'auth_source': 'economy_sprint_lead',
+                'registry_authority_units': normalized.get('authority_units'),
+                'registry_reputation_units': normalized.get('reputation_units'),
+                'authority_alignment': (
+                    'match'
+                    if normalized.get('authority_units') == lead_auth
+                    else 'divergent'
+                ),
             }
     return {
         'agent_id': lead_id,
         'economy_key': lead_id,
         'agent_name': '',
         'auth': lead_auth,
+        'auth_source': 'economy_sprint_lead',
+        'registry_authority_units': None,
+        'registry_reputation_units': None,
+        'authority_alignment': 'unknown_agent',
     }
 
 

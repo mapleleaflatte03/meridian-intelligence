@@ -232,6 +232,8 @@ class LiveWorkspaceContextTests(unittest.TestCase):
                         'org_id': 'org_founding',
                         'name': 'Atlas',
                         'economy_key': 'atlas',
+                        'authority_units': 65,
+                        'reputation_units': 80,
                         'runtime_binding': {'runtime_id': 'loom_native'},
                     }
                 }
@@ -241,6 +243,10 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.assertEqual(lead['economy_key'], 'atlas')
         self.assertEqual(lead['agent_name'], 'Atlas')
         self.assertEqual(lead['auth'], 100)
+        self.assertEqual(lead['auth_source'], 'economy_sprint_lead')
+        self.assertEqual(lead['registry_authority_units'], 65)
+        self.assertEqual(lead['registry_reputation_units'], 80)
+        self.assertEqual(lead['authority_alignment'], 'divergent')
 
     def test_mutation_authorization_requires_admin_for_kill_switch(self):
         auth = {'enabled': True, 'role': 'member'}
