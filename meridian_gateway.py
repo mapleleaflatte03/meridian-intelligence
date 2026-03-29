@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import os
 import queue
@@ -60,6 +61,10 @@ MERIDIAN_CODEX_BIN = os.environ.get(
 MAX_STEPS = int(os.environ.get("MERIDIAN_GATEWAY_MAX_STEPS", "6"))
 REQUEST_TIMEOUT_SECONDS = int(os.environ.get("MERIDIAN_GATEWAY_TIMEOUT_SECONDS", "90"))
 HEARTBEAT_INTERVAL_SECONDS = 60
+WORKSPACE_API_BASE = os.environ.get("MERIDIAN_WORKSPACE_API_BASE", "http://127.0.0.1:18901").rstrip("/")
+WORKSPACE_CREDENTIALS_FILE = Path(
+    os.environ.get("MERIDIAN_WORKSPACE_CREDENTIALS_FILE", "/home/ubuntu/.meridian/.workspace_credentials")
+)
 
 ANSI_RESET = "\033[0m"
 ANSI_BOLD = "\033[1m"
@@ -705,6 +710,68 @@ def _load_runtime_config_or_exit() -> dict[str, Any]:
     return config
 
 
+def _load_workspace_basic_credentials() -> tuple[str, str]:
+    user = ""
+    password = ""
+    try:
+        for raw_line in WORKSPACE_CREDENTIALS_FILE.read_text(encoding="utf-8").splitlines():
+            line = raw_line.strip()
+            if not line or ":" not in line:
+                continue
+            key, value = line.split(":", 1)
+            key = key.strip()
+            value = value.strip()
+            if key == "user":
+                user = value
+            elif key == "pass":
+                password = value
+    except Exception:
+        return "", ""
+    return user, password
+
+
+def _workspace_api_get_json(path: str) -> dict[str, Any]:
+    normalized_path = path if path.startswith("/") else f"/{path}"
+    url = f"{WORKSPACE_API_BASE}{normalized_path}"
+    headers = {
+        "Accept": "application/json",
+        "User-Agent": "MeridianGateway/1.0",
+    }
+    user, password = _load_workspace_basic_credentials()
+    if user and password:
+        token = base64.b64encode(f"{user}:{password}".encode("utf-8")).decode("ascii")
+        headers["Authorization"] = f"Basic {token}"
+    request = urllib.request.Request(url, headers=headers, method="GET")
+    try:
+        with urllib.request.urlopen(request, timeout=20) as response:
+            payload = json.loads(response.read().decode("utf-8", "replace"))
+            return {
+                "ok": True,
+                "status_code": getattr(response, "status", 200),
+                "payload": payload if isinstance(payload, dict) else {"status": "success", "output": payload},
+            }
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", "replace")
+        payload = _extract_json(detail)
+        return {
+            "ok": False,
+            "status_code": exc.code,
+            "payload": payload if isinstance(payload, dict) else {"status": "error", "output": detail or exc.reason},
+        }
+    except urllib.error.URLError as exc:
+        return {
+            "ok": False,
+            "status_code": 502,
+            "payload": {"status": "error", "output": f"workspace_unreachable: {exc.reason}"},
+        }
+    except Exception as exc:
+        return {
+            "ok": False,
+            "status_code": 502,
+            "payload": {"status": "error", "output": f"{exc.__class__.__name__}: {exc}"},
+        }
+
+
 class AgentRuntime:
     def __init__(self, skills: SkillRegistry) -> None:
         self.skills = skills
@@ -1222,16 +1289,20 @@ class WebAPIAdapter(ChannelAdapter):
                 if not self._origin_allowed():
                     self._send_json(403, {"status": "error", "output": "origin_not_allowed"})
                     return
-                if self.path != "/api/events":
-                    self._send_json(404, {"status": "error", "output": "not_found"})
+                if self.path == "/api/events":
+                    events = []
+                    while True:
+                        try:
+                            events.append(adapter.notifications.get_nowait())
+                        except queue.Empty:
+                            break
+                    self._send_json(200, {"status": "success", "events": events})
                     return
-                events = []
-                while True:
-                    try:
-                        events.append(adapter.notifications.get_nowait())
-                    except queue.Empty:
-                        break
-                self._send_json(200, {"status": "success", "events": events})
+                if self.path in {"/api/status", "/api/runtime-proof"}:
+                    proxied = _workspace_api_get_json(self.path)
+                    self._send_json(int(proxied.get("status_code") or 200), dict(proxied.get("payload") or {}))
+                    return
+                self._send_json(404, {"status": "error", "output": "not_found"})
 
             def do_POST(self) -> None:  # noqa: N802
                 if not self._origin_allowed():
