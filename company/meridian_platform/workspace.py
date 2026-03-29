@@ -3257,6 +3257,7 @@ def api_status(context_source='founding_default', institution_context=None):
     lead_id, lead_auth = get_sprint_lead(org_id)
 
     agents = []
+    agent_runtime_bindings = []
     remediations = []
     for a in reg['agents'].values():
         if a.get('org_id') not in (None, '', org_id):
@@ -3278,6 +3279,12 @@ def api_status(context_source='founding_default', institution_context=None):
             'is_sprint_lead': a.get('economy_key') == lead_id,
             'remediation': remediation,
             'runtime_binding': a.get('runtime_binding', {}),
+        })
+        agent_runtime_bindings.append({
+            'agent_id': a['id'],
+            'agent_name': a['name'],
+            'role': a['role'],
+            **dict(a.get('runtime_binding') or {}),
         })
 
     open_violations = [
@@ -3330,6 +3337,7 @@ def api_status(context_source='founding_default', institution_context=None):
             'treasury_id': org.get('treasury_id'),
         } if org else None,
         'agents': agents,
+        'agent_runtime_bindings': agent_runtime_bindings,
         'authority': {
             'kill_switch': queue['kill_switch'],
             'pending_approvals': pending_approvals,
