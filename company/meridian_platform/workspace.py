@@ -3302,6 +3302,8 @@ def api_status(context_source='founding_default', institution_context=None):
     ]
 
     result = {
+        'runtime_id': 'loom_native',
+        'proof_mode': 'live_host_runtime_probe',
         'context': {
             'mode': 'process_bound',
             'bound_org_id': org_id,

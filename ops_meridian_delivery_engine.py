@@ -24,6 +24,8 @@ import uuid
 
 WORKSPACE = os.path.dirname(os.path.abspath(__file__))
 PLATFORM_DIR = os.path.join(WORKSPACE, 'company', 'meridian_platform')
+WORKSPACE_HOME = os.path.dirname(WORKSPACE)
+WORKSPACE_CREDENTIALS_PATH = os.path.join(WORKSPACE_HOME, '.workspace_credentials')
 
 if PLATFORM_DIR not in sys.path:
     sys.path.insert(0, PLATFORM_DIR)
@@ -36,8 +38,7 @@ DEFAULT_TELEGRAM_ID = 'meridian-ops-sink'
 SCRIPT_ACTOR = 'script:ops_meridian_delivery_engine'
 DIRECT_LOOM_BIN = '/home/ubuntu/.local/share/meridian-loom/current/bin/loom'
 DIRECT_LOOM_ROOT = '/home/ubuntu/.local/share/meridian-loom/runtime/default'
-DIRECT_LOOM_ORG_ID = 'org_51fcd87f'
-DIRECT_LOOM_AGENT_ID = 'agent_atlas'
+DIRECT_LOOM_AGENT_REGISTRY_PATH = os.path.join(DIRECT_LOOM_ROOT, 'agents', 'registry.json')
 DIRECT_LOOM_CAPABILITY = 'loom.browser.navigate.v1'
 DIRECT_LOOM_URL = 'https://httpbin.org/html'
 DIRECT_X402_WALLET_ID = 'automated_loom_settlement_v1'
@@ -82,6 +83,58 @@ HOT_WALLET_SECRET_PATH = _first_existing_path(
 )
 PROD_ORG_ID = 'org_prod_exec'
 _KERNEL_TREASURY_MODULE = None
+
+
+def _read_workspace_credentials_org_id() -> str:
+    if not os.path.exists(WORKSPACE_CREDENTIALS_PATH):
+        return ''
+    try:
+        with open(WORKSPACE_CREDENTIALS_PATH, encoding='utf-8') as handle:
+            for raw_line in handle:
+                line = str(raw_line or '').strip()
+                if line.startswith('org_id:'):
+                    return line.partition(':')[2].strip()
+    except OSError:
+        return ''
+    return ''
+
+
+def _resolve_direct_loom_org_id() -> str:
+    env_org = str(os.environ.get('MERIDIAN_ORG_ID') or '').strip()
+    if env_org:
+        return env_org
+    creds_org = _read_workspace_credentials_org_id()
+    if creds_org:
+        return creds_org
+    return 'org_51fcd87f'
+
+
+DIRECT_LOOM_ORG_ID = _resolve_direct_loom_org_id()
+
+
+def _resolve_direct_loom_agent_id() -> str:
+    env_agent = str(os.environ.get('MERIDIAN_LOOM_AGENT_ID') or '').strip()
+    if env_agent:
+        return env_agent.removeprefix('agent_')
+    try:
+        with open(DIRECT_LOOM_AGENT_REGISTRY_PATH, encoding='utf-8') as handle:
+            agents = json.load(handle).get('agents', [])
+    except (OSError, json.JSONDecodeError, AttributeError):
+        agents = []
+    for agent in agents:
+        agent_id = str((agent or {}).get('agent_id') or '').strip()
+        if agent_id == 'atlas':
+            return agent_id
+    for agent in agents:
+        role = str((agent or {}).get('role') or '').strip().lower()
+        if role in {'research', 'analyst'}:
+            agent_id = str((agent or {}).get('agent_id') or '').strip()
+            if agent_id:
+                return agent_id
+    return 'atlas'
+
+
+DIRECT_LOOM_AGENT_ID = _resolve_direct_loom_agent_id()
 
 
 def _target_url(cli_value=''):
@@ -257,12 +310,7 @@ def _run_loom_json(args, *, loom_bin, timeout):
             'returncode': -1,
         }
     output = (completed.stdout or '').strip()
-    payload = {}
-    if output:
-        try:
-            payload = json.loads(output)
-        except json.JSONDecodeError:
-            payload = {}
+    payload = _extract_json_payload(output)
     error = ((completed.stderr or '').strip() or payload.get('error') or output or '').strip()
     return {
         'ok': completed.returncode == 0,
@@ -281,6 +329,31 @@ def _load_worker_result(path):
         return {}
     with open(candidate) as f:
         return json.load(f)
+
+
+def _extract_json_payload(raw_output):
+    text = str(raw_output or '').strip()
+    if not text:
+        return {}
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+    marker = text.find('\n{')
+    if marker != -1:
+        candidate = text[marker + 1 :].strip()
+        try:
+            return json.loads(candidate)
+        except json.JSONDecodeError:
+            pass
+    marker = text.find('{')
+    if marker != -1:
+        candidate = text[marker:].strip()
+        try:
+            return json.loads(candidate)
+        except json.JSONDecodeError:
+            pass
+    return {}
 
 
 def _normalized_host_response(worker_result):

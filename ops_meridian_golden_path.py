@@ -34,9 +34,11 @@ def _resolve_kernel_root() -> str:
 
 KERNEL_ROOT = _resolve_kernel_root()
 KERNEL_DIR = os.path.join(KERNEL_ROOT, "kernel")
+QUICKSTART_PATH = os.path.join(KERNEL_ROOT, "quickstart.py")
 BOOTSTRAP_PATH = os.path.join(KERNEL_DIR, "bootstrap.py")
 WARRANTS_PATH = os.path.join(KERNEL_DIR, "warrants.py")
 AGENT_REGISTRY_FILE = os.path.join(KERNEL_DIR, "agent_registry.json")
+ORGANIZATIONS_FILE = os.path.join(KERNEL_DIR, "organizations.json")
 TARGET_URL = "https://httpbin.org/html"
 STEP_DELAY_SECONDS = 0.2
 
@@ -69,12 +71,19 @@ def _multiline(label: str, text: str, *, color: str = YELLOW) -> None:
 
 
 def _run_kernel_python(script_path: str, *args: str):
+    script_dir = os.path.dirname(script_path)
+    if script_dir == KERNEL_DIR:
+        cwd = KERNEL_DIR
+        pythonpath = KERNEL_DIR
+    else:
+        cwd = KERNEL_ROOT
+        pythonpath = os.pathsep.join([KERNEL_ROOT, KERNEL_DIR])
     completed = subprocess.run(
         ["python3", script_path, *args],
         capture_output=True,
         text=True,
-        cwd=KERNEL_DIR,
-        env={**os.environ, "PYTHONPATH": KERNEL_DIR},
+        cwd=cwd,
+        env={**os.environ, "PYTHONPATH": pythonpath},
         check=False,
     )
     if completed.returncode != 0:
@@ -83,8 +92,42 @@ def _run_kernel_python(script_path: str, *args: str):
     return completed.stdout.strip()
 
 
+def _load_json_file(path: str):
+    if not os.path.exists(path):
+        return {}
+    with open(path, encoding="utf-8") as handle:
+        return json.load(handle)
+
+
+def _kernel_meridian_state_ready() -> bool:
+    organizations = dict(_load_json_file(ORGANIZATIONS_FILE).get("organizations") or {})
+    registry = dict(_load_json_file(AGENT_REGISTRY_FILE).get("agents") or {})
+    org = organizations.get(engine.DIRECT_LOOM_ORG_ID)
+    if not org or org.get("slug") != "meridian":
+        return False
+    bound_agents = [
+        agent for agent in registry.values()
+        if agent.get("org_id") == engine.DIRECT_LOOM_ORG_ID
+        and dict(agent.get("runtime_binding") or {}).get("runtime_id") == "loom_native"
+    ]
+    return len(bound_agents) >= 7
+
+
 def _bootstrap_governance():
-    bootstrap_output = _run_kernel_python(BOOTSTRAP_PATH)
+    quickstart_output = ""
+    if _kernel_meridian_state_ready():
+        bootstrap_output = (
+            "Existing Meridian kernel state detected; skipped demo bootstrap and reused canonical live institution state."
+        )
+    else:
+        try:
+            bootstrap_output = _run_kernel_python(BOOTSTRAP_PATH)
+        except RuntimeError as exc:
+            detail = str(exc)
+            if "is not initialized" not in detail or not os.path.exists(QUICKSTART_PATH):
+                raise
+            quickstart_output = _run_kernel_python(QUICKSTART_PATH, "--init-only")
+            bootstrap_output = _run_kernel_python(BOOTSTRAP_PATH)
     ledger_path = os.path.join(KERNEL_ROOT, "economy", "ledger.json")
     ledger = {}
     if os.path.exists(ledger_path):
@@ -92,7 +135,9 @@ def _bootstrap_governance():
             ledger = json.load(handle)
     treasury = dict(ledger.get("treasury") or {})
     return {
-        "bootstrap_output": bootstrap_output,
+        "bootstrap_output": "\n".join(
+            part for part in (quickstart_output.strip(), bootstrap_output.strip()) if part
+        ),
         "ledger_path": ledger_path,
         "treasury_cash_usd": treasury.get("cash_usd"),
         "agent_count": len(dict(ledger.get("agents") or {})),
@@ -100,13 +145,20 @@ def _bootstrap_governance():
 
 
 def _resolve_agent():
-    with open(AGENT_REGISTRY_FILE) as handle:
-        registry = json.load(handle)
+    registry = _load_json_file(AGENT_REGISTRY_FILE)
     agents = dict(registry.get("agents") or {})
-    agent = agents.get(engine.DIRECT_LOOM_AGENT_ID)
+    direct_id = str(engine.DIRECT_LOOM_AGENT_ID or "").strip()
+    direct_key = direct_id if direct_id.startswith("agent_") else f"agent_{direct_id}"
+    desired_handle = direct_id.removeprefix("agent_")
+    agent = agents.get(direct_key)
+    if agent is not None and agent.get("org_id") != engine.DIRECT_LOOM_ORG_ID:
+        agent = None
     if agent is None:
         for candidate in agents.values():
-            if candidate.get("org_id") == engine.DIRECT_LOOM_ORG_ID and candidate.get("economy_key") == "atlas":
+            if (
+                candidate.get("org_id") == engine.DIRECT_LOOM_ORG_ID
+                and candidate.get("economy_key") == desired_handle
+            ):
                 agent = candidate
                 break
     if agent is None:
