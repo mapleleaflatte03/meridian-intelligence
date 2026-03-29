@@ -69,6 +69,8 @@ class McpRuntimeAdapterTests(unittest.TestCase):
         info = mcp_server._company_info_payload(context, '0xwallet')
         self.assertEqual(info['company'], 'Meridian')
         self.assertEqual(info['commercial_wedge']['name'], 'Competitive Intelligence')
+        self.assertIn('six primitives', info['description'].lower())
+        self.assertIn('Commitment', info['primitives'])
         self.assertEqual(info['live_host_truth']['runtime_id'], 'loom_native')
         self.assertEqual(info['live_host_truth']['public_mcp_endpoint'], 'https://app.welliam.codes/sse')
         self.assertEqual(info['live_host_truth']['public_mcp_transport'], 'sse_bootstrap_plus_messages_session_channel')

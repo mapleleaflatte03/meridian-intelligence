@@ -158,7 +158,8 @@ def _company_info_payload(context: dict, wallet_addr: str) -> dict:
         'description': (
             'Meridian is a constitutional operating system for governed digital labor. '
             'On this host, Loom is the active execution runtime and competitor intelligence '
-            'is the first commercial wedge.'
+            'is the first commercial wedge. Meridian is currently articulated through six '
+            'primitives: Institution, Agent, Authority, Treasury, Court, and Commitment.'
         ),
         'commercial_wedge': {
             'name': 'Competitive Intelligence',
@@ -186,9 +187,10 @@ def _company_info_payload(context: dict, wallet_addr: str) -> dict:
             'Authority': 'Approval queues, delegations, and kill switch — who can act and when',
             'Treasury': 'Real-money accounting — balance, runway, reserve floor, spend tracking',
             'Court': 'Violation records, sanctions, and appeals — constitutional enforcement',
+            'Commitment': 'Capsule-backed obligations, lifecycle transitions, and federation delivery references',
         },
         'platform_capabilities': [
-            'Five constitutional primitives (Institution, Agent, Authority, Treasury, Court)',
+            'Six constitutional primitives (Institution, Agent, Authority, Treasury, Court, Commitment)',
             'Agent registry with identity, scopes, budget, risk state, and lifecycle',
             'Organization-scoped resources with charter and policy defaults',
             'Audit logging for every significant action',
