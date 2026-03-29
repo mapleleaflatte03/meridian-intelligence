@@ -555,5 +555,82 @@ class McpRuntimeAdapterTests(unittest.TestCase):
         self.assertEqual(commands[-2:], [['service', 'status'], ['capability', 'show']])
 
 
+    def test_research_route_forwards_agent_and_session_to_loom_runtime(self):
+        env = {
+            'MERIDIAN_INTELLIGENCE_ON_DEMAND_RESEARCH_RUNTIME': 'loom',
+            'MERIDIAN_LOOM_RESEARCH_CAPABILITY': 'company.research.v0',
+        }
+        captured: dict[str, object] = {}
+
+        def fake_run(capability_name, payload, timeout, **kwargs):
+            captured['capability_name'] = capability_name
+            captured['payload'] = payload
+            captured['timeout'] = timeout
+            captured.update(kwargs)
+            return {
+                'ok': True,
+                'capability_name': capability_name,
+                'job_id': 'job-route-agent',
+                'worker_result': {'skill_output': {'research': 'route result'}},
+                'submit': {},
+                'snapshot': {'job_status': 'completed'},
+            }
+
+        with mock.patch.dict(os.environ, env, clear=False):
+            with mock.patch.object(mcp_server, '_loom_research_preflight', return_value={'ok': True, 'capability_name': 'company.research.v0'}):
+                with mock.patch.object(mcp_server, '_run_loom_capability', side_effect=fake_run):
+                    result = mcp_server.do_on_demand_research_route(
+                        'OpenAI pricing',
+                        'quick',
+                        agent_id='agent_atlas',
+                        session_id='telegram:123',
+                    )
+
+        self.assertEqual(result['runtime'], 'loom')
+        self.assertEqual(result['research'], 'route result')
+        self.assertEqual(captured['agent_id'], 'agent_atlas')
+        self.assertEqual(captured['session_id'], 'telegram:123')
+        self.assertEqual(captured['action_type'], 'research')
+        self.assertEqual(captured['resource'], 'telegram:123')
+
+    def test_qa_route_forwards_agent_and_session_to_loom_runtime(self):
+        env = {
+            'MERIDIAN_INTELLIGENCE_QA_VERIFY_RUNTIME': 'loom',
+            'MERIDIAN_LOOM_QA_CAPABILITY': 'company.qa.v0',
+        }
+        captured: dict[str, object] = {}
+
+        def fake_run(capability_name, payload, timeout, **kwargs):
+            captured['capability_name'] = capability_name
+            captured['payload'] = payload
+            captured['timeout'] = timeout
+            captured.update(kwargs)
+            return {
+                'ok': True,
+                'capability_name': capability_name,
+                'job_id': 'job-qa-agent',
+                'worker_result': {'skill_output': {'verification': 'PASS'}},
+                'submit': {},
+                'snapshot': {'job_status': 'completed'},
+            }
+
+        with mock.patch.dict(os.environ, env, clear=False):
+            with mock.patch.object(mcp_server, '_loom_qa_preflight', return_value={'ok': True, 'capability_name': 'company.qa.v0'}):
+                with mock.patch.object(mcp_server, '_run_loom_capability', side_effect=fake_run):
+                    result = mcp_server.do_qa_verify_route(
+                        'text to verify',
+                        'factual',
+                        agent_id='agent_aegis',
+                        session_id='telegram:123',
+                    )
+
+        self.assertEqual(result['runtime'], 'loom')
+        self.assertEqual(result['verification'], 'PASS')
+        self.assertEqual(captured['agent_id'], 'agent_aegis')
+        self.assertEqual(captured['session_id'], 'telegram:123')
+        self.assertEqual(captured['action_type'], 'verify')
+        self.assertEqual(captured['resource'], 'telegram:123')
+
+
 if __name__ == '__main__':
     unittest.main()

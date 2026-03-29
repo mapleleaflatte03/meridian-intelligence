@@ -145,6 +145,10 @@ def run_capability(
     payload: dict,
     timeout: int,
     *,
+    agent_id: str | None = None,
+    session_id: str = '',
+    action_type: str = '',
+    resource: str = '',
     runner: Runner = subprocess.run,
     sleeper: Sleeper = time.sleep,
     result_loader: ResultLoader | None = None,
@@ -167,7 +171,7 @@ def run_capability(
         '--org-id',
         context.org_id,
         '--agent-id',
-        context.agent_id,
+        (agent_id or context.agent_id).strip(),
         '--capability',
         capability_name,
         '--estimated-cost-usd',
@@ -175,6 +179,12 @@ def run_capability(
         '--payload-json',
         json.dumps(payload),
     ]
+    if action_type:
+        submit_cmd.extend(['--action-type', action_type])
+    if resource:
+        submit_cmd.extend(['--resource', resource])
+    if session_id:
+        submit_cmd.extend(['--session-id', session_id])
     if context.service_token:
         submit_cmd.extend(['--service-token', context.service_token])
     submit_cmd.extend(['--format', 'json'])

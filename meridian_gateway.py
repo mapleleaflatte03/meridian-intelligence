@@ -27,10 +27,13 @@ from meridian_config import load_config
 HOST = "127.0.0.1"
 PORT = 8266
 WORKSPACE_DIR = Path(__file__).resolve().parent
-PLATFORM_DIR = WORKSPACE_DIR / "company" / "meridian_platform"
-if str(PLATFORM_DIR) not in sys.path:
-    sys.path.insert(0, str(PLATFORM_DIR))
+COMPANY_DIR = WORKSPACE_DIR / "company"
+PLATFORM_DIR = COMPANY_DIR / "meridian_platform"
+for _path in (WORKSPACE_DIR, COMPANY_DIR, PLATFORM_DIR):
+    if str(_path) not in sys.path:
+        sys.path.insert(0, str(_path))
 
+from company import mcp_server
 from loom_runtime_discovery import preferred_loom_bin, preferred_loom_root, runtime_value
 
 SOUL_PATH = WORKSPACE_DIR / "SOUL.md"
@@ -68,6 +71,9 @@ ANSI_RED = "\033[31m"
 LLM_BASE_URL = ""
 LLM_MODEL = ""
 LLM_API_KEY = ""
+TEAM_MANAGER_AGENT_ID = os.environ.get("MERIDIAN_TEAM_MANAGER_AGENT_ID", "leviathann").strip() or "leviathann"
+TEAM_RESEARCH_AGENT_ID = os.environ.get("MERIDIAN_TEAM_RESEARCH_AGENT_ID", "agent_atlas").strip() or "agent_atlas"
+TEAM_VERIFY_AGENT_ID = os.environ.get("MERIDIAN_TEAM_VERIFY_AGENT_ID", "agent_aegis").strip() or "agent_aegis"
 
 
 def _loom_manager_defaults() -> dict[str, str]:
@@ -189,6 +195,7 @@ def _loom_session_route(
     org_id: str = "",
     ingress_request_id: str = "",
     delivery_id: str = "",
+    job_id: str = "",
 ) -> dict[str, Any]:
     route = _loom_manager_route(agent_id=agent_id, org_id=org_id)
     provider_profile = str(route.get("profile") or "").strip()
@@ -223,6 +230,8 @@ def _loom_session_route(
         command.extend(["--ingress-request-id", ingress_request_id])
     if delivery_id:
         command.extend(["--delivery-id", delivery_id])
+    if job_id:
+        command.extend(["--job-id", job_id])
     result = _run_loom_json(command)
     if not result.get("ok"):
         _log(
@@ -309,6 +318,156 @@ def _run_codex_exec(*, system_prompt: str, user_prompt: str, model: str, timeout
                 Path(output_path).unlink(missing_ok=True)
             except Exception:
                 pass
+
+
+def _telegram_help_text() -> str:
+    return (
+        "Telegram team routes:\n"
+        "/team <request> -> Leviathann coordinates Atlas + Aegis and replies with a managed answer.\n"
+        "/atlas <topic> -> Atlas research only.\n"
+        "/aegis <text> or /aegis <criteria>::<text> -> Aegis verification only.\n"
+        "Plain text defaults to the managed team route."
+    )
+
+
+def _parse_telegram_command(text: str) -> dict[str, str]:
+    stripped = text.strip()
+    if not stripped:
+        return {"mode": "empty", "arg": ""}
+    if stripped == "/help" or stripped.startswith("/help "):
+        return {"mode": "help", "arg": stripped[5:].strip()}
+    for mode in ("team", "atlas", "aegis"):
+        prefix = f"/{mode}"
+        if stripped == prefix:
+            return {"mode": mode, "arg": ""}
+        if stripped.startswith(prefix + " "):
+            return {"mode": mode, "arg": stripped[len(prefix) + 1 :].strip()}
+    return {"mode": "team", "arg": stripped}
+
+
+def _team_route_plan(text: str) -> dict[str, Any]:
+    stripped = text.strip()
+    if not stripped:
+        return {"mode": "direct", "reason": "empty"}
+    if stripped.lower() in {"hi", "hello", "hey", "yo", "ping"}:
+        return {"mode": "direct", "reason": "greeting"}
+    manager = _loom_manager_defaults()
+    plan = _run_codex_exec(
+        system_prompt=(
+            "You are Leviathann, Meridian's manager and orchestrator. "
+            "Classify whether the user request should go through the managed team route or be answered directly. "
+            "Return strict JSON only with keys: mode, topic, depth, criteria, reason. "
+            "mode must be direct or team. depth must be quick, standard, or deep. criteria must be factual, readiness, or consistency."
+        ),
+        user_prompt=f"User request:\n{stripped}",
+        model=manager["model"],
+        timeout=min(REQUEST_TIMEOUT_SECONDS, 45),
+    )
+    payload = _extract_json(plan.get("output_text", "")) if plan.get("ok") else None
+    if not isinstance(payload, dict):
+        return {
+            "mode": "team" if len(stripped.split()) >= 4 else "direct",
+            "topic": stripped,
+            "depth": "standard",
+            "criteria": "factual",
+            "reason": "planner_fallback",
+        }
+    mode = str(payload.get("mode") or "team").strip().lower()
+    if mode not in {"direct", "team"}:
+        mode = "team"
+    depth = str(payload.get("depth") or "standard").strip().lower()
+    if depth not in {"quick", "standard", "deep"}:
+        depth = "standard"
+    criteria = str(payload.get("criteria") or "factual").strip().lower()
+    if criteria not in {"factual", "readiness", "consistency"}:
+        criteria = "factual"
+    topic = str(payload.get("topic") or stripped).strip() or stripped
+    return {
+        "mode": mode,
+        "topic": topic,
+        "depth": depth,
+        "criteria": criteria,
+        "reason": str(payload.get("reason") or "").strip(),
+    }
+
+
+def _manager_synthesis(goal: str, research: dict[str, Any], verification: dict[str, Any]) -> str:
+    manager = _loom_manager_defaults()
+    research_text = str(research.get("research") or research.get("error") or "").strip()
+    verification_text = str(verification.get("verification") or verification.get("error") or "").strip()
+    result = _run_codex_exec(
+        system_prompt=(
+            "You are Leviathann, Meridian's manager. "
+            "Given specialist outputs from Atlas and Aegis, produce the final user-facing Telegram reply. "
+            "Be concise, practical, and explicit about uncertainty if verification raises concerns."
+        ),
+        user_prompt=(
+            f"Original user request:\n{goal.strip()}\n\n"
+            f"Atlas research:\n{research_text}\n\n"
+            f"Aegis verification:\n{verification_text}"
+        ),
+        model=manager["model"],
+        timeout=REQUEST_TIMEOUT_SECONDS,
+    )
+    if result.get("ok") and str(result.get("output_text") or "").strip():
+        return str(result.get("output_text") or "").strip()
+    if research_text:
+        return research_text
+    return verification_text or "Unable to complete the managed team response."
+
+
+def _run_team_route(text: str, session_key: str, runtime: AgentRuntime) -> tuple[str, dict[str, Any]]:
+    parsed = _parse_telegram_command(text)
+    mode = parsed["mode"]
+    arg = parsed["arg"].strip()
+    if mode == "help":
+        return _telegram_help_text(), {"mode": "help", "steps": []}
+    if mode == "atlas":
+        topic = arg or text.strip()
+        result = mcp_server.do_on_demand_research_route(topic, "standard", agent_id=TEAM_RESEARCH_AGENT_ID, session_id=session_key)
+        answer = str(result.get("research") or result.get("error") or "").strip() or "Atlas returned no output."
+        return answer, {"mode": "atlas", "steps": [result], "job_id": str(result.get("job_id") or "").strip()}
+    if mode == "aegis":
+        criteria = "factual"
+        qa_text = arg or text.strip()
+        if "::" in qa_text:
+            criteria_part, payload_part = qa_text.split("::", 1)
+            if payload_part.strip():
+                criteria = criteria_part.strip() or "factual"
+                qa_text = payload_part.strip()
+        result = mcp_server.do_qa_verify_route(qa_text, criteria, agent_id=TEAM_VERIFY_AGENT_ID, session_id=session_key)
+        answer = str(result.get("verification") or result.get("error") or "").strip() or "Aegis returned no output."
+        return answer, {"mode": "aegis", "steps": [result], "job_id": str(result.get("job_id") or "").strip()}
+
+    request = arg or text.strip()
+    plan = _team_route_plan(request)
+    if plan.get("mode") == "direct":
+        return runtime.run_goal(request), {"mode": "direct", "steps": [], "plan": plan}
+
+    research = mcp_server.do_on_demand_research_route(
+        str(plan.get("topic") or request),
+        str(plan.get("depth") or "standard"),
+        agent_id=TEAM_RESEARCH_AGENT_ID,
+        session_id=session_key,
+    )
+    if research.get("error"):
+        answer = str(research.get("error") or "Managed research failed").strip()
+        return answer, {"mode": "team", "steps": [research], "plan": plan, "job_id": str(research.get("job_id") or "").strip()}
+
+    verification = mcp_server.do_qa_verify_route(
+        str(research.get("research") or ""),
+        str(plan.get("criteria") or "factual"),
+        agent_id=TEAM_VERIFY_AGENT_ID,
+        session_id=session_key,
+    )
+    answer = _manager_synthesis(request, research, verification)
+    final_job_id = str(verification.get("job_id") or research.get("job_id") or "").strip()
+    return answer, {
+        "mode": "team",
+        "plan": plan,
+        "steps": [research, verification],
+        "job_id": final_job_id,
+    }
 
 
 class _TitleParser(HTMLParser):
@@ -934,7 +1093,7 @@ class TelegramAdapter(ChannelAdapter):
         ingress_payload = ingress.get("payload") if isinstance(ingress, dict) else {}
         session_key = str((ingress_payload or {}).get("session_key") or f"telegram:{chat_id}").strip()
         ingress_request_id = str((ingress_payload or {}).get("ingress_id") or "").strip()
-        answer = self.runtime.run_goal(text.strip())
+        answer, team_meta = _run_team_route(text.strip(), session_key, self.runtime)
         delivery_id = ""
         if answer:
             delivery = _loom_channel_send("telegram", str(chat_id), answer)
@@ -943,10 +1102,11 @@ class TelegramAdapter(ChannelAdapter):
             self._send_direct(chat_id, answer, reply_to_message_id=message_id if isinstance(message_id, int) else None)
         _loom_session_route(
             session_key,
-            agent_id=str((ingress_payload or {}).get("agent_id") or ""),
+            agent_id=TEAM_MANAGER_AGENT_ID,
             org_id=LOOM_ORG_ID,
             ingress_request_id=ingress_request_id,
             delivery_id=delivery_id,
+            job_id=str((team_meta or {}).get("job_id") or "").strip(),
         )
 
 

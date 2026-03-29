@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import functools
 import datetime
 import fcntl
 import glob
@@ -196,12 +197,63 @@ def _loom_service_token() -> str:
     ).strip()
 
 
+@functools.lru_cache(maxsize=1)
+def _loom_capability_inventory() -> tuple[dict, ...]:
+    command = [
+        _loom_bin(),
+        'capability',
+        'list',
+        '--root',
+        _loom_root(),
+        '--limit',
+        '200',
+        '--format',
+        'json',
+    ]
+    try:
+        completed = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            timeout=20,
+            cwd=WORKSPACE,
+            env=os.environ,
+            check=False,
+        )
+    except Exception:
+        return tuple()
+    if completed.returncode != 0:
+        return tuple()
+    try:
+        payload = json.loads((completed.stdout or '').strip())
+    except json.JSONDecodeError:
+        return tuple()
+    items = payload if isinstance(payload, list) else payload.get('capabilities', [])
+    return tuple(item for item in items if isinstance(item, dict))
+
+
+def _discover_loom_capability(*candidates: str) -> str:
+    inventory = _loom_capability_inventory()
+    names = {str(item.get('name') or '').strip() for item in inventory}
+    for candidate in candidates:
+        name = (candidate or '').strip()
+        if name and name in names:
+            return name
+    return ''
+
+
 def _loom_research_capability() -> str:
-    return (os.environ.get('MERIDIAN_LOOM_RESEARCH_CAPABILITY') or '').strip()
+    configured = (os.environ.get('MERIDIAN_LOOM_RESEARCH_CAPABILITY') or '').strip()
+    if configured:
+        return configured
+    return _discover_loom_capability('clawskill.safe-web-research.v0')
 
 
 def _loom_qa_capability() -> str:
-    return (os.environ.get('MERIDIAN_LOOM_QA_CAPABILITY') or '').strip()
+    configured = (os.environ.get('MERIDIAN_LOOM_QA_CAPABILITY') or '').strip()
+    if configured:
+        return configured
+    return _discover_loom_capability('company.qa.v0', 'loom.llm.inference.v1')
 
 
 def _loom_runtime_context() -> LoomRuntimeContext:
@@ -292,9 +344,19 @@ def _extract_loom_content(worker_result: dict, preferred_keys: tuple[str, ...]) 
             value = payload.get(key)
             if isinstance(value, str) and value.strip():
                 return value
+    host_response = worker_result.get('host_response_json')
+    if isinstance(host_response, dict):
+        for key in preferred_keys:
+            value = host_response.get(key)
+            if isinstance(value, str) and value.strip():
+                return value
     summary = worker_result.get('summary')
     if isinstance(summary, str) and summary.strip():
         return summary
+    if isinstance(host_response, dict):
+        output_text = host_response.get('output_text')
+        if isinstance(output_text, str) and output_text.strip():
+            return output_text
     return json.dumps(payload if payload is not None else worker_result)
 
 
@@ -397,6 +459,8 @@ def _normalize_loom_import_metadata(capability_payload: dict) -> dict:
         unsupported_reasons.append(f'import_provenance={import_provenance}')
     if normalized_worker_entry and worker_entry and worker_entry != normalized_worker_entry:
         unsupported_reasons.append(f'worker_entry={worker_entry}')
+    if source_kind.startswith('legacy_v1_'):
+        source_kind = f"legacy_{source_kind[len('legacy_v1_'):]}"
     if source_kind and source_kind not in {'loom_workspace_skill', 'loom_plugin_skill', 'loom_plugin_packaged_skill', 'legacy_workspace_skill', 'legacy_plugin_skill', 'legacy_plugin_packaged_skill'}:
         if '_' in source_kind:
             suffix = source_kind.split('_', 1)[1]
@@ -454,6 +518,14 @@ def _loom_research_preflight(capability_name: str) -> dict:
 
 
 def _loom_qa_preflight(capability_name: str) -> dict:
+    if capability_name == 'loom.llm.inference.v1':
+        return _shared_loom_capability_preflight(
+            _loom_runtime_context(),
+            capability_name,
+            route='intelligence_qa_verify',
+            runner=subprocess.run,
+            normalize_capability=None,
+        )
     return _loom_capability_preflight(capability_name, route='intelligence_qa_verify')
 
 def _route_cutover_state(
@@ -651,12 +723,25 @@ def _extract_loom_research_content(worker_result: dict) -> str:
     return json.dumps(payload if payload is not None else worker_result)
 
 
-def _run_loom_capability(capability_name: str, payload: dict, timeout: int) -> dict:
+def _run_loom_capability(
+    capability_name: str,
+    payload: dict,
+    timeout: int,
+    *,
+    agent_id: str = '',
+    session_id: str = '',
+    action_type: str = '',
+    resource: str = '',
+) -> dict:
     return _shared_run_loom_capability(
         _loom_runtime_context(),
         capability_name,
         payload,
         timeout,
+        agent_id=agent_id or None,
+        session_id=session_id,
+        action_type=action_type,
+        resource=resource,
         runner=subprocess.run,
         sleeper=time.sleep,
         result_loader=_load_json_file,
@@ -1005,11 +1090,22 @@ def _run_legacy_on_demand_research(topic: str, depth: str, prompt: str) -> dict:
     }
 
 
-def _run_loom_on_demand_research(topic: str, depth: str, prompt: str) -> tuple[dict, dict]:
+def _run_loom_on_demand_research(
+    topic: str,
+    depth: str,
+    prompt: str,
+    *,
+    agent_id: str = 'agent_atlas',
+    session_id: str = '',
+) -> tuple[dict, dict]:
     loom_result = _run_loom_capability(
         _loom_research_capability(),
         _loom_research_payload(topic, depth, prompt),
         timeout=150,
+        agent_id=agent_id,
+        session_id=session_id,
+        action_type='research',
+        resource=session_id or '',
     )
     if loom_result.get('ok'):
         worker_result = loom_result.get('worker_result') or {}
@@ -1032,16 +1128,28 @@ def _run_loom_on_demand_research(topic: str, depth: str, prompt: str) -> tuple[d
     }, loom_result)
 
 
-def do_on_demand_research(topic: str, depth: str = 'standard') -> dict:
+def do_on_demand_research(
+    topic: str,
+    depth: str = 'standard',
+    *,
+    agent_id: str = 'agent_atlas',
+    session_id: str = '',
+) -> dict:
     """Run research through the configured runtime adapter."""
     prompt = _on_demand_research_prompt(topic, depth)
     if _intelligence_exec_runtime('research') == 'loom':
-        result, _ = _run_loom_on_demand_research(topic, depth, prompt)
+        result, _ = _run_loom_on_demand_research(topic, depth, prompt, agent_id=agent_id, session_id=session_id)
         return result
     return _run_legacy_on_demand_research(topic, depth, prompt)
 
 
-def do_on_demand_research_route(topic: str, depth: str = 'standard') -> dict:
+def do_on_demand_research_route(
+    topic: str,
+    depth: str = 'standard',
+    *,
+    agent_id: str = 'agent_atlas',
+    session_id: str = '',
+) -> dict:
     """Run the paid on-demand research route with route-specific cutover controls."""
     requested_runtime = _intelligence_route_runtime('on_demand_research', tool='research')
     prompt = _on_demand_research_prompt(topic, depth)
@@ -1075,7 +1183,7 @@ def do_on_demand_research_route(topic: str, depth: str = 'standard') -> dict:
             loom_preflight=loom_preflight,
         )
 
-    result, loom_result = _run_loom_on_demand_research(topic, depth, prompt)
+    result, loom_result = _run_loom_on_demand_research(topic, depth, prompt, agent_id=agent_id, session_id=session_id)
     if not result.get('error'):
         return _with_on_demand_research_cutover(
             result,
@@ -1102,7 +1210,13 @@ def do_on_demand_research_route(topic: str, depth: str = 'standard') -> dict:
         loom_preflight=loom_preflight,
     )
 
-def do_qa_verify(text: str, criteria: str = 'factual') -> dict:
+def do_qa_verify(
+    text: str,
+    criteria: str = 'factual',
+    *,
+    agent_id: str = 'agent_aegis',
+    session_id: str = '',
+) -> dict:
     """Run QA verification through the configured runtime adapter."""
     prompt = (
         f"Verify the following text for {criteria} quality. "
@@ -1115,12 +1229,16 @@ def do_qa_verify(text: str, criteria: str = 'factual') -> dict:
             _loom_qa_capability(),
             {'text': text, 'criteria': criteria, 'prompt': prompt},
             timeout=90,
+            agent_id=agent_id,
+            session_id=session_id,
+            action_type='verify',
+            resource=session_id or '',
         )
         if loom_result.get('ok'):
             worker_result = loom_result.get('worker_result') or {}
             return {
                 'criteria': criteria,
-                'verification': _extract_loom_content(worker_result, ('verification', 'response', 'message', 'text')),
+                'verification': _extract_loom_content(worker_result, ('verification', 'response', 'message', 'text', 'output_text')),
                 'runtime': 'loom',
                 'capability_name': loom_result.get('capability_name', ''),
                 'job_id': loom_result.get('job_id', ''),
@@ -1150,7 +1268,13 @@ def do_qa_verify(text: str, criteria: str = 'factual') -> dict:
     }
 
 
-def do_qa_verify_route(text: str, criteria: str = 'factual') -> dict:
+def do_qa_verify_route(
+    text: str,
+    criteria: str = 'factual',
+    *,
+    agent_id: str = 'agent_aegis',
+    session_id: str = '',
+) -> dict:
     """Run QA verification with truthful route preflight and cutover state."""
     requested_runtime = _intelligence_route_runtime('qa_verify', tool='qa')
     fallback_enabled = _intelligence_route_fallback('qa_verify', default=False)
@@ -1205,6 +1329,10 @@ def do_qa_verify_route(text: str, criteria: str = 'factual') -> dict:
         _loom_qa_capability(),
         {'text': text, 'criteria': criteria, 'prompt': prompt},
         timeout=90,
+        agent_id=agent_id,
+        session_id=session_id,
+        action_type='verify',
+        resource=session_id or '',
     )
     if loom_result.get('ok'):
         worker_result = loom_result.get('worker_result') or {}
