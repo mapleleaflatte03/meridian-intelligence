@@ -228,6 +228,8 @@ def _loom_session_route(
     delivery_id: str = "",
     job_id: str = "",
 ) -> dict[str, Any]:
+    channel_id, _, peer_id = session_key.partition(":")
+    binding_id = f"binding-{channel_id}" if channel_id else ""
     route = _loom_manager_route(agent_id=agent_id, org_id=org_id)
     provider_profile = str(route.get("profile") or "").strip()
     model = str(route.get("model") or "").strip()
@@ -242,6 +244,14 @@ def _loom_session_route(
         LOOM_ROOT,
         "--session-key",
         session_key,
+        "--channel-id",
+        channel_id,
+        "--peer-id",
+        peer_id,
+        "--binding-id",
+        binding_id,
+        "--agent-id",
+        agent_id,
         "--override-source",
         "default",
         "--format",
