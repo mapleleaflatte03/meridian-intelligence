@@ -1366,6 +1366,7 @@ class WebAPIAdapter(ChannelAdapter):
                     "/api/federation/manifest",
                     "/api/federation/witness/archive",
                     "/api/alerts",
+                    "/api/session/validate",
                     "/api/subscriptions",
                     "/api/subscriptions/delivery-targets",
                     "/api/subscriptions/loom-delivery-jobs",
