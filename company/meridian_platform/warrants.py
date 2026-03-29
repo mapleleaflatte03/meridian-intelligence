@@ -120,6 +120,7 @@ def _warrant_view(record):
     except (TypeError, ValueError):
         expired = False
     view['expired'] = expired
+    view['archived'] = expired or str(view.get('court_review_state') or '').strip() in {'revoked', 'stayed'}
     return view
 
 
@@ -177,7 +178,7 @@ def issue_warrant(org_id, action_class, boundary_name, actor_id, *,
 
 
 def list_warrants(org_id=None, *, action_class=None, review_state=None, execution_state=None,
-                  include_expired=True, expired_only=False):
+                  include_archived=True, archived_only=False, expired_only=False):
     store = _load_store(org_id)
     warrants = [_warrant_view(item) for item in store.get('warrants', {}).values()]
     if action_class:
@@ -188,8 +189,10 @@ def list_warrants(org_id=None, *, action_class=None, review_state=None, executio
         warrants = [w for w in warrants if w.get('execution_state') == execution_state]
     if expired_only:
         warrants = [w for w in warrants if bool(w.get('expired'))]
-    elif not include_expired:
-        warrants = [w for w in warrants if not bool(w.get('expired'))]
+    elif archived_only:
+        warrants = [w for w in warrants if bool(w.get('archived'))]
+    elif not include_archived:
+        warrants = [w for w in warrants if not bool(w.get('archived'))]
     warrants.sort(key=lambda row: row.get('issued_at', ''), reverse=True)
     return warrants
 

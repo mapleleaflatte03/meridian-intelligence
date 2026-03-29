@@ -3228,9 +3228,14 @@ def _permission_snapshot(auth_context):
     }
 
 
-def _warrant_summary(org_id, *, include_expired=True, expired_only=False):
-    warrants = list_warrants(org_id, include_expired=include_expired, expired_only=expired_only)
-    all_warrants = list_warrants(org_id, include_expired=True)
+def _warrant_summary(org_id, *, include_archived=True, archived_only=False, expired_only=False):
+    warrants = list_warrants(
+        org_id,
+        include_archived=include_archived,
+        archived_only=archived_only,
+        expired_only=expired_only,
+    )
+    all_warrants = list_warrants(org_id, include_archived=True)
     pending_review = 0
     executable = 0
     executed = 0
@@ -3254,7 +3259,7 @@ def _warrant_summary(org_id, *, include_expired=True, expired_only=False):
         'executable': executable,
         'executed': executed,
         'expired_ready': expired_ready,
-        'archived_count': len([record for record in all_warrants if bool(record.get('expired'))]),
+        'archived_count': len([record for record in all_warrants if bool(record.get('archived'))]),
     }
 
 
@@ -3384,7 +3389,7 @@ def api_status(context_source='founding_default', institution_context=None):
             'total_violations': len(records['violations']),
             'total_appeals': len(records['appeals']),
         },
-        'warrants': _warrant_summary(org_id, include_expired=False),
+        'warrants': _warrant_summary(org_id, include_archived=False),
         'commitments': _commitment_snapshot(org_id),
         'cases': _case_snapshot(org_id),
         'service_state': {
@@ -4311,16 +4316,20 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
             })
         elif path == '/api/warrants':
             include_expired = parse_qs(parsed.query).get('include_expired', ['0'])[-1].lower() in ('1', 'true', 'yes', 'on')
+            include_archived = parse_qs(parsed.query).get('include_archived', ['0'])[-1].lower() in ('1', 'true', 'yes', 'on')
             expired_only = parse_qs(parsed.query).get('expired_only', ['0'])[-1].lower() in ('1', 'true', 'yes', 'on')
+            archived_only = parse_qs(parsed.query).get('archived_only', ['0'])[-1].lower() in ('1', 'true', 'yes', 'on')
             return self._json({
                 'warrants': list_warrants(
                     org_id,
-                    include_expired=include_expired or expired_only,
+                    include_archived=include_archived or include_expired or archived_only or expired_only,
+                    archived_only=archived_only,
                     expired_only=expired_only,
                 ),
                 'summary': _warrant_summary(
                     org_id,
-                    include_expired=include_expired or expired_only,
+                    include_archived=include_archived or include_expired or archived_only or expired_only,
+                    archived_only=archived_only,
                     expired_only=expired_only,
                 ),
             })

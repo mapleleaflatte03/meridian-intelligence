@@ -123,7 +123,7 @@ class ServiceStateTests(unittest.TestCase):
         }):
             snap = service_state.subscription_snapshot('org_demo')
         self.assertEqual(snap['bound_org_id'], 'org_demo')
-        self.assertEqual(snap['storage_model'], 'capsule_canonical_with_legacy_symlink')
+        self.assertEqual(snap['storage_model'], 'capsule_canonical_with_compatibility_alias')
         self.assertEqual(snap['management_mode'], 'institution_owned_service')
         self.assertTrue(snap['mutation_enabled'])
         self.assertEqual(snap['identity_model'], 'session')
@@ -135,20 +135,20 @@ class ServiceStateTests(unittest.TestCase):
             'company.meridian_platform.subscription_service',
         )
         self.assertEqual(snap['canonical_path'], 'subscriptions.json')
-        self.assertEqual(snap['legacy_path_role'], 'compatibility_symlink')
-        self.assertEqual(snap['legacy_path'], 'company/subscriptions.json')
+        self.assertEqual(snap['compatibility_path_role'], 'compatibility_symlink')
+        self.assertEqual(snap['compatibility_path'], 'company/subscriptions.json')
         self.assertEqual(snap['compatibility_module'], 'company.subscriptions')
-        self.assertEqual(snap['compatibility_mode'], 'legacy_shim')
+        self.assertEqual(snap['compatibility_mode'], 'compatibility_alias')
         self.assertEqual(snap['alias_registry']['canonical_source'], 'capsule_file')
         self.assertEqual(
             snap['alias_registry']['canonical_paths']['subscriptions'],
             'subscriptions.json',
         )
         self.assertEqual(
-            snap['alias_registry']['legacy_paths']['subscriptions'],
+            snap['alias_registry']['compatibility_paths']['subscriptions'],
             'company/subscriptions.json',
         )
-        self.assertEqual(snap['alias_registry']['compatibility_mode'], 'legacy_symlink')
+        self.assertEqual(snap['alias_registry']['compatibility_mode'], 'compatibility_alias')
         self.assertIn('/api/subscriptions/add', snap['mutation_paths'])
         self.assertIn('/api/subscriptions/draft-from-preview', snap['mutation_paths'])
         self.assertIn('/api/subscriptions/activate-from-preview', snap['mutation_paths'])
@@ -195,20 +195,20 @@ class ServiceStateTests(unittest.TestCase):
             'company.meridian_platform.accounting_service',
         )
         self.assertEqual(snap['canonical_path'], 'owner_ledger.json')
-        self.assertEqual(snap['legacy_path_role'], 'compatibility_symlink')
-        self.assertEqual(snap['legacy_path'], 'company/owner_ledger.json')
+        self.assertEqual(snap['compatibility_path_role'], 'compatibility_symlink')
+        self.assertEqual(snap['compatibility_path'], 'company/owner_ledger.json')
         self.assertEqual(snap['compatibility_module'], 'company.accounting')
-        self.assertEqual(snap['compatibility_mode'], 'legacy_shim')
+        self.assertEqual(snap['compatibility_mode'], 'compatibility_alias')
         self.assertEqual(snap['alias_registry']['canonical_source'], 'capsule_file')
         self.assertEqual(
             snap['alias_registry']['canonical_paths']['owner_ledger'],
             'owner_ledger.json',
         )
         self.assertEqual(
-            snap['alias_registry']['legacy_paths']['owner_ledger'],
+            snap['alias_registry']['compatibility_paths']['owner_ledger'],
             'company/owner_ledger.json',
         )
-        self.assertEqual(snap['alias_registry']['compatibility_mode'], 'legacy_symlink')
+        self.assertEqual(snap['alias_registry']['compatibility_mode'], 'compatibility_alias')
         self.assertIn('/api/accounting/expense', snap['mutation_paths'])
         self.assertEqual(snap['summary']['capital_contributed_usd'], 2.0)
         self.assertEqual(snap['summary']['expenses_paid_usd'], 1.25)

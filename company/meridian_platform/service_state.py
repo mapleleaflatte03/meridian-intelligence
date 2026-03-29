@@ -39,6 +39,23 @@ ACCOUNTING_MUTATION_PATHS = [
 ]
 
 
+def _normalize_storage_model(value):
+    mapping = {
+        'capsule_canonical_with_legacy_symlink': 'capsule_canonical_with_compatibility_alias',
+    }
+    normalized = mapping.get(str(value or '').strip(), str(value or '').strip())
+    return normalized or 'capsule_canonical'
+
+
+def _normalize_compatibility_mode(value):
+    mapping = {
+        'legacy_shim': 'compatibility_alias',
+        'legacy_symlink': 'compatibility_alias',
+    }
+    normalized = mapping.get(str(value or '').strip(), str(value or '').strip())
+    return normalized or 'compatibility_alias'
+
+
 def _now():
     return datetime.datetime.utcnow()
 
@@ -101,7 +118,7 @@ def load_subscription_state(org_id=None):
     payload['_meta']['bound_org_id'] = org_id or payload['_meta'].get('bound_org_id', '')
     payload['_meta']['boundary_name'] = 'subscriptions'
     payload['_meta']['identity_model'] = 'session'
-    payload['_meta']['storage_model'] = 'capsule_canonical_with_legacy_symlink'
+    payload['_meta']['storage_model'] = _normalize_storage_model('capsule_canonical_with_legacy_symlink')
     payload['_meta'].setdefault('internal_test_ids', [])
     return payload
 
@@ -165,16 +182,16 @@ def subscription_snapshot(org_id=None):
         'management_mode': 'institution_owned_service',
         'mutation_enabled': True,
         'mutation_disabled_reason': '',
-        'storage_model': meta.get('storage_model', 'capsule_canonical_with_legacy_symlink'),
+        'storage_model': _normalize_storage_model(meta.get('storage_model', 'capsule_canonical_with_legacy_symlink')),
         'boundary_name': meta.get('boundary_name', 'subscriptions'),
         'identity_model': meta.get('identity_model', 'session'),
         'canonical_source': 'service_module',
         'canonical_service_module': alias_registry['canonical_service_module'],
         'canonical_path': canonical_path,
-        'legacy_path_role': 'compatibility_symlink',
-        'legacy_path': legacy_path,
+        'compatibility_path_role': 'compatibility_symlink',
+        'compatibility_path': legacy_path,
         'compatibility_module': alias_registry['compatibility_module'],
-        'compatibility_mode': 'legacy_shim',
+        'compatibility_mode': _normalize_compatibility_mode('legacy_shim'),
         'alias_registry': {
             'canonical_source': alias_registry['canonical_source'],
             'canonical_paths': {
@@ -188,7 +205,7 @@ def subscription_snapshot(org_id=None):
                     WORKSPACE,
                 ),
             },
-            'legacy_paths': {
+            'compatibility_paths': {
                 'subscriptions': legacy_path,
                 'subscriptions_backup': os.path.relpath(
                     alias_registry['legacy_paths']['subscriptions_backup'],
@@ -199,7 +216,7 @@ def subscription_snapshot(org_id=None):
                     WORKSPACE,
                 ),
             },
-            'compatibility_mode': alias_registry['compatibility_mode'],
+            'compatibility_mode': _normalize_compatibility_mode(alias_registry['compatibility_mode']),
         },
         'mutation_paths': list(SUBSCRIPTIONS_MUTATION_PATHS),
         'summary': summary,
@@ -236,26 +253,26 @@ def accounting_snapshot(org_id=None):
         'management_mode': 'institution_owned_service',
         'mutation_enabled': True,
         'mutation_disabled_reason': '',
-        'storage_model': meta.get('storage_model', 'capsule_owned_owner_ledger'),
+        'storage_model': _normalize_storage_model(meta.get('storage_model', 'capsule_owned_owner_ledger')),
         'db': accounting_store.db_status_for_owner_ledger(owner_ledger_path(org_id), org_id),
         'boundary_name': meta.get('boundary_name', 'accounting'),
         'identity_model': meta.get('identity_model', 'session'),
         'canonical_source': 'service_module',
         'canonical_service_module': alias_registry['canonical_service_module'],
         'canonical_path': canonical_path,
-        'legacy_path_role': 'compatibility_symlink',
-        'legacy_path': legacy_path,
+        'compatibility_path_role': 'compatibility_symlink',
+        'compatibility_path': legacy_path,
         'compatibility_module': alias_registry['compatibility_module'],
-        'compatibility_mode': 'legacy_shim',
+        'compatibility_mode': _normalize_compatibility_mode('legacy_shim'),
         'alias_registry': {
             'canonical_source': alias_registry['canonical_source'],
             'canonical_paths': {
                 'owner_ledger': canonical_path,
             },
-            'legacy_paths': {
+            'compatibility_paths': {
                 'owner_ledger': legacy_path,
             },
-            'compatibility_mode': alias_registry['compatibility_mode'],
+            'compatibility_mode': _normalize_compatibility_mode(alias_registry['compatibility_mode']),
         },
         'mutation_paths': list(ACCOUNTING_MUTATION_PATHS),
         'summary': {
