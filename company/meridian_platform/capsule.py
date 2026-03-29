@@ -12,20 +12,27 @@ import os
 
 PLATFORM_DIR = os.path.dirname(os.path.abspath(__file__))
 WORKSPACE = os.path.dirname(os.path.dirname(PLATFORM_DIR))
-CAPSULES_DIR = os.path.join(WORKSPACE, 'economy', 'capsules')
+CANONICAL_KERNEL_ROOT = '/opt/meridian-kernel'
+LOCAL_ECONOMY_DIR = os.path.join(WORKSPACE, 'economy')
+ECONOMY_DIR = (
+    os.path.join(CANONICAL_KERNEL_ROOT, 'economy')
+    if os.path.isdir(os.path.join(CANONICAL_KERNEL_ROOT, 'economy'))
+    else LOCAL_ECONOMY_DIR
+)
+CAPSULES_DIR = os.path.join(ECONOMY_DIR, 'capsules')
 ORGS_FILE = os.path.join(PLATFORM_DIR, 'organizations.json')
-LEGACY_LEDGER_FILE = os.path.join(WORKSPACE, 'economy', 'ledger.json')
-LEGACY_REVENUE_FILE = os.path.join(WORKSPACE, 'economy', 'revenue.json')
-LEGACY_TRANSACTIONS_FILE = os.path.join(WORKSPACE, 'economy', 'transactions.jsonl')
+LEGACY_LEDGER_FILE = os.path.join(ECONOMY_DIR, 'ledger.json')
+LEGACY_REVENUE_FILE = os.path.join(ECONOMY_DIR, 'revenue.json')
+LEGACY_TRANSACTIONS_FILE = os.path.join(ECONOMY_DIR, 'transactions.jsonl')
 LEGACY_SUBSCRIPTIONS_FILE = os.path.join(WORKSPACE, 'company', 'subscriptions.json')
 LEGACY_SUBSCRIPTIONS_BACKUP_FILE = os.path.join(WORKSPACE, 'company', 'subscriptions.json.bak')
 LEGACY_SUBSCRIPTIONS_LOCK_FILE = os.path.join(WORKSPACE, 'company', '.subscriptions.lock')
 LEGACY_OWNER_LEDGER_FILE = os.path.join(WORKSPACE, 'company', 'owner_ledger.json')
 LEGACY_PAYMENT_MONITOR_STATE_FILE = os.path.join(WORKSPACE, 'company', 'payment_monitor_state.json')
 LEGACY_PAYMENT_EVENTS_LOG_FILE = os.path.join(WORKSPACE, 'company', 'payment_events.log')
-LEGACY_PAYMENT_INTEGRITY_LOCK_FILE = os.path.join(WORKSPACE, 'economy', '.payment_integrity.lock')
-LEGACY_FEDERATION_INBOX_FILE = os.path.join(WORKSPACE, 'economy', 'federation_inbox.json')
-LEGACY_FEDERATION_INBOX_LOCK_FILE = os.path.join(WORKSPACE, 'economy', '.federation_inbox.lock')
+LEGACY_PAYMENT_INTEGRITY_LOCK_FILE = os.path.join(ECONOMY_DIR, '.payment_integrity.lock')
+LEGACY_FEDERATION_INBOX_FILE = os.path.join(ECONOMY_DIR, 'federation_inbox.json')
+LEGACY_FEDERATION_INBOX_LOCK_FILE = os.path.join(ECONOMY_DIR, '.federation_inbox.lock')
 SUBSCRIPTIONS_CANONICAL_SERVICE_MODULE = 'company.meridian_platform.subscription_service'
 SUBSCRIPTIONS_COMPATIBILITY_MODULE = 'company.subscriptions'
 ACCOUNTING_CANONICAL_SERVICE_MODULE = 'company.meridian_platform.accounting_service'
@@ -55,10 +62,26 @@ def resolve_org_id(org_id=None):
     return org_id or founding_org_id
 
 
+def _founding_capsule_alias_dir(org_id=None):
+    resolved_org_id = resolve_org_id(org_id)
+    founding_org_id = default_org_id()
+    if (
+        resolved_org_id
+        and founding_org_id
+        and resolved_org_id == founding_org_id
+        and os.path.exists(LEGACY_LEDGER_FILE)
+    ):
+        return ECONOMY_DIR
+    return ''
+
+
 def capsule_dir(org_id=None):
     resolved_org_id = resolve_org_id(org_id)
     if not resolved_org_id:
         raise ValueError('Founding org is not initialized')
+    alias_dir = _founding_capsule_alias_dir(resolved_org_id)
+    if alias_dir:
+        return alias_dir
     return os.path.join(CAPSULES_DIR, resolved_org_id)
 
 
@@ -123,7 +146,16 @@ def _merge_revenue_state(current, target_data):
 
 
 def _ensure_alias(path, target):
-    ensure_capsule(os.path.basename(os.path.dirname(path)))
+    if os.path.abspath(path) == os.path.abspath(target):
+        parent = os.path.dirname(path)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+        return path
+    parent = os.path.dirname(path)
+    if os.path.abspath(parent) == os.path.abspath(ECONOMY_DIR):
+        os.makedirs(parent, exist_ok=True)
+    else:
+        ensure_capsule(os.path.basename(parent))
     if os.path.islink(path):
         current = os.path.realpath(path)
         if os.path.realpath(target) != current:

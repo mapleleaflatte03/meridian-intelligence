@@ -197,13 +197,13 @@ class LiveWorkspaceContextTests(unittest.TestCase):
                     'id': 'org_founding',
                     'slug': 'meridian',
                     'name': 'Meridian',
-                    'owner_id': 'user_son',
-                    'members': [{'user_id': 'user_son', 'role': 'owner'}],
+                    'owner_id': 'user_meridian',
+                    'members': [{'user_id': 'user_meridian', 'role': 'owner'}],
                 },
             }
         }
         auth = self.workspace._resolve_auth_context('org_founding')
-        self.assertEqual(auth['user_id'], 'user_son')
+        self.assertEqual(auth['user_id'], 'user_meridian')
         self.assertEqual(auth['role'], 'owner')
         self.assertEqual(auth['actor_source'], 'owner_alias')
 

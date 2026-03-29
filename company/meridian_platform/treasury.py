@@ -83,6 +83,22 @@ def _parse_ts(value):
     return datetime.datetime.strptime(value, '%Y-%m-%dT%H:%M:%SZ')
 
 
+def _safe_parse_ts(value):
+    if not value:
+        return None
+    try:
+        return _parse_ts(str(value))
+    except (TypeError, ValueError):
+        return None
+
+
+def _latest_timestamp(*values):
+    parsed = [dt for dt in (_safe_parse_ts(value) for value in values) if dt is not None]
+    if not parsed:
+        return ''
+    return max(parsed).strftime('%Y-%m-%dT%H:%M:%SZ')
+
+
 _PROTOCOL_DEFAULTS = {
     'wallets.json': {
         'wallets': {},
@@ -479,7 +495,7 @@ def load_wallets(org_id=None):
 
 
 def load_treasury_accounts(org_id=None):
-    return _sync_treasury_accounts(org_id)
+    return _build_treasury_accounts_store(org_id)
 
 
 def load_contributors(org_id=None):
@@ -495,7 +511,7 @@ def load_settlement_adapters(org_id=None):
 
 
 def load_funding_sources(org_id=None):
-    return _sync_funding_sources(org_id)
+    return _build_funding_source_store(org_id)
 
 
 def _account_store(org_id=None):
@@ -565,6 +581,15 @@ def _build_funding_source_store(org_id=None):
         sources.pop(derived_id, None)
 
     store['sources'] = sources
+    store['updatedAt'] = (
+        _latest_timestamp(
+            store.get('updatedAt'),
+            _read_only_ledger(org_id).get('updatedAt'),
+            *(item.get('recorded_at') for item in sources.values()),
+        )
+        or store.get('updatedAt')
+        or _now()
+    )
     return store
 
 
@@ -583,7 +608,8 @@ def _build_treasury_accounts_store(org_id=None):
     accounts = dict(store.get('accounts', {}))
     ledger = _read_only_ledger(org_id)
     treasury = ledger.get('treasury', {})
-    proposals = _read_only_registry_file('payout_proposals.json', org_id).get('proposals', {})
+    proposal_store = _read_only_registry_file('payout_proposals.json', org_id)
+    proposals = proposal_store.get('proposals', {})
     pending_payouts = round(sum(
         float(item.get('amount_usd') or 0.0)
         for item in proposals.values()
@@ -645,6 +671,17 @@ def _build_treasury_accounts_store(org_id=None):
         'source_of_truth': 'payout_proposals',
     }
     store['accounts'] = accounts
+    store['updatedAt'] = (
+        _latest_timestamp(
+            store.get('updatedAt'),
+            ledger.get('updatedAt'),
+            proposal_store.get('updatedAt'),
+            *(item.get('updated_at') for item in proposals.values()),
+            *(item.get('executed_at') for item in proposals.values()),
+        )
+        or store.get('updatedAt')
+        or _now()
+    )
     return store
 
 
@@ -1658,7 +1695,7 @@ def execute_payout_proposal(proposal_id, actor_id, *, org_id=None, warrant_id=''
     return record
 
 
-def treasury_snapshot(org_id=None):
+def treasury_snapshot(org_id=None, *, host_supported_adapters=None):
     """Combined view: balance, revenue, spend, runway, reserve status."""
     org_id = _resolve_org_id(org_id)
     ledger = _read_only_ledger(org_id)
@@ -1704,6 +1741,7 @@ def treasury_snapshot(org_id=None):
     funding_store = _build_funding_source_store(org_id)
     adapters = dict(settlement_store.get('adapters', {}))
     payout_enabled_adapters = [adapter for adapter in adapters.values() if adapter.get('payout_execution_enabled')]
+    host_supported = [item for item in (host_supported_adapters or []) if item]
 
     return {
         'balance_usd': balance,
@@ -1735,15 +1773,11 @@ def treasury_snapshot(org_id=None):
             'payout_enabled_settlement_adapters': len(payout_enabled_adapters),
             'funding_sources': len(funding_store.get('sources', {})),
         },
-        'settlement_adapter_summary': {
-            'default_payout_adapter': settlement_store.get('default_payout_adapter', 'internal_ledger'),
-            'total': len(adapters),
-            'active': len([adapter for adapter in adapters.values() if adapter.get('status') == 'active']),
-            'payout_enabled': len(payout_enabled_adapters),
-            'host_supported_adapters': [],
-            'host_supported_payout_adapters': [],
-        },
-        'settlement_adapters': list(adapters.values()),
+        'settlement_adapter_summary': settlement_adapter_summary(
+            org_id,
+            host_supported_adapters=host_supported,
+        ),
+        'settlement_adapters': list_settlement_adapters(org_id),
         'remediation': remediation,
         'snapshot_at': _now(),
     }

@@ -4,8 +4,9 @@
 This script is intentionally truthful:
 - it writes explicit local payment evidence into an isolated temp journal
 - it exercises the real subscription activation path used by checkout capture
-- it only claims a blockchain transfer if a real broadcast tx hash exists
-- broadcast rejections are surfaced exactly as returned by the RPC/kernel signer
+- it settles through the host-supported Meridian treasury adapter
+- it only claims on-chain settlement when a real broadcast tx hash exists
+- adapter rejections are surfaced exactly as returned by the active settlement path
 - outbound delivery is disabled by default for operator safety
 - it only prints a generated brief if the configured Loom runtime actually returns one
 """
@@ -31,6 +32,7 @@ if PLATFORM_DIR not in sys.path:
     sys.path.insert(0, PLATFORM_DIR)
 
 import subscription_service
+import warrants as warrants_runtime
 
 
 DEFAULT_PLAN = 'premium-brief-weekly'
@@ -49,6 +51,11 @@ DIRECT_X402_TOKEN_CONTRACT = '0x036CbD53842c5426634e7929541eC2318f3dCF7e'
 DIRECT_X402_RECIPIENT = '0x2222222222222222222222222222222222222222'
 DIRECT_X402_AMOUNT_USDC = '1.00'
 DIRECT_X402_RPC_URL = 'https://base-sepolia-rpc.publicnode.com'
+DIRECT_INTERNAL_LEDGER_SETTLEMENT_ADAPTER = 'internal_ledger'
+DIRECT_INTERNAL_SETTLEMENT_WALLET_ID = 'wallet_meridian_host_ops'
+DIRECT_INTERNAL_SETTLEMENT_WALLET_ADDRESS = '0x1111111111111111111111111111111111111111'
+DIRECT_INTERNAL_SETTLEMENT_CONTRIBUTOR_ID = 'contrib_meridian_host_ops'
+DIRECT_INTERNAL_SETTLEMENT_AMOUNT_USD = 0.0001
 CANONICAL_KERNEL_ROOT = '/opt/meridian-kernel'
 LEGACY_KERNEL_ROOT = '/tmp/meridian-kernel'
 
@@ -453,6 +460,70 @@ def _kernel_signer_org_id(treasury=None):
     return DIRECT_LOOM_ORG_ID
 
 
+def _finalize_warrant_execution(warrant_id, *, org_id, execution_refs):
+    warrant_ref = str(warrant_id or '').strip()
+    if not warrant_ref:
+        return {}
+    return warrants_runtime.mark_warrant_executed(
+        warrant_ref,
+        org_id=org_id,
+        execution_refs=dict(execution_refs or {}),
+    )
+
+
+def _preferred_settlement_adapter(treasury, org_id):
+    store = dict((treasury.load_settlement_adapters(org_id) or {}))
+    adapters = dict(store.get('adapters') or {})
+    default_adapter = str(store.get('default_payout_adapter') or '').strip()
+    if default_adapter and dict(adapters.get(default_adapter) or {}).get('payout_execution_enabled'):
+        return default_adapter
+    for adapter_id, adapter in sorted(adapters.items()):
+        if dict(adapter or {}).get('payout_execution_enabled'):
+            return str(adapter_id).strip()
+    return ''
+
+
+def _ensure_internal_settlement_recipient(treasury, org_id):
+    wallet = treasury.get_wallet(DIRECT_INTERNAL_SETTLEMENT_WALLET_ID, org_id)
+    if not wallet:
+        wallet = treasury.register_wallet(
+            DIRECT_INTERNAL_SETTLEMENT_WALLET_ID,
+            DIRECT_INTERNAL_SETTLEMENT_WALLET_ADDRESS,
+            actor_id=SCRIPT_ACTOR,
+            org_id=org_id,
+            label='Meridian Host Ops Settlement Wallet',
+            notes='Canonical Meridian host settlement recipient for governed operator payout flow.',
+        )
+
+    contributor_store = dict(treasury.load_contributors(org_id) or {})
+    contributor_store.setdefault('contributors', {})
+    contributor_store.setdefault(
+        'contribution_types',
+        list(getattr(treasury, '_PROTOCOL_DEFAULTS', {}).get('contributors.json', {}).get('contribution_types', [])),
+    )
+    contributor = dict(contributor_store['contributors'].get(DIRECT_INTERNAL_SETTLEMENT_CONTRIBUTOR_ID) or {})
+    if not contributor:
+        contributor = {
+            'id': DIRECT_INTERNAL_SETTLEMENT_CONTRIBUTOR_ID,
+            'name': 'Meridian Host Ops',
+            'status': 'active',
+            'payout_wallet_id': DIRECT_INTERNAL_SETTLEMENT_WALLET_ID,
+            'registered_by': SCRIPT_ACTOR,
+            'notes': 'Canonical Meridian host settlement recipient for governed operator payout flow.',
+            'metadata': {
+                'source': 'ops_meridian_delivery_engine',
+            },
+        }
+        contributor_store['contributors'][DIRECT_INTERNAL_SETTLEMENT_CONTRIBUTOR_ID] = contributor
+        treasury._save_registry_file('contributors.json', contributor_store, org_id)
+    elif contributor.get('payout_wallet_id') != DIRECT_INTERNAL_SETTLEMENT_WALLET_ID:
+        contributor['payout_wallet_id'] = DIRECT_INTERNAL_SETTLEMENT_WALLET_ID
+        contributor_store['contributors'][DIRECT_INTERNAL_SETTLEMENT_CONTRIBUTOR_ID] = contributor
+        treasury._save_registry_file('contributors.json', contributor_store, org_id)
+
+    return wallet, contributor
+
+
 def _load_hot_wallet_secret():
     if not os.path.exists(HOT_WALLET_SECRET_PATH):
         return {}
@@ -510,7 +581,7 @@ def _broadcast_x402_settlement(timeout):
     }
 
 
-def _attach_x402_settlement(result, *, timeout):
+def _attach_x402_settlement(result, *, timeout, warrant_id=''):
     runtime = dict(result.get('runtime') or {})
     capture_result = dict(result.get('capture_result') or {})
     if not runtime.get('loom_bin_exists'):
@@ -554,6 +625,142 @@ def _attach_x402_settlement(result, *, timeout):
     delivery_execution['execution_refs'] = execution_refs
     capture_result['delivery_execution'] = delivery_execution
     result['capture_result'] = capture_result
+    if (warrant_id or '').strip():
+        result['warrant'] = _finalize_warrant_execution(
+            warrant_id,
+            org_id=_kernel_signer_org_id(),
+            execution_refs=execution_refs,
+        )
+    return result
+
+
+def _attach_internal_ledger_settlement(result, *, warrant_id=''):
+    treasury = _load_kernel_treasury_module()
+    if treasury is None:
+        result['settlement_error'] = f'Kernel treasury module is missing at {KERNEL_TREASURY_PATH}'
+        return result
+
+    org_id = _kernel_signer_org_id(treasury)
+    wallet, contributor = _ensure_internal_settlement_recipient(treasury, org_id)
+    capture_result = dict(result.get('capture_result') or {})
+    delivery_artifact = dict(capture_result.get('delivery_artifact') or {})
+    delivery_run = dict(capture_result.get('delivery_run') or {})
+    subscription = dict(capture_result.get('subscription') or {})
+
+    commitment = treasury.commitments.propose_commitment(
+        'host_meridian_local',
+        org_id,
+        'Settle governed delivery execution',
+        commitment_id=f'cmt_ops_settle_{uuid.uuid4().hex[:12]}',
+        proposed_by='user:meridian_host_ops',
+        warrant_id=(warrant_id or '').strip(),
+        org_id=org_id,
+        metadata={
+            'source': 'ops_meridian_delivery_engine',
+            'subscription_id': subscription.get('id', ''),
+            'job_id': delivery_artifact.get('job_id', ''),
+        },
+    )
+    treasury.commitments.accept_commitment(
+        commitment['commitment_id'],
+        'user:meridian_host_ops',
+        org_id=org_id,
+    )
+
+    proposal = treasury.create_payout_proposal(
+        DIRECT_INTERNAL_SETTLEMENT_CONTRIBUTOR_ID,
+        DIRECT_INTERNAL_SETTLEMENT_AMOUNT_USD,
+        'review',
+        proposed_by='user:meridian_host_ops',
+        org_id=org_id,
+        evidence={
+            'description': 'Meridian governed delivery settlement check',
+            'subscription_id': subscription.get('id', ''),
+            'result_path': delivery_artifact.get('result_path', ''),
+            'job_id': delivery_artifact.get('job_id', ''),
+        },
+        settlement_adapter=DIRECT_INTERNAL_LEDGER_SETTLEMENT_ADAPTER,
+        note='Canonical Meridian host settlement check',
+        metadata={
+            'source': 'ops_meridian_delivery_engine',
+            'target_url': result.get('target_url', ''),
+        },
+        linked_commitment_id=commitment['commitment_id'],
+    )
+    proposal = treasury.submit_payout_proposal(
+        proposal['proposal_id'],
+        'user:meridian_host_ops',
+        org_id=org_id,
+    )
+    proposal = treasury.review_payout_proposal(
+        proposal['proposal_id'],
+        'user:meridian_host_ops_reviewer',
+        org_id=org_id,
+    )
+    proposal = treasury.approve_payout_proposal(
+        proposal['proposal_id'],
+        'user:meridian_host_ops_owner',
+        org_id=org_id,
+    )
+    proposal = treasury.open_payout_dispute_window(
+        proposal['proposal_id'],
+        'user:meridian_host_ops_owner',
+        org_id=org_id,
+        dispute_window_hours=0,
+    )
+    proposal = treasury.execute_payout_proposal(
+        proposal['proposal_id'],
+        'user:meridian_host_ops_owner',
+        org_id=org_id,
+        warrant_id=(warrant_id or '').strip(),
+        settlement_adapter=DIRECT_INTERNAL_LEDGER_SETTLEMENT_ADAPTER,
+        host_supported_adapters=[DIRECT_INTERNAL_LEDGER_SETTLEMENT_ADAPTER],
+    )
+
+    execution_refs = dict(proposal.get('execution_refs') or {})
+    for key in ('delivery_run', 'delivery_execution'):
+        record = dict(capture_result.get(key) or {})
+        merged_refs = dict(record.get('execution_refs') or {})
+        merged_refs.update(execution_refs)
+        record['execution_refs'] = merged_refs
+        capture_result[key] = record
+    result['capture_result'] = capture_result
+    result['settlement'] = {
+        'adapter_id': proposal.get('settlement_adapter', ''),
+        'proposal_id': proposal.get('proposal_id', ''),
+        'wallet_id': wallet.get('id', ''),
+        'contributor_id': contributor.get('id', ''),
+        'linked_commitment_id': proposal.get('linked_commitment_id', ''),
+        'execution_refs': execution_refs,
+    }
+    if (warrant_id or '').strip():
+        result['warrant'] = _finalize_warrant_execution(
+            warrant_id,
+            org_id=org_id,
+            execution_refs={
+                **execution_refs,
+                'proposal_id': proposal.get('proposal_id', ''),
+            },
+        )
+    return result
+
+
+def _attach_host_supported_settlement(result, *, timeout, warrant_id=''):
+    treasury = _load_kernel_treasury_module()
+    if treasury is None:
+        result['settlement_error'] = f'Kernel treasury module is missing at {KERNEL_TREASURY_PATH}'
+        return result
+
+    adapter_id = _preferred_settlement_adapter(treasury, _kernel_signer_org_id(treasury))
+    if adapter_id == DIRECT_INTERNAL_LEDGER_SETTLEMENT_ADAPTER:
+        return _attach_internal_ledger_settlement(result, warrant_id=warrant_id)
+    if adapter_id == DIRECT_X402_SETTLEMENT_ADAPTER:
+        return _attach_x402_settlement(result, timeout=timeout, warrant_id=warrant_id)
+
+    result['settlement_error'] = (
+        f"No payout-enabled Meridian settlement adapter is active on host; "
+        f"default adapter is {(adapter_id or '<none>')}"
+    )
     return result
 
 
@@ -629,13 +836,27 @@ def runtime_snapshot():
     }
 
 
-def _delivery_blockchain_artifact(payload, *, source=''):
+def _delivery_settlement_artifact(payload, *, source=''):
     payload = dict(payload or {})
     if not payload:
         return {}
 
     settlement_adapter = (payload.get('settlement_adapter') or '').strip()
     proof_type = (payload.get('proof_type') or '').strip()
+    verification_state = str(payload.get('verification_state') or '').strip()
+    finality_state = str(payload.get('finality_state') or '').strip()
+    tx_ref = str(payload.get('tx_ref') or '').strip()
+    if tx_ref:
+        return {
+            'artifact_type': 'tx_ref',
+            'artifact': tx_ref,
+            'artifact_source': source,
+            'settlement_adapter': settlement_adapter,
+            'proof_type': proof_type,
+            'verification_state': verification_state,
+            'finality_state': finality_state,
+        }
+
     tx_hash = str(payload.get('tx_hash') or '').strip()
     if tx_hash:
         return {
@@ -644,6 +865,8 @@ def _delivery_blockchain_artifact(payload, *, source=''):
             'artifact_source': source,
             'settlement_adapter': settlement_adapter,
             'proof_type': proof_type,
+            'verification_state': verification_state,
+            'finality_state': finality_state,
         }
 
     for field in ('signed_raw_hex', 'signed_tx_hex', 'raw_hex'):
@@ -655,12 +878,14 @@ def _delivery_blockchain_artifact(payload, *, source=''):
                 'artifact_source': source,
                 'settlement_adapter': settlement_adapter,
                 'proof_type': proof_type,
+                'verification_state': verification_state,
+                'finality_state': finality_state,
             }
 
     for nested_key in ('proof', 'settlement_proof', 'execution_refs'):
         nested = payload.get(nested_key)
         if isinstance(nested, dict):
-            artifact = _delivery_blockchain_artifact(
+            artifact = _delivery_settlement_artifact(
                 nested,
                 source=f'{source}.{nested_key}' if source else nested_key,
             )
@@ -675,6 +900,19 @@ def _delivery_blockchain_artifact(payload, *, source=''):
 
 
 def delivery_blockchain_artifact(result):
+    artifact = delivery_settlement_artifact(result)
+    if artifact.get('artifact_type') in {'tx_hash', 'signed_raw_hex', 'signed_tx_hex', 'raw_hex'}:
+        return artifact
+    return {
+        'artifact_type': '',
+        'artifact': '',
+        'artifact_source': '',
+        'settlement_adapter': '',
+        'proof_type': '',
+    }
+
+
+def delivery_settlement_artifact(result):
     capture_result = dict((result or {}).get('capture_result') or {})
     delivery_execution = dict(capture_result.get('delivery_execution') or {})
     delivery_run = dict(capture_result.get('delivery_run') or {})
@@ -689,7 +927,7 @@ def delivery_blockchain_artifact(result):
         ('delivery_artifact', delivery_artifact),
     ]
     for source, payload in candidates:
-        artifact = _delivery_blockchain_artifact(payload, source=source)
+        artifact = _delivery_settlement_artifact(payload, source=source)
         if artifact:
             return artifact
     return {
@@ -698,11 +936,14 @@ def delivery_blockchain_artifact(result):
         'artifact_source': '',
         'settlement_adapter': '',
         'proof_type': '',
+        'verification_state': '',
+        'finality_state': '',
     }
 
 
 def run_engine(*, plan=DEFAULT_PLAN, telegram_id=DEFAULT_TELEGRAM_ID, email='', timeout=20,
-               disable_outbound_dispatch=True, keep_state=False, capability_name='', target_url=''):
+               disable_outbound_dispatch=True, keep_state=False, capability_name='', target_url='',
+               warrant_id=''):
     env_overrides = {}
     if capability_name:
         env_overrides['MERIDIAN_LOOM_SUBSCRIPTION_DELIVERY_CAPABILITY'] = capability_name
@@ -760,7 +1001,11 @@ def run_engine(*, plan=DEFAULT_PLAN, telegram_id=DEFAULT_TELEGRAM_ID, email='', 
                 'target_url': target,
             }
             result = _direct_browser_fallback_capture(result, timeout=int(timeout), target_url=target)
-            return _attach_x402_settlement(result, timeout=int(timeout))
+            return _attach_host_supported_settlement(
+                result,
+                timeout=int(timeout),
+                warrant_id=warrant_id,
+            )
 
 
 run_delivery_engine = run_engine
@@ -878,6 +1123,21 @@ def _blockchain_rpc_error(result):
     return str(broadcast.get('error') or '').strip() or direct_error
 
 
+def _settlement_sender_address(result):
+    settlement = delivery_settlement_artifact(result)
+    if (settlement.get('settlement_adapter') or '').strip() != DIRECT_X402_SETTLEMENT_ADAPTER:
+        return ''
+    return _blockchain_sender_address(result)
+
+
+def _settlement_error(result):
+    settlement = dict((result or {}).get('settlement') or {})
+    if settlement.get('error'):
+        return str(settlement.get('error') or '').strip()
+    direct_error = str((result or {}).get('settlement_error') or '').strip()
+    return direct_error or _blockchain_rpc_error(result)
+
+
 def _print_result(result):
     runtime = result['runtime']
     capture_result = result['capture_result']
@@ -885,26 +1145,30 @@ def _print_result(result):
     run = capture_result.get('delivery_run', {})
     execution = capture_result.get('delivery_execution', {})
     artifact = capture_result.get('delivery_artifact', {})
-    blockchain = delivery_blockchain_artifact(result)
-    blockchain_sender_address = _blockchain_sender_address(result)
-    blockchain_rpc_error = _blockchain_rpc_error(result)
+    settlement = delivery_settlement_artifact(result)
+    settlement_sender_address = _settlement_sender_address(result)
+    settlement_error = _settlement_error(result)
 
     print('Meridian Autonomous Delivery Engine')
     print(f"workspace: {WORKSPACE}")
     print(f"execution_state_dir: {result['execution_state_dir']}")
     print(f"outbound_dispatch_disabled: {str(result['outbound_dispatch_disabled']).lower()}")
-    print(f"blockchain_transfer_claimed: {str((blockchain.get('artifact_type') or '') == 'tx_hash').lower()}")
-    print(f"blockchain_artifact_type: {blockchain.get('artifact_type') or '<none>'}")
-    print(f"blockchain_artifact_source: {blockchain.get('artifact_source') or '<none>'}")
-    if blockchain.get('settlement_adapter'):
-        print(f"blockchain_settlement_adapter: {blockchain['settlement_adapter']}")
-    if blockchain.get('proof_type'):
-        print(f"blockchain_proof_type: {blockchain['proof_type']}")
-    if blockchain_sender_address:
-        print(f"blockchain_sender_address: {blockchain_sender_address}")
-    if blockchain_rpc_error:
-        print(f"blockchain_rpc_error: {blockchain_rpc_error}")
-    print(f"blockchain_artifact: {blockchain.get('artifact') or '<none>'}")
+    print(f"settlement_claimed: {str(bool(settlement.get('artifact'))).lower()}")
+    print(f"settlement_artifact_type: {settlement.get('artifact_type') or '<none>'}")
+    print(f"settlement_artifact_source: {settlement.get('artifact_source') or '<none>'}")
+    if settlement.get('settlement_adapter'):
+        print(f"settlement_adapter: {settlement['settlement_adapter']}")
+    if settlement.get('proof_type'):
+        print(f"settlement_proof_type: {settlement['proof_type']}")
+    if settlement.get('verification_state'):
+        print(f"settlement_verification_state: {settlement['verification_state']}")
+    if settlement.get('finality_state'):
+        print(f"settlement_finality_state: {settlement['finality_state']}")
+    if settlement_sender_address:
+        print(f"settlement_sender_address: {settlement_sender_address}")
+    if settlement_error:
+        print(f"settlement_error: {settlement_error}")
+    print(f"settlement_artifact: {settlement.get('artifact') or '<none>'}")
     print(f"runtime_path: {runtime['runtime_path']}")
     print(f"wasm_io_available: {str(runtime['wasm_io_available']).lower()}")
     print(f"loom_bin: {runtime['loom_bin']}")
@@ -963,6 +1227,7 @@ def main(argv=None):
             keep_state=args.keep_state,
             capability_name=args.capability_name,
             target_url=args.url,
+            warrant_id='',
         )
     except Exception as exc:
         print(f'ERROR: {exc}', file=sys.stderr)

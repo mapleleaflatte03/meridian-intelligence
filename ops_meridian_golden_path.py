@@ -5,15 +5,18 @@ This script is intentionally truthful:
 - it uses the real local kernel bootstrap and warrant CLI
 - it reads the real kernel agent registry state
 - it executes the real local Loom browser capability against httpbin
-- it surfaces the real EVM settlement boundary returned by the kernel signer
+- it settles through the live Meridian treasury adapter supported by this host
 - it never fabricates tx hashes or delivery content
 """
 from __future__ import annotations
 
+import base64
 import json
 import os
 import subprocess
 import time
+import urllib.error
+import urllib.request
 
 import ops_meridian_delivery_engine as engine
 
@@ -40,6 +43,8 @@ WARRANTS_PATH = os.path.join(KERNEL_DIR, "warrants.py")
 AGENT_REGISTRY_FILE = os.path.join(KERNEL_DIR, "agent_registry.json")
 ORGANIZATIONS_FILE = os.path.join(KERNEL_DIR, "organizations.json")
 TARGET_URL = "https://httpbin.org/html"
+WORKSPACE_CREDENTIALS_PATH = os.path.join(os.path.dirname(WORKSPACE), ".workspace_credentials")
+WORKSPACE_GATEWAY_URL = "http://127.0.0.1:8266"
 STEP_DELAY_SECONDS = 0.2
 
 RESET = "\033[0m"
@@ -97,6 +102,55 @@ def _load_json_file(path: str):
         return {}
     with open(path, encoding="utf-8") as handle:
         return json.load(handle)
+
+
+def _load_workspace_credentials():
+    payload = {}
+    if not os.path.exists(WORKSPACE_CREDENTIALS_PATH):
+        return payload
+    with open(WORKSPACE_CREDENTIALS_PATH, encoding="utf-8") as handle:
+        for raw_line in handle:
+            line = str(raw_line or "").strip()
+            if ":" not in line:
+                continue
+            key, _, value = line.partition(":")
+            payload[key.strip()] = value.strip()
+    return payload
+
+
+def _workspace_api_post(path: str, payload: dict) -> dict:
+    credentials = _load_workspace_credentials()
+    user = str(credentials.get("user") or "").strip()
+    password = str(credentials.get("pass") or "").strip()
+    if not user or not password:
+        raise RuntimeError("Workspace credentials are missing; cannot call Meridian mutation surface")
+    token = base64.b64encode(f"{user}:{password}".encode("utf-8")).decode("ascii")
+    body = json.dumps(payload or {}).encode("utf-8")
+    request = urllib.request.Request(
+        f"{WORKSPACE_GATEWAY_URL}{path}",
+        data=body,
+        headers={
+            "Authorization": f"Basic {token}",
+            "Origin": "https://app.welliam.codes",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "User-Agent": "MeridianGoldenPath/1.0",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=20) as response:
+            data = json.loads(response.read().decode("utf-8", "replace") or "{}")
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", "replace")
+        raise RuntimeError(detail or exc.reason) from exc
+    except urllib.error.URLError as exc:
+        raise RuntimeError(f"workspace_unreachable: {exc.reason}") from exc
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"invalid Meridian API response for {path}: {exc}") from exc
+    if isinstance(data, dict) and data.get("error"):
+        raise RuntimeError(str(data.get("error")))
+    return data
 
 
 def _kernel_meridian_state_ready() -> bool:
@@ -169,24 +223,26 @@ def _resolve_agent():
 
 
 def _issue_warrant(agent):
-    output = _run_kernel_python(
-        WARRANTS_PATH,
-        "issue",
-        "--org_id",
-        engine.DIRECT_LOOM_ORG_ID,
-        "--action_class",
-        "federated_execution",
-        "--boundary_name",
-        engine.DIRECT_LOOM_CAPABILITY,
-        "--actor_id",
-        agent["id"],
-        "--session_id",
-        "golden_path_local",
-        "--risk_class",
-        "moderate",
-        "--auto_issue",
+    response = _workspace_api_post(
+        "/api/warrants/issue",
+        {
+            "action_class": "federated_execution",
+            "boundary_name": engine.DIRECT_LOOM_CAPABILITY,
+            "risk_class": "moderate",
+            "auto_issue": True,
+            "note": "Meridian golden path warrant issuance",
+            "request_payload": {
+                "requested_agent_id": agent["id"],
+                "requested_agent_name": agent.get("name", ""),
+                "requested_agent_role": agent.get("role", ""),
+                "requested_boundary": engine.DIRECT_LOOM_CAPABILITY,
+            },
+        },
     )
-    return json.loads(output)
+    warrant = dict(response.get("warrant") or {})
+    if not warrant:
+        raise RuntimeError("Meridian workspace did not return a warrant payload")
+    return warrant
 
 
 def _brief_preview(result):
@@ -234,6 +290,7 @@ def main() -> int:
         disable_outbound_dispatch=True,
         keep_state=False,
         timeout=20,
+        warrant_id=warrant["warrant_id"],
     )
     runtime = dict(result.get("runtime") or {})
     capture_result = dict(result.get("capture_result") or {})
@@ -246,21 +303,33 @@ def main() -> int:
     _line("brief_result_path:", str(artifact.get("result_path") or "<none>"))
     _multiline("brief_preview:", _brief_preview(result))
 
-    _step("STEP 5: EVM Settlement")
-    blockchain = engine.delivery_blockchain_artifact(result)
-    sender_address = engine._blockchain_sender_address(result)
-    rpc_error = engine._blockchain_rpc_error(result)
-    artifact_type = str(blockchain.get("artifact_type") or "")
-    artifact_value = str(blockchain.get("artifact") or "")
-    _line("sender_address:", sender_address or "<none>")
-    if artifact_type == "tx_hash" and artifact_value:
-        _line("settlement_tx_hash:", artifact_value)
+    _step("STEP 5: Treasury Settlement")
+    settlement = engine.delivery_settlement_artifact(result)
+    sender_address = engine._settlement_sender_address(result)
+    settlement_error = engine._settlement_error(result)
+    finalized_warrant = dict(result.get("warrant") or {})
+    artifact_type = str(settlement.get("artifact_type") or "")
+    artifact_value = str(settlement.get("artifact") or "")
+    _line("settlement_adapter:", str(settlement.get("settlement_adapter") or "<none>"))
+    if settlement.get("proof_type"):
+        _line("settlement_proof_type:", str(settlement.get("proof_type") or "<none>"))
+    if settlement.get("verification_state"):
+        _line("verification_state:", str(settlement.get("verification_state") or "<none>"))
+    if settlement.get("finality_state"):
+        _line("finality_state:", str(settlement.get("finality_state") or "<none>"))
+    if sender_address:
+        _line("sender_address:", sender_address)
+    if artifact_value:
+        _line(f"settlement_{artifact_type}:", artifact_value)
     else:
-        _line("settlement_tx_hash:", "<none>", color=RED)
-    if rpc_error:
-        _line("settlement_error:", rpc_error, color=RED)
+        _line("settlement_reference:", "<none>", color=RED)
+    if settlement_error:
+        _line("settlement_error:", settlement_error, color=RED)
     else:
         _line("settlement_error:", "<none>")
+    if finalized_warrant:
+        _line("warrant_execution_state:", str(finalized_warrant.get("execution_state") or ""))
+        _line("warrant_executed_at:", str(finalized_warrant.get("executed_at") or ""))
 
     return 0
 

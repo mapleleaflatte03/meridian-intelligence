@@ -302,6 +302,15 @@ def _load_workspace_credentials():
     return user, password, org_id, user_id
 
 
+def _canonical_meridian_user_id(user_id):
+    value = (str(user_id or '')).strip()
+    if not value:
+        return None
+    if value.startswith('user_son_'):
+        return f"user_meridian_{value[len('user_son_'):]}"
+    return value
+
+
 def _get_founding_org():
     orgs = load_orgs()
     for oid, org in orgs['organizations'].items():
@@ -3099,14 +3108,14 @@ def _resolve_auth_context(bound_org_id):
     resolved_user_id = None
     actor_source = None
     if credential_user_id:
-        resolved_user_id = credential_user_id
+        resolved_user_id = _canonical_meridian_user_id(credential_user_id)
         actor_source = 'credentials'
     elif user and _member_role(bound_org_id, user):
-        resolved_user_id = user
+        resolved_user_id = _canonical_meridian_user_id(user)
         actor_source = 'basic_user_id'
     elif user == 'owner':
         org = load_orgs().get('organizations', {}).get(bound_org_id)
-        owner_id = (org or {}).get('owner_id')
+        owner_id = _canonical_meridian_user_id((org or {}).get('owner_id'))
         if owner_id:
             resolved_user_id = owner_id
             actor_source = 'owner_alias'
@@ -3154,27 +3163,29 @@ def _resolve_auth_context_from_session(claims, bound_org_id):
             f"Session is bound to institution '{claims.org_id}', "
             f"but workspace is bound to '{bound_org_id}'"
         )
-    current_role = _member_role(bound_org_id, claims.user_id)
+    canonical_user_id = _canonical_meridian_user_id(claims.user_id)
+    current_role = _member_role(bound_org_id, canonical_user_id)
     return {
         'enabled': True,
         'mode': 'session_bound',
         'org_id': bound_org_id,
-        'user_id': claims.user_id,
+        'user_id': canonical_user_id,
         'role': current_role,
-        'actor_id': claims.user_id,
+        'actor_id': canonical_user_id,
         'actor_source': 'session',
         'session_id': claims.session_id,
     }
 
 
 def _member_role(org_id, user_id):
-    if not org_id or not user_id:
+    canonical_user_id = _canonical_meridian_user_id(user_id)
+    if not org_id or not canonical_user_id:
         return None
     org = load_orgs().get('organizations', {}).get(org_id)
     if not org:
         return None
     for member in org.get('members', []):
-        if member.get('user_id') == user_id:
+        if _canonical_meridian_user_id(member.get('user_id')) == canonical_user_id:
             return member.get('role')
     return None
 
@@ -3217,16 +3228,24 @@ def _permission_snapshot(auth_context):
     }
 
 
-def _warrant_summary(org_id):
-    warrants = list_warrants(org_id)
+def _warrant_summary(org_id, *, include_expired=True, expired_only=False):
+    warrants = list_warrants(org_id, include_expired=include_expired, expired_only=expired_only)
+    all_warrants = list_warrants(org_id, include_expired=True)
     pending_review = 0
     executable = 0
     executed = 0
+    expired_ready = 0
     for record in warrants:
         if record.get('court_review_state') == 'pending_review':
             pending_review += 1
-        if record.get('court_review_state') in ('auto_issued', 'approved') and record.get('execution_state') == 'ready':
+        if (
+            record.get('court_review_state') in ('auto_issued', 'approved')
+            and record.get('execution_state') == 'ready'
+            and not bool(record.get('expired'))
+        ):
             executable += 1
+        if record.get('execution_state') == 'ready' and bool(record.get('expired')):
+            expired_ready += 1
         if record.get('execution_state') == 'executed':
             executed += 1
     return {
@@ -3234,6 +3253,8 @@ def _warrant_summary(org_id):
         'pending_review': pending_review,
         'executable': executable,
         'executed': executed,
+        'expired_ready': expired_ready,
+        'archived_count': len([record for record in all_warrants if bool(record.get('expired'))]),
     }
 
 
@@ -3251,7 +3272,10 @@ def api_status(context_source='founding_default', institution_context=None):
     auth_context = _resolve_auth_context(org_id)
     reg = load_registry()
     queue = _load_queue(org_id)
-    snap = treasury_snapshot(org_id)
+    snap = treasury_snapshot(
+        org_id,
+        host_supported_adapters=getattr(host_identity, 'settlement_adapters', []),
+    )
     phase_num, phase_details = _phase_mod.evaluate(org_id)
     records = _load_records(org_id)
     lead_id, lead_auth = get_sprint_lead(org_id)
@@ -3360,7 +3384,7 @@ def api_status(context_source='founding_default', institution_context=None):
             'total_violations': len(records['violations']),
             'total_appeals': len(records['appeals']),
         },
-        'warrants': _warrant_summary(org_id),
+        'warrants': _warrant_summary(org_id, include_expired=False),
         'commitments': _commitment_snapshot(org_id),
         'cases': _case_snapshot(org_id),
         'service_state': {
@@ -4161,7 +4185,13 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                 'sprint_lead': {'agent_id': lead_id, 'auth': lead_auth},
             })
         elif path == '/api/treasury':
-            return self._json(treasury_snapshot(org_id))
+            host_identity, _admission_registry = _runtime_host_state(org_id)
+            return self._json(
+                treasury_snapshot(
+                    org_id,
+                    host_supported_adapters=getattr(host_identity, 'settlement_adapters', []),
+                )
+            )
         elif path == '/api/treasury/accounts':
             return self._json(load_treasury_accounts(org_id))
         elif path == '/api/treasury/funding-sources':
@@ -4280,9 +4310,19 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                 'appeals': [a for a in records['appeals'].values() if a.get('org_id') in (None, '', org_id)],
             })
         elif path == '/api/warrants':
+            include_expired = parse_qs(parsed.query).get('include_expired', ['0'])[-1].lower() in ('1', 'true', 'yes', 'on')
+            expired_only = parse_qs(parsed.query).get('expired_only', ['0'])[-1].lower() in ('1', 'true', 'yes', 'on')
             return self._json({
-                'warrants': list_warrants(org_id),
-                'summary': _warrant_summary(org_id),
+                'warrants': list_warrants(
+                    org_id,
+                    include_expired=include_expired or expired_only,
+                    expired_only=expired_only,
+                ),
+                'summary': _warrant_summary(
+                    org_id,
+                    include_expired=include_expired or expired_only,
+                    expired_only=expired_only,
+                ),
             })
         elif path == '/api/commitments':
             return self._json(_commitment_snapshot(org_id))
@@ -4667,7 +4707,10 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                           details=result, session_id=_sid)
                 return self._json({
                     'message': f'Owner capital recorded: +${result["amount_usd"]:.2f}',
-                    'snapshot': treasury_snapshot(org_id),
+                    'snapshot': treasury_snapshot(
+                        org_id,
+                        host_supported_adapters=getattr(_runtime_host_state(org_id)[0], 'settlement_adapters', []),
+                    ),
                 })
 
             elif path == '/api/treasury/reserve-floor':
@@ -4677,7 +4720,10 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                           outcome='success', details=result, session_id=_sid)
                 return self._json({
                     'message': 'Reserve floor updated',
-                    'snapshot': treasury_snapshot(org_id),
+                    'snapshot': treasury_snapshot(
+                        org_id,
+                        host_supported_adapters=getattr(_runtime_host_state(org_id)[0], 'settlement_adapters', []),
+                    ),
                 })
 
             elif path == '/api/treasury/settlement-adapters/preflight':

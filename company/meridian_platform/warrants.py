@@ -112,6 +112,17 @@ def warrant_action_for_message(message_type):
     return FEDERATION_WARRANT_ACTIONS.get((message_type or '').strip(), '')
 
 
+def _warrant_view(record):
+    view = dict(record or {})
+    expires_at = str(view.get('expires_at') or '').strip()
+    try:
+        expired = bool(expires_at) and _parse_ts(expires_at) <= _parse_ts(_now())
+    except (TypeError, ValueError):
+        expired = False
+    view['expired'] = expired
+    return view
+
+
 def issue_warrant(org_id, action_class, boundary_name, actor_id, *,
                   session_id='', request_payload=None, risk_class='moderate',
                   evidence_refs=None, policy_refs=None, ttl_seconds=None,
@@ -165,15 +176,20 @@ def issue_warrant(org_id, action_class, boundary_name, actor_id, *,
     return record
 
 
-def list_warrants(org_id=None, *, action_class=None, review_state=None, execution_state=None):
+def list_warrants(org_id=None, *, action_class=None, review_state=None, execution_state=None,
+                  include_expired=True, expired_only=False):
     store = _load_store(org_id)
-    warrants = list(store.get('warrants', {}).values())
+    warrants = [_warrant_view(item) for item in store.get('warrants', {}).values()]
     if action_class:
         warrants = [w for w in warrants if w.get('action_class') == action_class]
     if review_state:
         warrants = [w for w in warrants if w.get('court_review_state') == review_state]
     if execution_state:
         warrants = [w for w in warrants if w.get('execution_state') == execution_state]
+    if expired_only:
+        warrants = [w for w in warrants if bool(w.get('expired'))]
+    elif not include_expired:
+        warrants = [w for w in warrants if not bool(w.get('expired'))]
     warrants.sort(key=lambda row: row.get('issued_at', ''), reverse=True)
     return warrants
 
@@ -182,7 +198,8 @@ def get_warrant(warrant_id, org_id=None):
     if not warrant_id:
         return None
     store = _load_store(org_id)
-    return store.get('warrants', {}).get(warrant_id)
+    record = store.get('warrants', {}).get(warrant_id)
+    return _warrant_view(record) if record else None
 
 
 def review_warrant(warrant_id, decision, by, *, org_id=None, note=''):

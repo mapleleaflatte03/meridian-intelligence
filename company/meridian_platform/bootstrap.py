@@ -53,7 +53,7 @@ def bootstrap():
     if not founding_org_id:
         founding_org_id = create_org(
             name='Meridian',
-            owner_id='user_son_5322393870',
+            owner_id='user_meridian_5322393870',
             plan='enterprise',
         )
         # Override slug to canonical value

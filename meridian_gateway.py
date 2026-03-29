@@ -16,6 +16,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+from urllib.parse import urlparse
 from abc import ABC, abstractmethod
 from html import unescape
 from html.parser import HTMLParser
@@ -772,6 +773,51 @@ def _workspace_api_get_json(path: str) -> dict[str, Any]:
         }
 
 
+def _workspace_api_post_json(path: str, payload: dict[str, Any]) -> dict[str, Any]:
+    normalized_path = path if path.startswith("/") else f"/{path}"
+    url = f"{WORKSPACE_API_BASE}{normalized_path}"
+    headers = {
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+        "User-Agent": "MeridianGateway/1.0",
+    }
+    user, password = _load_workspace_basic_credentials()
+    if user and password:
+        token = base64.b64encode(f"{user}:{password}".encode("utf-8")).decode("ascii")
+        headers["Authorization"] = f"Basic {token}"
+    body = json.dumps(payload or {}).encode("utf-8")
+    request = urllib.request.Request(url, data=body, headers=headers, method="POST")
+    try:
+        with urllib.request.urlopen(request, timeout=20) as response:
+            raw = response.read().decode("utf-8", "replace")
+            parsed = _extract_json(raw)
+            return {
+                "ok": True,
+                "status_code": getattr(response, "status", 200),
+                "payload": parsed if isinstance(parsed, dict) else {"status": "success", "output": raw},
+            }
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", "replace")
+        payload = _extract_json(detail)
+        return {
+            "ok": False,
+            "status_code": exc.code,
+            "payload": payload if isinstance(payload, dict) else {"status": "error", "output": detail or exc.reason},
+        }
+    except urllib.error.URLError as exc:
+        return {
+            "ok": False,
+            "status_code": 502,
+            "payload": {"status": "error", "output": f"workspace_unreachable: {exc.reason}"},
+        }
+    except Exception as exc:
+        return {
+            "ok": False,
+            "status_code": 502,
+            "payload": {"status": "error", "output": f"{exc.__class__.__name__}: {exc}"},
+        }
+
+
 class AgentRuntime:
     def __init__(self, skills: SkillRegistry) -> None:
         self.skills = skills
@@ -1289,7 +1335,10 @@ class WebAPIAdapter(ChannelAdapter):
                 if not self._origin_allowed():
                     self._send_json(403, {"status": "error", "output": "origin_not_allowed"})
                     return
-                if self.path == "/api/events":
+                parsed = urlparse(self.path)
+                request_path = parsed.path
+                proxied_path = request_path + (f"?{parsed.query}" if parsed.query else "")
+                if request_path == "/api/events":
                     events = []
                     while True:
                         try:
@@ -1298,8 +1347,16 @@ class WebAPIAdapter(ChannelAdapter):
                             break
                     self._send_json(200, {"status": "success", "events": events})
                     return
-                if self.path in {"/api/status", "/api/runtime-proof"}:
-                    proxied = _workspace_api_get_json(self.path)
+                if request_path in {
+                    "/api/status",
+                    "/api/runtime-proof",
+                    "/api/warrants",
+                    "/api/treasury",
+                    "/api/treasury/accounts",
+                    "/api/treasury/funding-sources",
+                    "/api/treasury/settlement-adapters",
+                }:
+                    proxied = _workspace_api_get_json(proxied_path)
                     self._send_json(int(proxied.get("status_code") or 200), dict(proxied.get("payload") or {}))
                     return
                 self._send_json(404, {"status": "error", "output": "not_found"})
@@ -1308,9 +1365,8 @@ class WebAPIAdapter(ChannelAdapter):
                 if not self._origin_allowed():
                     self._send_json(403, {"status": "error", "output": "origin_not_allowed"})
                     return
-                if self.path != "/api/run":
-                    self._send_json(404, {"status": "error", "output": "not_found"})
-                    return
+                parsed = urlparse(self.path)
+                request_path = parsed.path
                 try:
                     content_length = int(self.headers.get("Content-Length", "0"))
                 except ValueError:
@@ -1321,6 +1377,21 @@ class WebAPIAdapter(ChannelAdapter):
                     payload = json.loads(raw_body.decode("utf-8"))
                 except (UnicodeDecodeError, json.JSONDecodeError) as exc:
                     self._send_json(400, {"status": "error", "output": f"invalid_json: {exc}"})
+                    return
+                if request_path in {
+                    "/api/warrants/issue",
+                    "/api/warrants/approve",
+                    "/api/warrants/stay",
+                    "/api/warrants/revoke",
+                    "/api/treasury/contribute",
+                    "/api/treasury/reserve-floor",
+                    "/api/treasury/settlement-adapters/preflight",
+                }:
+                    proxied = _workspace_api_post_json(request_path, payload if isinstance(payload, dict) else {})
+                    self._send_json(int(proxied.get("status_code") or 200), dict(proxied.get("payload") or {}))
+                    return
+                if request_path != "/api/run":
+                    self._send_json(404, {"status": "error", "output": "not_found"})
                     return
                 goal = payload.get("goal")
                 if not isinstance(goal, str) or not goal.strip():
