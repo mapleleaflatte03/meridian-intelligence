@@ -2,6 +2,14 @@
 
 This document records the next mandatory repo builds after the current probe, ACPX, onboarding, frontier transport, memory seam, Intelligence slimming, and kernel-admission tranche.
 
+## Completed since last update (2026-03-29)
+
+- **Safe cancellation surface**: Loom shadow service exposes `POST /cancel` and `cancel_job` request type. ACPX `sessions cancel` wired to real surface with `cancelled`/`not_found`/`not_cancelable` outcomes.
+- **Transport ownership deepened**: Session provenance records now carry `transport_kind`, `auth_mode`, `execution_owner`. Provider probe reports consistent transport metadata.
+- **Doctor memory check**: `loom doctor` inspects memory service (agents, entries, bytes) under "memory" category.
+- **Doctor --fix**: `loom doctor --fix` re-runs workspace scaffolding for safe remediations.
+- **Intelligence thinned**: `loom_runtime_proof.py` delegates binary/root discovery to shared `loom_runtime_discovery` module.
+
 ## `meridian-shell`
 - Purpose: typed workflow shell for governed jobs, resumable steps, approvals, and budget-aware execution.
 - Repo path: `/home/ubuntu/meridian-shell`
