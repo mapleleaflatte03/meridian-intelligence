@@ -396,6 +396,35 @@ _MERIDIAN_INTERNAL_QUESTION_TERMS = (
     "aligned",
 )
 
+_MERIDIAN_TEAM_REQUEST_TERMS = (
+    "workflow",
+    "workflows",
+    "plan",
+    "remediation",
+    "remediate",
+    "step-by-step",
+    "steps",
+    "write",
+    "draft",
+    "compare",
+    "operator crisis",
+    "use whichever specialists",
+    "founder-facing",
+    "messaging",
+)
+
+_MERIDIAN_COMPLEX_OPERATOR_TERMS = (
+    "workflow",
+    "remediation",
+    "operator crisis",
+    "payout execution",
+    "sanction-restricted",
+    "telegram delivery",
+    "worker verification",
+    "do not invent evidence",
+    "three things at once",
+)
+
 _MERIDIAN_POSITIONING_TERMS = (
     "leviathann",
     "direct specialists",
@@ -414,14 +443,17 @@ def _looks_like_meridian_internal_query(text: str) -> bool:
         return False
     mentions_meridian = any(term in lowered for term in _MERIDIAN_INTERNAL_STATUS_TERMS)
     asks_for_state = any(term in lowered for term in _MERIDIAN_INTERNAL_QUESTION_TERMS)
-    return mentions_meridian and asks_for_state
+    asks_for_team_work = any(term in lowered for term in _MERIDIAN_TEAM_REQUEST_TERMS)
+    return mentions_meridian and asks_for_state and not asks_for_team_work
 
 
 def _looks_like_meridian_positioning_query(text: str) -> bool:
     lowered = text.strip().lower()
     if not lowered:
         return False
-    return any(term in lowered for term in _MERIDIAN_POSITIONING_TERMS)
+    mentions_positioning = any(term in lowered for term in _MERIDIAN_POSITIONING_TERMS)
+    mentions_complex_ops = any(term in lowered for term in _MERIDIAN_COMPLEX_OPERATOR_TERMS)
+    return mentions_positioning and not mentions_complex_ops
 
 
 def _worker_is_restricted(agent_key: str) -> bool:
