@@ -36,6 +36,7 @@ for _path in (WORKSPACE_DIR, COMPANY_DIR, PLATFORM_DIR):
         sys.path.insert(0, str(_path))
 
 from company import mcp_server
+from court import get_restrictions
 from loom_runtime_discovery import preferred_loom_bin, preferred_loom_root, runtime_value
 from session_history import append_session_event
 from team_topology import SPECIALIST_KEYS, load_team_topology, sync_loom_team_profiles
@@ -395,6 +396,17 @@ _MERIDIAN_INTERNAL_QUESTION_TERMS = (
     "aligned",
 )
 
+_MERIDIAN_POSITIONING_TERMS = (
+    "leviathann",
+    "direct specialists",
+    "specialists directly",
+    "talk to leviathann",
+    "why users should talk",
+    "founder answer",
+    "brand voice",
+    "homepage version",
+)
+
 
 def _looks_like_meridian_internal_query(text: str) -> bool:
     lowered = text.strip().lower()
@@ -403,6 +415,46 @@ def _looks_like_meridian_internal_query(text: str) -> bool:
     mentions_meridian = any(term in lowered for term in _MERIDIAN_INTERNAL_STATUS_TERMS)
     asks_for_state = any(term in lowered for term in _MERIDIAN_INTERNAL_QUESTION_TERMS)
     return mentions_meridian and asks_for_state
+
+
+def _looks_like_meridian_positioning_query(text: str) -> bool:
+    lowered = text.strip().lower()
+    if not lowered:
+        return False
+    return any(term in lowered for term in _MERIDIAN_POSITIONING_TERMS)
+
+
+def _worker_is_restricted(agent_key: str) -> bool:
+    specialist = next((agent for agent in TEAM_TOPOLOGY.specialists if agent.env_key == agent_key), None)
+    if specialist is None:
+        return False
+    try:
+        restrictions = get_restrictions(specialist.economy_key, org_id=LOOM_ORG_ID) or []
+    except Exception:
+        return False
+    values = {str(item or "").strip().lower() for item in restrictions}
+    return bool(values & {"execute", "assign", "lead"})
+
+
+def _normalize_worker_selection(workers: list[str], text: str) -> list[str]:
+    ordered: list[str] = []
+    for worker in workers:
+        value = str(worker or "").strip().upper()
+        if value not in SPECIALIST_KEYS or value in ordered:
+            continue
+        if _worker_is_restricted(value):
+            if value == "SENTINEL" and "AEGIS" not in ordered and not _worker_is_restricted("AEGIS"):
+                ordered.append("AEGIS")
+            continue
+        ordered.append(value)
+    if _looks_like_meridian_positioning_query(text):
+        preferred = [worker for worker in ordered if worker in {"QUILL", "AEGIS", "PULSE"}]
+        if "QUILL" not in preferred and not _worker_is_restricted("QUILL"):
+            preferred.append("QUILL")
+        if "AEGIS" not in preferred and not _worker_is_restricted("AEGIS"):
+            preferred.append("AEGIS")
+        ordered = preferred
+    return ordered
 
 
 def _render_meridian_internal_answer(_goal: str) -> str:
@@ -571,7 +623,7 @@ def _fallback_team_workers(text: str) -> list[str]:
     workers = ["ATLAS", "AEGIS"]
     if _request_needs_writer(text) and "QUILL" not in workers:
         workers.append("QUILL")
-    return workers
+    return _normalize_worker_selection(workers, text)
 
 
 def _team_route_plan(text: str, session_key: str) -> dict[str, Any]:
@@ -587,6 +639,20 @@ def _team_route_plan(text: str, session_key: str) -> dict[str, Any]:
             "depth": "quick",
             "criteria": "consistency",
             "reason": "meridian_internal_status",
+        }
+    if _looks_like_meridian_positioning_query(stripped):
+        workers = _normalize_worker_selection(["QUILL", "AEGIS"], stripped)
+        return {
+            "mode": "team",
+            "topic": stripped,
+            "depth": "standard",
+            "criteria": "consistency",
+            "workers": workers,
+            "manager_brief": (
+                "Quill should draft a founder-style Meridian positioning answer grounded in the actual Meridian operating model. "
+                "Aegis should remove unsupported claims and keep the answer aligned with live Meridian truth."
+            ),
+            "reason": "meridian_positioning",
         }
     history_context = imported_history_context(session_key, loom_root=LOOM_ROOT, limit=24)
     manager = _loom_manager_defaults()
@@ -637,6 +703,7 @@ def _team_route_plan(text: str, session_key: str) -> dict[str, Any]:
             value = str(item or "").strip().upper()
             if value in SPECIALIST_KEYS and value not in workers:
                 workers.append(value)
+    workers = _normalize_worker_selection(workers, stripped)
     if mode == "team" and not workers:
         workers = _fallback_team_workers(stripped)
     if mode == "team" and _request_needs_writer(stripped) and "QUILL" not in workers:
