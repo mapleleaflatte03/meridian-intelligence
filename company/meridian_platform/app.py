@@ -40,6 +40,13 @@ SUPPORTED_RUNTIME_BOUNDARIES = (
 )
 
 WORKSPACE_MUTATION_ROLE_REQUIREMENTS = {
+    '/api/agents/update': 'admin',
+    '/api/agents/budget': 'admin',
+    '/api/agents/scopes': 'admin',
+    '/api/agents/risk': 'admin',
+    '/api/agents/lifecycle': 'admin',
+    '/api/agents/incident': 'admin',
+    '/api/agents/sync-economy': 'admin',
     '/api/authority/kill-switch': 'admin',
     '/api/authority/approve': 'admin',
     '/api/authority/request': 'member',

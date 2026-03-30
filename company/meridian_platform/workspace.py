@@ -10,6 +10,13 @@ Endpoints:
   GET  /api/status                → Full system snapshot (JSON)
   GET  /api/institution           → Institution state
   GET  /api/agents                → Agent registry
+  POST /api/agents/update         → Update agent rollout/status metadata
+  POST /api/agents/budget         → Update agent budget guardrails
+  POST /api/agents/scopes         → Update agent scopes
+  POST /api/agents/risk           → Update agent risk state
+  POST /api/agents/lifecycle      → Transition agent lifecycle
+  POST /api/agents/incident       → Record an agent incident
+  POST /api/agents/sync-economy   → Sync REP/AUTH and sanctions from the economy ledger
   GET  /api/authority             → Authority state (kill switch, approvals, delegations)
   GET  /api/treasury              → Treasury snapshot
   GET  /api/treasury/accounts     → Treasury sub-accounts
@@ -159,7 +166,18 @@ sys.path.insert(0, PLATFORM_DIR)
 
 from organizations import (load_orgs, set_charter, set_policy_defaults,
                            transition_lifecycle as org_transition_lifecycle)
-from agent_registry import load_registry, normalize_agent_record, sync_from_economy
+from agent_registry import (
+    load_registry,
+    normalize_agent_record,
+    sync_from_economy,
+    get_agent,
+    update_agent as update_registry_agent,
+    set_budget as set_agent_budget,
+    set_scopes as set_agent_scopes,
+    set_risk_state as set_agent_risk_state,
+    transition_lifecycle as transition_agent_lifecycle,
+    record_incident as record_agent_incident,
+)
 from audit import log_event, query_events
 import alerting
 
@@ -385,7 +403,7 @@ def _get_founding_org():
     return None, None
 
 
-def _resolve_workspace_context():
+def _resolve_workspace_context(*, allow_inactive=False):
     """Bind this live workspace process to the founding Meridian institution."""
     founding_org_id, founding_org = _get_founding_org()
     configured_org_id = WORKSPACE_ORG_ID
@@ -399,12 +417,23 @@ def _resolve_workspace_context():
         raise RuntimeError(
             f"Live workspace credentials must scope to founding org '{founding_org_id}', got '{credential_org_id}'"
         )
-    ctx = InstitutionContext.bind(
-        founding_org_id,
-        founding_org,
-        ('configured_org' if configured_org_id else 'founding_default'),
-        WORKSPACE_BOUNDARY,
-    )
+    context_source = 'configured_org' if configured_org_id else 'founding_default'
+    if allow_inactive:
+        ctx = InstitutionContext(
+            founding_org_id,
+            founding_org,
+            context_source,
+            WORKSPACE_BOUNDARY,
+        )
+        if not ctx.is_admitted:
+            raise RuntimeError('No institution admitted to this context')
+    else:
+        ctx = InstitutionContext.bind(
+            founding_org_id,
+            founding_org,
+            context_source,
+            WORKSPACE_BOUNDARY,
+        )
     _runtime_host_state(ctx.org_id)
     return ctx
 
@@ -4286,7 +4315,13 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
         if not self._require_auth(path):
             return
         try:
-            inst_ctx = _resolve_workspace_context()
+            allow_inactive_context = path in (
+                '/api/institution/charter',
+                '/api/institution/lifecycle',
+            )
+            inst_ctx = _resolve_workspace_context(
+                allow_inactive=allow_inactive_context,
+            )
             org_id = inst_ctx.org_id
             org = inst_ctx.org
             context_source = inst_ctx.context_source
@@ -4765,7 +4800,13 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                     ),
                 }, 503)
         try:
-            inst_ctx = _resolve_workspace_context()
+            allow_inactive_context = path in (
+                '/api/institution/charter',
+                '/api/institution/lifecycle',
+            )
+            inst_ctx = _resolve_workspace_context(
+                allow_inactive=allow_inactive_context,
+            )
             org_id = inst_ctx.org_id
             _enforce_request_context(parsed, self.headers, org_id)
             session_claims = self._session_claims_from_request(expected_org_id=org_id)
@@ -6375,6 +6416,169 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                           details={'new_state': body['state']}, session_id=_sid)
                 return self._json({'message': f'Lifecycle transitioned to {body["state"]}'})
 
+            elif path == '/api/agents/update':
+                agent_id = (body.get('agent_id') or '').strip()
+                if not agent_id:
+                    return self._json({'error': 'agent_id is required'}, 400)
+                update_fields = {}
+                for key in ('name', 'purpose', 'rollout_state', 'status'):
+                    value = body.get(key)
+                    if value is not None:
+                        update_fields[key] = value
+                if 'approval_required' in body:
+                    update_fields['approval_required'] = bool(body.get('approval_required'))
+                if not update_fields:
+                    return self._json({'error': 'No mutable agent fields provided'}, 400)
+                update_registry_agent(agent_id, **update_fields)
+                agent = get_agent(agent_id)
+                if not agent or agent.get('org_id') != org_id:
+                    return self._json({'error': 'Agent not found in this institution'}, 404)
+                log_event(
+                    org_id,
+                    by,
+                    'agent_updated',
+                    resource=agent_id,
+                    outcome='success',
+                    details=update_fields,
+                    session_id=_sid,
+                )
+                return self._json({'message': f'Agent updated: {agent_id}', 'agent': agent})
+
+            elif path == '/api/agents/budget':
+                agent_id = (body.get('agent_id') or '').strip()
+                if not agent_id:
+                    return self._json({'error': 'agent_id is required'}, 400)
+                set_agent_budget(
+                    agent_id,
+                    max_per_run_usd=body.get('max_per_run_usd'),
+                    max_per_day_usd=body.get('max_per_day_usd'),
+                    max_per_month_usd=body.get('max_per_month_usd'),
+                )
+                agent = get_agent(agent_id)
+                if not agent or agent.get('org_id') != org_id:
+                    return self._json({'error': 'Agent not found in this institution'}, 404)
+                log_event(
+                    org_id,
+                    by,
+                    'agent_budget_updated',
+                    resource=agent_id,
+                    outcome='success',
+                    details={'budget': agent.get('budget', {})},
+                    session_id=_sid,
+                )
+                return self._json({'message': f'Agent budget updated: {agent_id}', 'agent': agent})
+
+            elif path == '/api/agents/scopes':
+                agent_id = (body.get('agent_id') or '').strip()
+                scopes = body.get('scopes')
+                if not agent_id:
+                    return self._json({'error': 'agent_id is required'}, 400)
+                if not isinstance(scopes, list):
+                    return self._json({'error': 'scopes must be a JSON array'}, 400)
+                set_agent_scopes(agent_id, scopes)
+                agent = get_agent(agent_id)
+                if not agent or agent.get('org_id') != org_id:
+                    return self._json({'error': 'Agent not found in this institution'}, 404)
+                log_event(
+                    org_id,
+                    by,
+                    'agent_scopes_updated',
+                    resource=agent_id,
+                    outcome='success',
+                    details={'scopes': agent.get('scopes', [])},
+                    session_id=_sid,
+                )
+                return self._json({'message': f'Agent scopes updated: {agent_id}', 'agent': agent})
+
+            elif path == '/api/agents/risk':
+                agent_id = (body.get('agent_id') or '').strip()
+                state = (body.get('state') or '').strip()
+                if not agent_id:
+                    return self._json({'error': 'agent_id is required'}, 400)
+                if not state:
+                    return self._json({'error': 'state is required'}, 400)
+                set_agent_risk_state(agent_id, state)
+                agent = get_agent(agent_id)
+                if not agent or agent.get('org_id') != org_id:
+                    return self._json({'error': 'Agent not found in this institution'}, 404)
+                log_event(
+                    org_id,
+                    by,
+                    'agent_risk_state_updated',
+                    resource=agent_id,
+                    outcome='success',
+                    details={'state': state},
+                    session_id=_sid,
+                )
+                return self._json({'message': f'Agent risk state updated: {agent_id}', 'agent': agent})
+
+            elif path == '/api/agents/lifecycle':
+                agent_id = (body.get('agent_id') or '').strip()
+                state = (body.get('state') or '').strip()
+                if not agent_id:
+                    return self._json({'error': 'agent_id is required'}, 400)
+                if not state:
+                    return self._json({'error': 'state is required'}, 400)
+                transition_agent_lifecycle(agent_id, state)
+                agent = get_agent(agent_id)
+                if not agent or agent.get('org_id') != org_id:
+                    return self._json({'error': 'Agent not found in this institution'}, 404)
+                log_event(
+                    org_id,
+                    by,
+                    'agent_lifecycle_transitioned',
+                    resource=agent_id,
+                    outcome='success',
+                    details={'state': state},
+                    session_id=_sid,
+                )
+                return self._json({'message': f'Agent lifecycle transitioned: {agent_id}', 'agent': agent})
+
+            elif path == '/api/agents/incident':
+                agent_id = (body.get('agent_id') or '').strip()
+                if not agent_id:
+                    return self._json({'error': 'agent_id is required'}, 400)
+                incident_count = record_agent_incident(agent_id)
+                agent = get_agent(agent_id)
+                if not agent or agent.get('org_id') != org_id:
+                    return self._json({'error': 'Agent not found in this institution'}, 404)
+                log_event(
+                    org_id,
+                    by,
+                    'agent_incident_recorded',
+                    resource=agent_id,
+                    outcome='success',
+                    details={
+                        'incident_count': incident_count,
+                        'risk_state': agent.get('risk_state'),
+                    },
+                    session_id=_sid,
+                )
+                return self._json({
+                    'message': f'Agent incident recorded: {agent_id}',
+                    'incident_count': incident_count,
+                    'agent': agent,
+                })
+
+            elif path == '/api/agents/sync-economy':
+                sync_from_economy()
+                log_event(
+                    org_id,
+                    by,
+                    'agent_sync_from_economy',
+                    outcome='success',
+                    session_id=_sid,
+                )
+                reg = load_registry()
+                return self._json({
+                    'message': 'Agent registry synced from economy ledger',
+                    'agents': [
+                        normalize_agent_record(a)
+                        for a in reg['agents'].values()
+                        if a.get('org_id') in (None, '', org_id)
+                    ],
+                })
+
             else:
                 return self._json({'error': 'Not found'}, 404)
 
@@ -6394,7 +6598,9 @@ def main():
     if args.org_id:
         WORKSPACE_ORG_ID = args.org_id
 
-    inst_ctx = _resolve_workspace_context()
+    # Boot with an inactive context so lifecycle recovery endpoints remain
+    # reachable even if the institution has been suspended.
+    inst_ctx = _resolve_workspace_context(allow_inactive=True)
     org_id, org, context_source = inst_ctx.org_id, inst_ctx.org, inst_ctx.context_source
 
     server_class = ThreadingHTTPServer
