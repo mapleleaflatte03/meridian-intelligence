@@ -4,10 +4,12 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import os
 import queue
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -84,6 +86,64 @@ LLM_API_KEY = ""
 TEAM_TOPOLOGY = load_team_topology()
 sync_loom_team_profiles(TEAM_TOPOLOGY, loom_root=LOOM_ROOT)
 TEAM_MANAGER_AGENT_ID = TEAM_TOPOLOGY.manager.registry_id
+SKILL_VALIDATOR = Path("/home/ubuntu/.codex/skills/.system/skill-creator/scripts/quick_validate.py")
+SKILL_STOPWORDS = {
+    "a",
+    "an",
+    "and",
+    "are",
+    "as",
+    "at",
+    "be",
+    "by",
+    "for",
+    "from",
+    "how",
+    "i",
+    "in",
+    "into",
+    "is",
+    "it",
+    "me",
+    "my",
+    "of",
+    "on",
+    "or",
+    "please",
+    "show",
+    "that",
+    "the",
+    "this",
+    "to",
+    "today",
+    "we",
+    "with",
+    "you",
+}
+SKILL_WORKER_HINTS = {
+    "ai-intelligence": ["ATLAS", "QUILL", "AEGIS"],
+    "download-quarantine": ["FORGE", "SENTINEL"],
+    "malware-triage": ["FORGE", "SENTINEL"],
+    "mvp-sprint-scope": ["ATLAS", "QUILL", "FORGE"],
+    "night-shift-ops": ["FORGE", "PULSE", "QUILL"],
+    "ops-snapshot": ["FORGE", "PULSE"],
+    "safe-web-research": ["ATLAS", "AEGIS"],
+    "skill-lab": ["FORGE", "QUILL"],
+    "staff-training-loop": ["SENTINEL", "FORGE", "PULSE"],
+    "subscribe": ["FORGE", "QUILL", "AEGIS"],
+}
+SKILL_ALIAS_HINTS = {
+    "ai-intelligence": {"brief", "digest", "competitor", "intelligence", "latest", "research", "snapshot", "weekly"},
+    "download-quarantine": {"artifact", "download", "file", "hash", "quarantine", "remote"},
+    "malware-triage": {"artifact", "indicator", "malware", "risk", "sample", "triage"},
+    "mvp-sprint-scope": {"build", "day", "days", "fast", "mvp", "prototype", "scope", "ship", "sprint"},
+    "night-shift-ops": {"backlog", "handoff", "night", "overnight", "report", "shift"},
+    "ops-snapshot": {"health", "host", "incident", "ops", "snapshot", "status"},
+    "safe-web-research": {"competitor", "latest", "research", "scan", "search", "source", "web"},
+    "skill-lab": {"automate", "playbook", "repeat", "reusable", "skill", "workflow"},
+    "staff-training-loop": {"coach", "failure", "improve", "lesson", "prompt", "training", "worker"},
+    "subscribe": {"buy", "customer", "pay", "payment", "plan", "pricing", "subscribe", "subscription", "trial"},
+}
 
 
 def _profile_transport_kind(provider_kind: str) -> str:
@@ -258,7 +318,13 @@ def _loom_channel_deliveries(limit: int = 50) -> list[dict[str, Any]]:
     return [item for item in payload if isinstance(item, dict)]
 
 
-def _loom_channel_update(delivery_id: str, status: str, *, external_ref: str = "", detail: str = "") -> dict[str, Any]:
+def _loom_channel_update(
+    delivery_id: str,
+    status: str,
+    *,
+    external_ref: str = "",
+    detail: str | None = None,
+) -> dict[str, Any]:
     delivery_id = str(delivery_id or "").strip()
     status = str(status or "").strip()
     if not delivery_id or not status:
@@ -278,7 +344,7 @@ def _loom_channel_update(delivery_id: str, status: str, *, external_ref: str = "
     ]
     if external_ref:
         command.extend(["--external-ref", external_ref])
-    if detail:
+    if detail is not None:
         command.extend(["--detail", detail])
     result = _run_loom_json(command)
     if not result.get("ok"):
@@ -756,6 +822,12 @@ def _team_route_plan(text: str, session_key: str) -> dict[str, Any]:
         return {"mode": "direct", "reason": "empty"}
     if stripped.lower() in {"hi", "hello", "hey", "yo", "ping"}:
         return {"mode": "direct", "reason": "greeting"}
+    skill_bundle = _skill_bundle_for_request(
+        stripped,
+        session_key,
+        manager_brief=stripped,
+        allow_create=True,
+    )
     if _looks_like_meridian_internal_query(stripped):
         return {
             "mode": "internal_status",
@@ -763,6 +835,7 @@ def _team_route_plan(text: str, session_key: str) -> dict[str, Any]:
             "depth": "quick",
             "criteria": "consistency",
             "reason": "meridian_internal_status",
+            "skills": skill_bundle["matches"],
         }
     if _looks_like_meridian_operator_workflow_query(stripped):
         workers = _normalize_worker_selection(["FORGE", "QUILL", "AEGIS"], stripped)
@@ -780,6 +853,7 @@ def _team_route_plan(text: str, session_key: str) -> dict[str, Any]:
             ),
             "verified_facts": _build_meridian_operator_truth_packet(),
             "reason": "meridian_operator_workflow",
+            "skills": skill_bundle["matches"],
         }
     if _looks_like_meridian_positioning_query(stripped):
         workers = _normalize_worker_selection(["QUILL", "AEGIS"], stripped)
@@ -794,6 +868,25 @@ def _team_route_plan(text: str, session_key: str) -> dict[str, Any]:
                 "Aegis should remove unsupported claims and keep the answer aligned with live Meridian truth."
             ),
             "reason": "meridian_positioning",
+            "skills": skill_bundle["matches"],
+        }
+    if _short_prompt_skill_candidate(stripped) and skill_bundle["matches"]:
+        workers = _normalize_worker_selection(skill_bundle["workers"] or _fallback_team_workers(stripped), stripped)
+        top_skill = skill_bundle["matches"][0]
+        verified_facts = _skill_route_verified_facts(stripped, skill_bundle["matches"])
+        return {
+            "mode": "team",
+            "topic": stripped,
+            "depth": "standard",
+            "criteria": "factual",
+            "workers": workers,
+            "manager_brief": (
+                f"Use the internal skill {top_skill['name']} to expand this short request into a concrete Meridian workflow. "
+                "Keep the answer practical and grounded in live Meridian truth."
+            ),
+            "reason": "skill_routed_short_prompt",
+            "skills": skill_bundle["matches"],
+            "verified_facts": verified_facts,
         }
     history_context = imported_history_context(session_key, loom_root=LOOM_ROOT, limit=24)
     manager = _loom_manager_defaults()
@@ -807,10 +900,13 @@ def _team_route_plan(text: str, session_key: str) -> dict[str, Any]:
             "depth must be quick, standard, or deep. criteria must be factual, readiness, or consistency. "
             "manager_brief must be a concise execution brief for specialists.\n\n"
             "Specialists:\n"
-            f"{_team_specialist_catalog()}"
+            f"{_team_specialist_catalog()}\n\n"
+            "Available reusable skills:\n"
+            f"{TEAM_SKILLS.prompt_block()}"
         ),
         user_prompt=(
             f"Imported conversation continuity for this session:\n{history_context or '(none)'}\n\n"
+            f"Matching internal skills for this request:\n{skill_bundle['guidance'] or '(none)'}\n\n"
             f"User request:\n{stripped}"
         ),
         model=manager["model"],
@@ -826,6 +922,7 @@ def _team_route_plan(text: str, session_key: str) -> dict[str, Any]:
             "workers": _fallback_team_workers(stripped),
             "manager_brief": stripped,
             "reason": "planner_fallback",
+            "skills": skill_bundle["matches"],
         }
     mode = str(payload.get("mode") or "team").strip().lower()
     if mode not in {"direct", "team"}:
@@ -857,6 +954,7 @@ def _team_route_plan(text: str, session_key: str) -> dict[str, Any]:
         "workers": workers,
         "manager_brief": str(payload.get("manager_brief") or topic).strip() or topic,
         "reason": str(payload.get("reason") or "").strip(),
+        "skills": skill_bundle["matches"],
     }
 
 
@@ -928,9 +1026,17 @@ def _run_specialist_step(agent_key: str, request: str, session_key: str, plan: d
     context_block = imported_history_context(session_key, loom_root=LOOM_ROOT, limit=20)
     verified_facts = plan.get("verified_facts")
     verified_facts_block = json.dumps(verified_facts, indent=2, ensure_ascii=False) if isinstance(verified_facts, dict) else "(none)"
+    plan_skills = plan.get("skills") if isinstance(plan.get("skills"), list) else []
+    matched_skills = [dict(item) for item in plan_skills if isinstance(item, dict)] or TEAM_SKILLS.search(request, limit=2)
+    skill_guidance_block = TEAM_SKILLS.guidance_block(matched_skills)
+    skills_used = [str(item.get("name") or "").strip() for item in matched_skills if str(item.get("name") or "").strip()]
     if agent_key == "ATLAS":
         result = mcp_server.do_on_demand_research_route(
-            str(plan.get("topic") or request),
+            (
+                f"{str(plan.get('topic') or request)}\n\n{skill_guidance_block}"
+                if skill_guidance_block
+                else str(plan.get("topic") or request)
+            ),
             str(plan.get("depth") or "standard"),
             agent_id=specialist.registry_id,
             session_id=session_key,
@@ -950,6 +1056,7 @@ def _run_specialist_step(agent_key: str, request: str, session_key: str, plan: d
             "warnings": [str(result.get("error") or "").strip()] if result.get("error") else [],
             "status": "ok" if not result.get("error") else "error",
             "raw": result,
+            "skills_used": skills_used,
         }
         append_session_event(session_key, {
             "history_type": "worker_receipt",
@@ -966,12 +1073,17 @@ def _run_specialist_step(agent_key: str, request: str, session_key: str, plan: d
             "confidence": receipt["confidence"],
             "citations": receipt["citations"],
             "warnings": receipt["warnings"],
+            "skills_used": skills_used,
         }, loom_root=LOOM_ROOT)
         return receipt
 
     if agent_key == "AEGIS":
         result = mcp_server.do_qa_verify_route(
-            f"{request}\n\nVerified Meridian host facts:\n{verified_facts_block}",
+            (
+                f"{request}\n\nVerified Meridian host facts:\n{verified_facts_block}\n\n{skill_guidance_block}"
+                if skill_guidance_block
+                else f"{request}\n\nVerified Meridian host facts:\n{verified_facts_block}"
+            ),
             str(plan.get("criteria") or "factual"),
             agent_id=specialist.registry_id,
             session_id=session_key,
@@ -995,6 +1107,7 @@ def _run_specialist_step(agent_key: str, request: str, session_key: str, plan: d
             ),
             "status": "ok" if not result.get("error") else "error",
             "raw": result,
+            "skills_used": skills_used,
         }
         append_session_event(session_key, {
             "history_type": "worker_receipt",
@@ -1011,6 +1124,7 @@ def _run_specialist_step(agent_key: str, request: str, session_key: str, plan: d
             "confidence": receipt["confidence"],
             "citations": receipt["citations"],
             "warnings": receipt["warnings"],
+            "skills_used": skills_used,
         }, loom_root=LOOM_ROOT)
         return receipt
 
@@ -1021,6 +1135,8 @@ def _run_specialist_step(agent_key: str, request: str, session_key: str, plan: d
         Manager brief: {str(plan.get('manager_brief') or request).strip()}
         Verified Meridian host facts (treat these as the only trusted factual baseline):
         {verified_facts_block}
+        Relevant internal skills:
+        {skill_guidance_block or '(none)'}
         Conversation continuity:
         {context_block or '(none)'}
 
@@ -1112,6 +1228,7 @@ def _run_specialist_step(agent_key: str, request: str, session_key: str, plan: d
         "citations": citations,
         "warnings": warnings,
         "status": "ok" if result_text else "error",
+        "skills_used": skills_used,
         "raw": {
             "loom_result": loom_result,
             "direct_provider_fallback": direct_fallback,
@@ -1132,6 +1249,7 @@ def _run_specialist_step(agent_key: str, request: str, session_key: str, plan: d
         "confidence": receipt["confidence"],
         "citations": receipt["citations"],
         "warnings": receipt["warnings"],
+        "skills_used": skills_used,
     }, loom_root=LOOM_ROOT)
     return receipt
 
@@ -1266,6 +1384,7 @@ def _run_team_route(text: str, session_key: str, runtime: AgentRuntime) -> tuple
         "transport_kind": "codex_session",
         "auth_mode": "codex_auth_json",
         "execution_owner": "meridian",
+        "skills_used": [str(item.get("name") or "").strip() for item in list(plan.get("skills") or []) if str(item.get("name") or "").strip()],
     }, loom_root=LOOM_ROOT)
     if plan.get("mode") == "direct":
         return _manager_direct_response(request, session_key), {"mode": "direct", "steps": [], "plan": plan}
@@ -1316,6 +1435,54 @@ class SkillRegistry:
         self.root = root
         self.items: list[dict[str, str]] = []
 
+    @staticmethod
+    def _frontmatter_and_body(content: str) -> tuple[dict[str, str], str]:
+        match = re.match(r"^---\n(.*?)\n---\n?", content, flags=re.DOTALL)
+        if not match:
+            return {}, content
+        payload: dict[str, str] = {}
+        for raw_line in match.group(1).splitlines():
+            if ":" not in raw_line:
+                continue
+            key, value = raw_line.split(":", 1)
+            key = key.strip().lower()
+            value = value.strip().strip("'\"")
+            if key in {"name", "description"} and value:
+                payload[key] = value
+        return payload, content[match.end() :]
+
+    @staticmethod
+    def _first_body_line(body: str) -> str:
+        for line in body.splitlines():
+            stripped = line.strip().lstrip("#").strip()
+            if stripped:
+                return stripped
+        return ""
+
+    @staticmethod
+    def _tokenize(text: str) -> set[str]:
+        return {
+            token
+            for token in re.findall(r"[a-z0-9]+", (text or "").lower())
+            if token and token not in SKILL_STOPWORDS and len(token) > 1
+        }
+
+    @staticmethod
+    def _body_excerpt(body: str, *, max_lines: int = 12) -> str:
+        lines: list[str] = []
+        for line in body.splitlines():
+            stripped = line.rstrip()
+            if not stripped.strip():
+                continue
+            lines.append(stripped)
+            if len(lines) >= max_lines:
+                break
+        return "\n".join(lines).strip()
+
+    @staticmethod
+    def _workers_for_skill(name: str) -> list[str]:
+        return list(SKILL_WORKER_HINTS.get((name or "").strip().lower(), []))
+
     def load(self) -> list[dict[str, str]]:
         items: list[dict[str, str]] = []
         if not self.root.exists():
@@ -1332,31 +1499,210 @@ class SkillRegistry:
                     continue
                 if not isinstance(payload, dict):
                     continue
+                name = str(payload.get("name") or path.stem).strip()
+                description = str(payload.get("description") or "").strip()
                 items.append(
                     {
-                        "name": str(payload.get("name") or path.stem).strip(),
-                        "description": str(payload.get("description") or "").strip(),
+                        "name": name,
+                        "description": description,
                         "capability": str(payload.get("capability") or "").strip(),
                         "source": rel,
+                        "path": str(path),
+                        "body_excerpt": description,
+                        "workers": ",".join(self._workers_for_skill(name)),
+                        "search_tokens": " ".join(
+                            sorted(
+                                self._tokenize(name)
+                                | self._tokenize(description)
+                                | set(SKILL_ALIAS_HINTS.get(name.lower(), set()))
+                            )
+                        ),
                     }
                 )
             elif path.suffix.lower() == ".md":
-                first_line = ""
-                for line in path.read_text(encoding="utf-8").splitlines():
-                    stripped = line.strip().lstrip("#").strip()
-                    if stripped:
-                        first_line = stripped
-                        break
+                if path.name != "SKILL.md":
+                    continue
+                content = path.read_text(encoding="utf-8")
+                frontmatter, body = self._frontmatter_and_body(content)
+                name = str(frontmatter.get("name") or path.parent.name or path.stem).strip()
+                description = str(frontmatter.get("description") or self._first_body_line(body) or "").strip()
+                excerpt = self._body_excerpt(body)
                 items.append(
                     {
-                        "name": path.stem,
-                        "description": first_line,
+                        "name": name,
+                        "description": description,
                         "capability": "",
                         "source": rel,
+                        "path": str(path),
+                        "body_excerpt": excerpt,
+                        "workers": ",".join(self._workers_for_skill(name)),
+                        "search_tokens": " ".join(
+                            sorted(
+                                self._tokenize(name)
+                                | self._tokenize(description)
+                                | self._tokenize(excerpt)
+                                | set(SKILL_ALIAS_HINTS.get(name.lower(), set()))
+                            )
+                        ),
                     }
                 )
         self.items = items
         return self.items
+
+    def search(self, query: str, *, limit: int = 3) -> list[dict[str, Any]]:
+        if not self.items:
+            self.load()
+        query_tokens = self._tokenize(query)
+        lowered = (query or "").strip().lower()
+        matches: list[dict[str, Any]] = []
+        for item in self.items:
+            hay_tokens = set(str(item.get("search_tokens") or "").split())
+            score = 0
+            overlap = query_tokens & hay_tokens
+            score += len(overlap) * 3
+            alias_hits = {
+                alias
+                for alias in SKILL_ALIAS_HINTS.get(str(item.get("name") or "").strip().lower(), set())
+                if alias in lowered
+            }
+            score += len(alias_hits) * 2
+            name = str(item.get("name") or "").strip().lower()
+            if name and name in lowered:
+                score += 5
+            description = str(item.get("description") or "").strip().lower()
+            if description and description in lowered:
+                score += 4
+            if score < 4:
+                continue
+            match = dict(item)
+            match["score"] = score
+            match["workers"] = [value for value in str(item.get("workers") or "").split(",") if value]
+            matches.append(match)
+        matches.sort(key=lambda item: (-int(item.get("score") or 0), str(item.get("name") or "")))
+        return matches[:limit]
+
+    def guidance_block(self, matches: list[dict[str, Any]], *, limit: int = 2) -> str:
+        if not matches:
+            return ""
+        lines = ["Relevant internal skills:"]
+        for item in matches[:limit]:
+            description = str(item.get("description") or "").strip()
+            excerpt = str(item.get("body_excerpt") or "").strip()
+            workers = item.get("workers") if isinstance(item.get("workers"), list) else []
+            worker_text = f" | suggested workers: {', '.join(workers)}" if workers else ""
+            lines.append(f"- {item['name']}: {description}{worker_text}")
+            if excerpt:
+                lines.append(textwrap.indent(excerpt, "  "))
+        return "\n".join(lines).strip()
+
+    def create_autonomous_skill(
+        self,
+        request: str,
+        *,
+        session_key: str,
+        manager_brief: str = "",
+    ) -> dict[str, Any] | None:
+        tokens = list(self._tokenize(request or manager_brief))
+        if not tokens:
+            return None
+        slug_parts = tokens[:3]
+        slug = "-".join(slug_parts).strip("-")
+        if not slug:
+            slug = f"autonomous-skill-{hashlib.sha1((request or manager_brief).encode('utf-8')).hexdigest()[:8]}"
+        if len(slug) > 48:
+            slug = slug[:48].rstrip("-")
+        skill_dir = self.root / slug
+        if skill_dir.exists():
+            self.load()
+            existing = next((dict(item) for item in self.items if str(item.get("name") or "") == slug), None)
+            if existing:
+                existing["workers"] = [value for value in str(existing.get("workers") or "").split(",") if value]
+            return existing
+
+        category = "general"
+        raw_request = (request or manager_brief).strip()
+        safe_request = raw_request.replace('"', "'")
+        lowered = f"{request} {manager_brief}".lower()
+        if any(token in lowered for token in {"update", "brief", "announce", "write", "copy"}):
+            category = "writing"
+        elif any(token in lowered for token in {"status", "health", "snapshot", "incident", "ops"}):
+            category = "operations"
+        elif any(token in lowered for token in {"research", "scan", "search", "find"}):
+            category = "research"
+        elif any(token in lowered for token in {"verify", "review", "audit", "qa", "check"}):
+            category = "verification"
+        elif any(token in lowered for token in {"subscribe", "pricing", "payment", "trial", "buy"}):
+            category = "subscription"
+        elif any(token in lowered for token in {"mvp", "scope", "sprint", "ship", "plan"}):
+            category = "planning"
+        workers = {
+            "writing": ["QUILL", "AEGIS"],
+            "operations": ["FORGE", "PULSE"],
+            "research": ["ATLAS", "AEGIS"],
+            "verification": ["SENTINEL", "AEGIS"],
+            "subscription": ["FORGE", "QUILL", "AEGIS"],
+            "planning": ["ATLAS", "QUILL", "FORGE"],
+            "general": ["FORGE", "QUILL", "AEGIS"],
+        }[category]
+        description = (
+            f"Use when a short request like '{safe_request[:80]}' needs a narrow, repeatable Meridian workflow instead of an ad hoc reply."
+        )
+        title = " ".join(part.capitalize() for part in slug.split("-")) or "Autonomous Skill"
+        content = textwrap.dedent(
+            f"""\
+            ---
+            name: {slug}
+            description: "{description}"
+            metadata:
+              created_by: meridian_skill_autonomy
+              session_key: "{session_key}"
+              category: "{category}"
+            ---
+
+            # {title}
+
+            Use this skill when the user gives a short prompt such as:
+            - {safe_request}
+
+            ## Workflow
+
+            1. Expand the short request into a concrete Meridian task using session continuity and live host facts.
+            2. Route the work through these preferred specialists: {", ".join(workers)}.
+            3. Keep outputs bounded, operator-usable, and grounded in verified Meridian state.
+            4. Return only confirmed facts, explicit unknowns, and the next operational move.
+
+            ## Guardrails
+
+            - Do not invent missing facts, timelines, or citations.
+            - Prefer live Meridian host facts over generic web knowledge.
+            - Escalate uncertainty instead of pretending the request is fully specified.
+
+            ## Why Created
+
+            - Created automatically because a short request exposed a missing reusable playbook.
+            - Session: {session_key}
+            """
+        )
+        skill_dir.mkdir(parents=True, exist_ok=True)
+        skill_path = skill_dir / "SKILL.md"
+        skill_path.write_text(content, encoding="utf-8")
+        if SKILL_VALIDATOR.exists():
+            completed = subprocess.run(
+                ["python3", str(SKILL_VALIDATOR), str(skill_dir)],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if completed.returncode != 0:
+                shutil.rmtree(skill_dir, ignore_errors=True)
+                return None
+        self.load()
+        created = next((dict(item) for item in self.items if str(item.get("name") or "") == slug), None)
+        if created is None:
+            return None
+        created["workers"] = workers
+        created["autogenerated"] = True
+        return created
 
     def prompt_block(self) -> str:
         if not self.items:
@@ -1369,6 +1715,80 @@ class SkillRegistry:
             else:
                 lines.append(f"- {item['name']}: {detail}")
         return "\n".join(lines)
+
+
+TEAM_SKILLS = SkillRegistry(SKILLS_DIR)
+TEAM_SKILLS.load()
+
+
+def _request_tokens(text: str) -> list[str]:
+    return sorted(
+        {
+            token
+            for token in re.findall(r"[a-z0-9]+", (text or "").lower())
+            if token and token not in SKILL_STOPWORDS and len(token) > 1
+        }
+    )
+
+
+def _short_prompt_skill_candidate(text: str) -> bool:
+    tokens = _request_tokens(text)
+    return 1 <= len(tokens) <= 6 and len(str(text or "").split()) <= 10
+
+
+def _skill_route_verified_facts(request: str, matches: list[dict[str, Any]]) -> dict[str, Any]:
+    lowered = (request or "").strip().lower()
+    skill_names = {str(item.get("name") or "").strip().lower() for item in matches}
+    if skill_names & {"ops-snapshot", "founder-update"}:
+        return _build_meridian_operator_truth_packet()
+    if any(token in lowered for token in {"founder", "update", "status", "snapshot", "ops", "health", "payout", "treasury"}):
+        return _build_meridian_operator_truth_packet()
+    return {}
+
+
+def _skill_bundle_for_request(
+    request: str,
+    session_key: str,
+    *,
+    manager_brief: str = "",
+    allow_create: bool = False,
+) -> dict[str, Any]:
+    matches = TEAM_SKILLS.search(request, limit=2)
+    created_skill = None
+    if not matches and allow_create and _short_prompt_skill_candidate(request):
+        created_skill = TEAM_SKILLS.create_autonomous_skill(
+            request,
+            session_key=session_key,
+            manager_brief=manager_brief,
+        )
+        if created_skill:
+            matches = [created_skill]
+            append_session_event(
+                session_key,
+                {
+                    "history_type": "skill_materialization",
+                    "status": "created",
+                    "agent_id": TEAM_MANAGER_AGENT_ID,
+                    "speaker": "manager",
+                    "text": f"Created internal skill {created_skill['name']} for short request routing.",
+                    "skill_name": created_skill["name"],
+                    "source_label": "live_skill_autonomy",
+                    "workers": list(created_skill.get("workers") or []),
+                },
+                loom_root=LOOM_ROOT,
+            )
+    guidance = TEAM_SKILLS.guidance_block(matches)
+    workers: list[str] = []
+    for item in matches:
+        for worker in item.get("workers") or []:
+            if worker in SPECIALIST_KEYS and worker not in workers:
+                workers.append(worker)
+    return {
+        "matches": matches,
+        "created_skill": created_skill,
+        "guidance": guidance,
+        "workers": workers,
+    }
 
 
 def _log(message: str, *, color: str = ANSI_CYAN) -> None:
@@ -1438,6 +1858,7 @@ def _manager_step_view(steps: list[dict[str, Any]]) -> list[dict[str, Any]]:
             "confidence": str(step.get("confidence") or "").strip(),
             "citations": step.get("citations") if isinstance(step.get("citations"), list) else [],
             "warnings": step.get("warnings") if isinstance(step.get("warnings"), list) else [],
+            "skills_used": step.get("skills_used") if isinstance(step.get("skills_used"), list) else [],
         })
     return cleaned
 
@@ -2035,6 +2456,7 @@ class TelegramAdapter(ChannelAdapter):
                     delivery_id,
                     "delivered",
                     external_ref=str((result or {}).get("message_id") or str(chat_id)).strip(),
+                    detail="",
                 )
                 _loom_session_route(
                     session_key,
@@ -2076,6 +2498,7 @@ class TelegramAdapter(ChannelAdapter):
                     delivery_id,
                     "delivered",
                     external_ref=str((result or {}).get("message_id") or recipient).strip(),
+                    detail="",
                 )
                 _loom_session_route(
                     f"telegram:{recipient}",
@@ -2132,6 +2555,7 @@ class TelegramAdapter(ChannelAdapter):
                     delivery_id,
                     "delivered",
                     external_ref=str((result or {}).get("message_id") or str(chat_id)).strip(),
+                    detail="",
                 )
             except Exception as exc:
                 _loom_channel_update(delivery_id, "failed", detail=f"{exc.__class__.__name__}: {exc}")
@@ -2355,7 +2779,7 @@ class WebAPIAdapter(ChannelAdapter):
                 )
                 self._send_json(200, {"status": "success", "output": answer})
                 if delivery_id:
-                    _loom_channel_update(delivery_id, "delivered", external_ref="http_response")
+                    _loom_channel_update(delivery_id, "delivered", external_ref="http_response", detail="")
 
             def log_message(self, format: str, *args: object) -> None:  # noqa: A003
                 return
@@ -2385,7 +2809,7 @@ class WebAPIAdapter(ChannelAdapter):
         delivery_id = str((delivery_payload or {}).get("delivery_id") or "").strip()
         self.notifications.put({"source": source, "text": text, "ts": str(int(time.time()))})
         if delivery_id:
-            _loom_channel_update(delivery_id, "delivered", external_ref="notification_queue")
+            _loom_channel_update(delivery_id, "delivered", external_ref="notification_queue", detail="")
             _loom_session_route(
                 session_key,
                 agent_id=TEAM_MANAGER_AGENT_ID,
@@ -2422,8 +2846,8 @@ class HeartbeatEngine(threading.Thread):
 
 def main() -> int:
     config = _load_runtime_config_or_exit()
-    skills = SkillRegistry(SKILLS_DIR)
-    loaded_skills = skills.load()
+    skills = TEAM_SKILLS
+    loaded_skills = skills.items or skills.load()
     runtime = AgentRuntime(skills)
     telegram_adapter = TelegramAdapter(runtime, str(config.get("telegram_bot_token") or ""))
     web_adapter = WebAPIAdapter(runtime, str(config.get("allowed_origin") or ""))

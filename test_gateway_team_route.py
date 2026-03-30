@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import importlib.util
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -15,6 +16,13 @@ spec.loader.exec_module(meridian_gateway)
 
 
 class GatewayTeamRouteTests(unittest.TestCase):
+    def test_skill_registry_reads_frontmatter_description(self):
+        registry = meridian_gateway.SkillRegistry(meridian_gateway.SKILLS_DIR)
+        items = registry.load()
+        skill = next(item for item in items if item['name'] == 'mvp-sprint-scope')
+        self.assertNotEqual(skill['description'], '---')
+        self.assertIn('MVP', skill['description'])
+
     def test_parse_telegram_command_modes(self):
         self.assertEqual(meridian_gateway._parse_telegram_command('/help'), {'mode': 'help', 'arg': ''})
         self.assertEqual(meridian_gateway._parse_telegram_command('/atlas OpenAI pricing'), {'mode': 'team', 'arg': 'OpenAI pricing'})
@@ -69,6 +77,27 @@ class GatewayTeamRouteTests(unittest.TestCase):
         self.assertEqual(plan['mode'], 'team')
         self.assertEqual(plan['workers'], ['QUILL', 'AEGIS'])
 
+    def test_short_prompt_skill_route_uses_existing_skill(self):
+        plan = meridian_gateway._team_route_plan('mvp scope', 'telegram:123')
+        self.assertEqual(plan['mode'], 'team')
+        self.assertEqual(plan['reason'], 'skill_routed_short_prompt')
+        self.assertIn('ATLAS', plan['workers'])
+        self.assertIn('mvp-sprint-scope', [item['name'] for item in plan['skills']])
+
+    def test_short_prompt_skill_route_adds_verified_facts_for_status_flows(self):
+        plan = meridian_gateway._team_route_plan('ops snapshot', 'telegram:123')
+        self.assertEqual(plan['reason'], 'skill_routed_short_prompt')
+        self.assertIsInstance(plan.get('verified_facts'), dict)
+        self.assertIn('runtime_id', plan['verified_facts'])
+
+    def test_skill_registry_can_create_autonomous_skill(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            registry = meridian_gateway.SkillRegistry(Path(tmpdir))
+            created = registry.create_autonomous_skill('founder update', session_key='telegram:proof', manager_brief='founder update')
+            self.assertIsNotNone(created)
+            self.assertTrue((Path(tmpdir) / 'founder-update' / 'SKILL.md').exists())
+            self.assertEqual(created['name'], 'founder-update')
+
     def test_complex_governance_request_does_not_collapse_to_internal_status(self):
         prompt = (
             'Leviathann, handle this as an operator crisis workflow. '
@@ -102,6 +131,34 @@ class GatewayTeamRouteTests(unittest.TestCase):
         self.assertEqual(receipt['status'], 'ok')
         self.assertEqual(receipt['result'], 'forge sequence')
         self.assertEqual(receipt['warnings'], ['host warning'])
+
+    def test_specialist_receipt_surfaces_skills_used(self):
+        plan = {
+            'manager_brief': 'Create a host snapshot.',
+            'topic': 'ops snapshot',
+            'criteria': 'consistency',
+            'skills': [
+                {
+                    'name': 'ops-snapshot',
+                    'description': 'Use when Leviathann needs a fast local health snapshot.',
+                    'body_excerpt': '1. Check local health.\n2. Summarize actionable issues.',
+                    'workers': ['FORGE', 'PULSE'],
+                }
+            ],
+        }
+        loom_result = {
+            'ok': True,
+            'job_id': 'job-forge',
+            'worker_result': {
+                'host_response_json': {
+                    'output_text': '```json\n{"result":"host snapshot ready","confidence":"high","citations":[],"warnings":[]}\n```'
+                }
+            },
+        }
+        with mock.patch.object(meridian_gateway, 'append_session_event'):
+            with mock.patch.object(meridian_gateway.mcp_server, '_shared_run_loom_capability', return_value=loom_result):
+                receipt = meridian_gateway._run_specialist_step('FORGE', 'ops snapshot', 'telegram:5322393870', plan)
+        self.assertEqual(receipt['skills_used'], ['ops-snapshot'])
 
 
 if __name__ == '__main__':
