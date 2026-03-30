@@ -841,11 +841,15 @@ def _run_specialist_step(agent_key: str, request: str, session_key: str, plan: d
             "session_key": session_key,
             "provider_profile": specialist.profile_name,
             "model": specialist.model,
-            "transport_kind": "loom_capability",
+            "transport_kind": str(result.get("transport_kind") or "loom_capability").strip() or "loom_capability",
             "result": str(result.get("verification") or result.get("error") or "").strip(),
-            "confidence": "",
+            "confidence": str(result.get("confidence") or "").strip(),
             "citations": [],
-            "warnings": [str(result.get("error") or "").strip()] if result.get("error") else [],
+            "warnings": (
+                list(result.get("warnings") or [])
+                if isinstance(result.get("warnings"), list)
+                else ([str(result.get("error") or "").strip()] if result.get("error") else [])
+            ),
             "status": "ok" if not result.get("error") else "error",
             "raw": result,
         }
@@ -987,16 +991,19 @@ def _run_specialist_step(agent_key: str, request: str, session_key: str, plan: d
 def _manager_synthesis(goal: str, session_key: str, steps: list[dict[str, Any]]) -> str:
     manager = _loom_manager_defaults()
     history_context = imported_history_context(session_key, loom_root=LOOM_ROOT, limit=24)
+    cleaned_steps = _manager_step_view(steps)
     result = _run_codex_exec(
         system_prompt=(
             "You are Leviathann, Meridian's manager. "
             "Given specialist outputs, produce the final user-facing reply. "
-            "Resolve conflicts, call out uncertainty, and keep the answer concise but complete."
+            "Resolve conflicts, call out uncertainty, and keep the answer concise but complete. "
+            "Treat worker warnings and empty citations as first-class truth. "
+            "Do not elevate unsupported marketing claims above the warnings."
         ),
         user_prompt=(
             f"Original user request:\n{goal.strip()}\n\n"
             f"Imported conversation continuity:\n{history_context or '(none)'}\n\n"
-            f"Specialist outputs:\n{json.dumps(steps, indent=2, ensure_ascii=False)}"
+            f"Specialist outputs:\n{json.dumps(cleaned_steps, indent=2, ensure_ascii=False)}"
         ),
         model=manager["model"],
         timeout=REQUEST_TIMEOUT_SECONDS,
@@ -1261,6 +1268,25 @@ def _sanitize_worker_citations(
             warnings.append("direct fallback citations stripped because they were not independently verified")
         return [], warnings
     return normalized, warnings
+
+
+def _manager_step_view(steps: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    cleaned: list[dict[str, Any]] = []
+    for step in steps:
+        cleaned.append({
+            "agent_id": str(step.get("agent_id") or "").strip(),
+            "role": str(step.get("role") or "").strip(),
+            "task_kind": str(step.get("task_kind") or "").strip(),
+            "status": str(step.get("status") or "").strip(),
+            "provider_profile": str(step.get("provider_profile") or "").strip(),
+            "model": str(step.get("model") or "").strip(),
+            "transport_kind": str(step.get("transport_kind") or "").strip(),
+            "result": str(step.get("result") or "").strip(),
+            "confidence": str(step.get("confidence") or "").strip(),
+            "citations": step.get("citations") if isinstance(step.get("citations"), list) else [],
+            "warnings": step.get("warnings") if isinstance(step.get("warnings"), list) else [],
+        })
+    return cleaned
 
 
 def _extract_title(html: str) -> str:

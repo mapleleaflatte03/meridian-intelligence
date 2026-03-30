@@ -304,6 +304,21 @@ def _specialist_llm_json(raw_output: str) -> dict[str, Any]:
     return payload if isinstance(payload, dict) else {}
 
 
+def _specialist_host_response_note(loom_result: dict) -> str:
+    worker_result = loom_result.get('worker_result') or {}
+    host_response = worker_result.get('host_response_json') or {}
+    if isinstance(host_response, dict):
+        decision = str(host_response.get('decision') or '').strip().lower()
+        note = str(host_response.get('note') or '').strip()
+        if note and decision == 'denied':
+            return f'LLM request denied: {note}'
+        if note:
+            return note
+        if decision == 'denied':
+            return 'LLM request denied by provider host'
+    return ''
+
+
 def _normalize_runtime(runtime: str) -> str:
     runtime = (runtime or '').strip().lower()
     return 'loom' if runtime in {'loom', ''} else 'legacy'
@@ -1662,6 +1677,40 @@ def do_qa_verify_route(
         f'You are Meridian specialist {agent_id}. Verify claims for {criteria} quality and return strict JSON with keys verification, confidence, warnings.',
         prompt,
     )
+    def _direct_fallback_result(reason: str) -> dict | None:
+        if not specialist_payload:
+            return None
+        direct = _specialist_direct_provider_fallback(
+            agent_id,
+            system_prompt=f'You are Meridian specialist {agent_id}. Verify claims for {criteria} quality and return strict JSON with keys verification, confidence, warnings.',
+            user_prompt=prompt,
+            max_tokens=900,
+            timeout=90,
+        )
+        if not direct.get('ok'):
+            return None
+        raw_output = str(direct.get('output_text') or '').strip()
+        parsed = _specialist_llm_json(raw_output)
+        verification = str(parsed.get('verification') or parsed.get('result') or raw_output).strip()
+        if not verification:
+            verification = 'Verification lane returned no usable answer.'
+        warnings = parsed.get('warnings', []) if isinstance(parsed.get('warnings'), list) else []
+        warnings = [*warnings, reason]
+        return {
+            'criteria': criteria,
+            'verification': verification,
+            'runtime': 'loom',
+            'capability_name': _loom_qa_capability(),
+            'job_id': str(loom_result.get('job_id') or ''),
+            'source': 'Meridian QA Pipeline',
+            'provider_profile': (specialist_payload or {}).get('provider_profile', ''),
+            'model': (specialist_payload or {}).get('model', ''),
+            'raw_output': raw_output,
+            'confidence': str(parsed.get('confidence') or '').strip(),
+            'warnings': warnings,
+            'transport_kind': 'direct_provider_http_fallback',
+        }
+
     loom_result = _run_loom_capability(
         _loom_qa_capability(),
         specialist_payload or {'text': text, 'criteria': criteria, 'prompt': prompt},
@@ -1673,6 +1722,19 @@ def do_qa_verify_route(
     )
     if loom_result.get('ok'):
         verification, raw_output = _specialist_llm_result(loom_result, preferred_key='verification')
+        host_note = _specialist_host_response_note(loom_result)
+        if (not verification or verification.lstrip().startswith('{"status":')) and host_note:
+            fallback = _direct_fallback_result(f'loom qa lane returned unusable output: {host_note}')
+            if fallback is not None:
+                return _with_qa_verify_cutover(
+                    fallback,
+                    requested_runtime,
+                    'loom',
+                    False,
+                    loom_result=loom_result,
+                    loom_preflight=loom_preflight,
+                )
+            verification = host_note
         result = {
             'criteria': criteria,
             'verification': verification,
@@ -1683,6 +1745,9 @@ def do_qa_verify_route(
             'provider_profile': (specialist_payload or {}).get('provider_profile', ''),
             'model': (specialist_payload or {}).get('model', ''),
             'raw_output': raw_output,
+            'warnings': [host_note] if host_note else [],
+            'confidence': '',
+            'transport_kind': 'loom_capability',
         }
         return _with_qa_verify_cutover(
             result,
@@ -1699,6 +1764,18 @@ def do_qa_verify_route(
         'reason': loom_result.get('error', 'loom runtime failed'),
         'state': 'loom_failed',
     }
+
+    fallback = _direct_fallback_result(str(loom_result.get('error') or 'loom qa lane failed'))
+    if fallback is not None:
+        return _with_qa_verify_cutover(
+            fallback,
+            requested_runtime,
+            'loom',
+            False,
+            fallback_state=fallback_state,
+            loom_result=loom_result,
+            loom_preflight=loom_preflight,
+        )
 
     result = {
         'criteria': criteria,
