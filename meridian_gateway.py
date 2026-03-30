@@ -428,6 +428,11 @@ _MERIDIAN_COMPLEX_OPERATOR_TERMS = (
     "workflow",
     "remediation",
     "operator crisis",
+    "founder update",
+    "contributor payouts",
+    "actual phase gate",
+    "host evidence",
+    "next update should promise",
     "payout execution",
     "sanction-restricted",
     "telegram delivery",
@@ -443,7 +448,10 @@ def _looks_like_meridian_operator_workflow_query(text: str) -> bool:
         return False
     mentions_complex_ops = any(term in lowered for term in _MERIDIAN_COMPLEX_OPERATOR_TERMS)
     mentions_meridian = any(term in lowered for term in _MERIDIAN_INTERNAL_STATUS_TERMS)
-    return mentions_meridian and mentions_complex_ops
+    mentions_governed_runtime = any(
+        term in lowered for term in ("contributor payouts", "phase gate", "telegram delivery", "host evidence")
+    )
+    return mentions_complex_ops and (mentions_meridian or mentions_governed_runtime)
 
 _MERIDIAN_POSITIONING_TERMS = (
     "leviathann",
