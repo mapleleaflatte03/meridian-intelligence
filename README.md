@@ -78,7 +78,7 @@ Loom carries execution, sessions, channels, skills, and memory/context. Commitme
 
 ## Intelligence Workflow (Current Vertical)
 
-Competitive intelligence is the first managed workflow vertical. What exists today is the workflow, the runtime, and the product surface. What is intentionally still narrow is the delivery promise.
+Competitive intelligence is the first managed workflow vertical. What exists today is the workflow, the runtime, and the product surface. What is intentionally still narrow is the delivery promise. The public demo and battlecard pages include qualified reference examples; they are not meant to imply that every illustrated output is a currently live customer artifact on the public host.
 
 - **Cited competitor alerts** — findings on pricing changes, launches, API updates, and deprecations
 - **Curated intelligence briefs** — top competitive moves with action items
