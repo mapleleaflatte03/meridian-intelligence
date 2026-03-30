@@ -60,6 +60,15 @@ class GatewayTeamRouteTests(unittest.TestCase):
         self.assertEqual(meta['mode'], 'direct')
         runtime.run_goal.assert_not_called()
 
+    def test_planner_fallback_adds_quill_for_writer_request(self):
+        with mock.patch.object(meridian_gateway, '_run_codex_exec', return_value={'ok': False, 'output_text': ''}):
+            plan = meridian_gateway._team_route_plan(
+                'Write a short Meridian founder answer explaining why users should talk to Leviathann instead of direct specialists.',
+                'web_api:org_48b05c21',
+            )
+        self.assertEqual(plan['mode'], 'team')
+        self.assertEqual(plan['workers'], ['ATLAS', 'AEGIS', 'QUILL'])
+
 
 if __name__ == '__main__':
     unittest.main()

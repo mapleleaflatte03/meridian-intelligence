@@ -443,6 +443,21 @@ def _render_meridian_internal_answer(_goal: str) -> str:
     )
 
 
+def _request_needs_writer(text: str) -> bool:
+    lowered = (text or "").strip().lower()
+    writer_phrases = (
+        "write ",
+        "draft ",
+        "founder answer",
+        "founder note",
+        "short answer",
+        "short statement",
+        "paragraph",
+        "message",
+    )
+    return any(phrase in lowered for phrase in writer_phrases)
+
+
 def _run_codex_exec(*, system_prompt: str, user_prompt: str, model: str, timeout: int = REQUEST_TIMEOUT_SECONDS) -> dict[str, Any]:
     codex_bin = str(MERIDIAN_CODEX_BIN).strip() or "codex"
     codex_home = str(MERIDIAN_CODEX_HOME).strip() or "/home/ubuntu/.meridian/auth/codex/login-home"
@@ -552,6 +567,13 @@ def _team_specialist_catalog() -> str:
     return "\n".join(lines)
 
 
+def _fallback_team_workers(text: str) -> list[str]:
+    workers = ["ATLAS", "AEGIS"]
+    if _request_needs_writer(text) and "QUILL" not in workers:
+        workers.append("QUILL")
+    return workers
+
+
 def _team_route_plan(text: str, session_key: str) -> dict[str, Any]:
     stripped = text.strip()
     if not stripped:
@@ -594,7 +616,7 @@ def _team_route_plan(text: str, session_key: str) -> dict[str, Any]:
             "topic": stripped,
             "depth": "standard",
             "criteria": "factual",
-            "workers": ["ATLAS", "AEGIS"],
+            "workers": _fallback_team_workers(stripped),
             "manager_brief": stripped,
             "reason": "planner_fallback",
         }
@@ -616,7 +638,9 @@ def _team_route_plan(text: str, session_key: str) -> dict[str, Any]:
             if value in SPECIALIST_KEYS and value not in workers:
                 workers.append(value)
     if mode == "team" and not workers:
-        workers = ["ATLAS", "AEGIS"]
+        workers = _fallback_team_workers(stripped)
+    if mode == "team" and _request_needs_writer(stripped) and "QUILL" not in workers:
+        workers.append("QUILL")
     return {
         "mode": mode,
         "topic": topic,
@@ -791,6 +815,12 @@ def _run_specialist_step(agent_key: str, request: str, session_key: str, plan: d
         result, confidence, citations, warnings.
         """
     ).strip()
+    if specialist.env_key == "SENTINEL":
+        specialist_timeout = 10
+    elif specialist.env_key in {"QUILL", "PULSE"}:
+        specialist_timeout = 45
+    else:
+        specialist_timeout = 120
     loom_result = mcp_server._shared_run_loom_capability(  # type: ignore[attr-defined]
         mcp_server._loom_runtime_context(),  # type: ignore[attr-defined]
         "loom.llm.inference.v1",
@@ -801,7 +831,7 @@ def _run_specialist_step(agent_key: str, request: str, session_key: str, plan: d
             "user_prompt": prompt,
             "max_tokens": 900,
         },
-        timeout=120,
+        timeout=specialist_timeout,
         agent_id=specialist.registry_id,
         session_id=session_key,
         action_type=specialist.task_kind,
@@ -812,7 +842,36 @@ def _run_specialist_step(agent_key: str, request: str, session_key: str, plan: d
     host_response = worker_result.get("host_response_json")
     if isinstance(host_response, dict):
         output_text = str(host_response.get("output_text") or "").strip()
+    host_decision = str(host_response.get("decision") or "").strip().lower() if isinstance(host_response, dict) else ""
+    host_note = str(host_response.get("note") or "").strip() if isinstance(host_response, dict) else ""
     payload = _extract_json(output_text) if output_text else None
+    direct_fallback = None
+    fallback_warning = ""
+    if specialist.env_key in {"QUILL", "PULSE"} and (not output_text or host_decision == "denied" or not loom_result.get("ok")):
+        direct_fallback = mcp_server._specialist_direct_provider_fallback(  # type: ignore[attr-defined]
+            specialist.registry_id,
+            system_prompt=f"You are {specialist.name}. {specialist.purpose}",
+            user_prompt=prompt,
+            max_tokens=900,
+            timeout=90,
+        )
+        if direct_fallback.get("ok") and str(direct_fallback.get("output_text") or "").strip():
+            output_text = str(direct_fallback.get("output_text") or "").strip()
+            payload = _extract_json(output_text) if output_text else None
+            fallback_warning = host_note or "Loom host call returned an empty specialist response; direct provider fallback recovered output."
+            host_note = str(direct_fallback.get("note") or host_note)
+        elif not loom_result.get("error") and host_note:
+            loom_result = dict(loom_result)
+            loom_result["error"] = host_note
+    warnings = (payload or {}).get("warnings") if isinstance((payload or {}).get("warnings"), list) else []
+    if fallback_warning:
+        warnings = [*warnings, fallback_warning]
+    elif not loom_result.get("ok"):
+        warnings = [str(loom_result.get("error") or "loom failure")]
+    elif host_decision == "denied" and host_note:
+        warnings = [*warnings, host_note]
+    transport_kind = "direct_provider_http_fallback" if fallback_warning else "loom_capability"
+    result_text = str((payload or {}).get("result") or output_text or loom_result.get("error") or "").strip()
     receipt = {
         "agent_id": specialist.registry_id,
         "role": specialist.role,
@@ -821,13 +880,16 @@ def _run_specialist_step(agent_key: str, request: str, session_key: str, plan: d
         "session_key": session_key,
         "provider_profile": specialist.profile_name,
         "model": specialist.model,
-        "transport_kind": "loom_capability",
-        "result": str((payload or {}).get("result") or output_text or loom_result.get("error") or "").strip(),
+        "transport_kind": transport_kind,
+        "result": result_text,
         "confidence": str((payload or {}).get("confidence") or "").strip(),
         "citations": (payload or {}).get("citations") if isinstance((payload or {}).get("citations"), list) else [],
-        "warnings": (payload or {}).get("warnings") if isinstance((payload or {}).get("warnings"), list) else ([] if loom_result.get("ok") else [str(loom_result.get("error") or "loom failure")]),
-        "status": "ok" if loom_result.get("ok") else "error",
-        "raw": loom_result,
+        "warnings": warnings,
+        "status": "ok" if result_text else "error",
+        "raw": {
+            "loom_result": loom_result,
+            "direct_provider_fallback": direct_fallback,
+        } if direct_fallback else loom_result,
     }
     append_session_event(session_key, {
         "history_type": "worker_receipt",
@@ -880,9 +942,42 @@ def _manager_synthesis(goal: str, session_key: str, steps: list[dict[str, Any]])
             "execution_owner": "meridian",
         }, loom_root=LOOM_ROOT)
         return answer
-    for item in steps:
+    preferred_steps = sorted(
+        steps,
+        key=lambda item: (
+            0 if str(item.get("task_kind") or "").strip() == "write" else 1,
+            0 if str(item.get("agent_id") or "").strip() == "agent_quill" else 1,
+        ),
+    )
+    verification_incomplete = any(
+        str(item.get("task_kind") or "").strip() in {"verify", "qa_gate"}
+        and (
+            str(item.get("status") or "").strip() != "ok"
+            or bool(item.get("warnings"))
+            or "timed out" in str(item.get("result") or "").lower()
+        )
+        for item in steps
+    )
+    research_unverified = any(
+        str(item.get("task_kind") or "").strip() == "research"
+        and (
+            not item.get("citations")
+            or "no verifiable" in str(item.get("result") or "").lower()
+            or "could not verify" in str(item.get("result") or "").lower()
+        )
+        for item in steps
+    )
+    for item in preferred_steps:
         text = str(item.get("result") or "").strip()
         if text:
+            if str(item.get("task_kind") or "").strip() == "write":
+                preface: list[str] = []
+                if research_unverified:
+                    preface.append("I could not verify a documented founder quote or external source for this exact rationale.")
+                if verification_incomplete:
+                    preface.append("The verification step did not complete, so treat the answer below as founder positioning rather than a sourced factual claim.")
+                if preface:
+                    text = "\n\n".join([" ".join(preface), text])
             append_session_event(session_key, {
                 "history_type": "manager_response",
                 "status": "degraded",

@@ -66,6 +66,30 @@ def append_session_event(
     return payload
 
 
+def update_session_event(
+    session_key: str,
+    event_id: str,
+    updates: dict[str, Any],
+    *,
+    loom_root: str | Path | None = None,
+) -> dict[str, Any] | None:
+    path = _session_path(session_key, loom_root=loom_root)
+    if not path.exists():
+        return None
+    document = load_session_events(session_key, loom_root=loom_root)
+    for item in document.get("events", []):
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("event_id") or "") != str(event_id or ""):
+            continue
+        item.update(dict(updates))
+        item["updated_at"] = _now_iso()
+        document["updated_at"] = _now_iso()
+        path.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
+        return dict(item)
+    return None
+
+
 def session_event_history_items(session_key: str, *, loom_root: str | Path | None = None) -> list[dict[str, Any]]:
     payload = load_session_events(session_key, loom_root=loom_root)
     items: list[dict[str, Any]] = []

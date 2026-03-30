@@ -42,6 +42,8 @@ import shutil
 import subprocess
 import sys
 import time
+import urllib.error
+import urllib.request
 from urllib.parse import quote_plus
 
 from mcp.server.fastmcp import FastMCP
@@ -93,7 +95,7 @@ from loom_runtime_discovery import runtime_value as _shared_runtime_value
 from loom_runtime_client import LoomRuntimeContext
 from loom_runtime_client import capability_preflight as _shared_loom_capability_preflight
 from loom_runtime_client import run_capability as _shared_run_loom_capability
-from team_topology import load_team_topology, sync_loom_team_profiles
+from team_topology import load_runtime_env, load_team_topology, sync_loom_team_profiles
 
 # Founding institution binding — resolved once at startup.
 # All audit, metering, treasury, and revenue calls use this org_id.
@@ -138,6 +140,7 @@ _LOOM_IMPORTED_WORKER_ENTRY_RE = re.compile(r'^workers/python/imported-(?P<impor
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(name)s] %(message)s')
 logger = logging.getLogger('meridian.mcp')
+TEAM_RUNTIME_ENV = load_runtime_env()
 TEAM_TOPOLOGY = load_team_topology()
 
 
@@ -145,6 +148,110 @@ def _team_specialist(agent_id: str):
     if not agent_id:
         return None
     return TEAM_TOPOLOGY.specialist_by_id(agent_id)
+
+
+def _specialist_completion_url(agent_id: str) -> str:
+    specialist = _team_specialist(agent_id)
+    if specialist is None:
+        return ''
+    base_url = (specialist.base_url or '').strip()
+    if base_url.endswith('/api/v1') or base_url.endswith('/v1'):
+        return f"{base_url.rstrip('/')}/chat/completions"
+    return base_url
+
+
+def _specialist_direct_provider_fallback(
+    agent_id: str,
+    *,
+    system_prompt: str,
+    user_prompt: str,
+    max_tokens: int = 900,
+    timeout: int = 90,
+) -> dict[str, Any]:
+    specialist = _team_specialist(agent_id)
+    if specialist is None:
+        return {'ok': False, 'error': f'unknown specialist {agent_id}'}
+    if specialist.provider_kind not in {'openai_compatible', 'custom_endpoint'}:
+        return {'ok': False, 'error': f'fallback unsupported for provider kind {specialist.provider_kind}'}
+    api_key = (TEAM_RUNTIME_ENV.get(specialist.api_key_env_var) or os.environ.get(specialist.api_key_env_var) or '').strip()
+    if not api_key:
+        return {'ok': False, 'error': f'missing API key env {specialist.api_key_env_var}'}
+    url = _specialist_completion_url(agent_id)
+    if not url:
+        return {'ok': False, 'error': f'missing completion url for {agent_id}'}
+    headers = {
+        'Authorization': f'Bearer {api_key}',
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+    }
+
+    def _post(messages: list[dict[str, str]]) -> tuple[dict[str, Any], int | None]:
+        payload = {
+            'model': specialist.model,
+            'messages': messages,
+            'max_tokens': max_tokens,
+        }
+        request = urllib.request.Request(
+            url,
+            data=json.dumps(payload).encode('utf-8'),
+            headers=headers,
+            method='POST',
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                return {'ok': True, 'raw_body': response.read().decode('utf-8')}, None
+        except urllib.error.HTTPError as exc:
+            return {
+                'ok': False,
+                'error': f'direct provider fallback HTTP {exc.code}',
+                'status_code': exc.code,
+                'body': exc.read().decode('utf-8', errors='replace'),
+            }, exc.code
+        except Exception as exc:
+            return {'ok': False, 'error': f'direct provider fallback failed: {exc}'}, None
+
+    first_result, status_code = _post(
+        [
+            {'role': 'system', 'content': system_prompt},
+            {'role': 'user', 'content': user_prompt},
+        ]
+    )
+    if not first_result.get('ok') and status_code == 400:
+        combined_prompt = f"{system_prompt.strip()}\n\n{user_prompt.strip()}".strip()
+        retry_result, retry_status = _post([{'role': 'user', 'content': combined_prompt}])
+        if retry_result.get('ok'):
+            first_result = retry_result
+        else:
+            retry_error = str(retry_result.get('error') or '').strip()
+            retry_body = str(retry_result.get('body') or '').strip()
+            first_result['retry_error'] = retry_error or first_result.get('retry_error', '')
+            if retry_body:
+                first_result['retry_body'] = retry_body
+    if not first_result.get('ok'):
+        return first_result
+    raw_body = str(first_result.get('raw_body') or '')
+
+    try:
+        parsed = json.loads(raw_body)
+    except json.JSONDecodeError:
+        parsed = {}
+    choices = parsed.get('choices') if isinstance(parsed, dict) else None
+    message = choices[0].get('message') if isinstance(choices, list) and choices and isinstance(choices[0], dict) else {}
+    content = message.get('content') if isinstance(message, dict) else ''
+    if isinstance(content, list):
+        content = ''.join(
+            str(part.get('text') or '')
+            for part in content
+            if isinstance(part, dict)
+        )
+    return {
+        'ok': True,
+        'output_text': str(content or '').strip(),
+        'raw_output': raw_body,
+        'model': str(parsed.get('model') or specialist.model),
+        'response': parsed,
+        'note': f'direct provider fallback via {url}',
+    }
 
 
 def _extract_json_object(text: str) -> dict | None:
