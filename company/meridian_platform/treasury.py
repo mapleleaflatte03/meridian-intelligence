@@ -838,6 +838,18 @@ def settlement_adapter_summary(org_id=None, *, host_supported_adapters=None):
     }
 
 
+def _settlement_adapter_readiness_messages(contract):
+    messages = {
+        'payout_execution_disabled': 'Payout execution is disabled for this adapter.',
+        'host_not_supported': 'The current host does not advertise this adapter.',
+        'verification_not_ready': 'The verification path is not ready on this host.',
+    }
+    blockers = list((contract or {}).get('execution_blockers', []))
+    if not blockers:
+        return ['Adapter is ready for execution on this host.']
+    return [messages.get(blocker, f'Blocked by {blocker}.') for blocker in blockers]
+
+
 def settlement_adapter_contract_snapshot(contract_or_adapter):
     contract = dict(contract_or_adapter or {})
     requires_verifier_attestation = bool(
@@ -991,6 +1003,51 @@ def _settlement_adapter_contract(adapter, *, host_supported_adapters=None):
     contract['contract_snapshot'] = settlement_adapter_contract_snapshot(contract)
     contract['contract_digest'] = settlement_adapter_contract_digest(contract)
     return contract
+
+
+def settlement_adapter_readiness_snapshot(org_id=None, *, host_supported_adapters=None):
+    store = _settlement_store(org_id)
+    host_supported = [item for item in (host_supported_adapters or []) if item]
+    adapters = []
+    for adapter in list_settlement_adapters(org_id):
+        contract = _settlement_adapter_contract(
+            adapter,
+            host_supported_adapters=host_supported,
+        )
+        adapters.append({
+            'adapter_id': contract['adapter_id'],
+            'label': contract['label'],
+            'status': contract['status'],
+            'payout_execution_enabled': contract['payout_execution_enabled'],
+            'execution_mode': contract['execution_mode'],
+            'settlement_path': contract['settlement_path'],
+            'host_supported': contract['host_supported'],
+            'execution_readiness': contract['execution_readiness'],
+            'execution_ready': contract['execution_ready'],
+            'execution_blockers': list(contract['execution_blockers']),
+            'execution_blocker_messages': _settlement_adapter_readiness_messages(contract),
+            'contract_snapshot': contract['contract_snapshot'],
+            'contract_digest': contract['contract_digest'],
+        })
+    return {
+        'default_payout_adapter': store.get('default_payout_adapter', 'internal_ledger'),
+        'host_supported_adapters': host_supported,
+        'summary': settlement_adapter_summary(
+            org_id,
+            host_supported_adapters=host_supported,
+        ),
+        'ready_adapter_ids': [
+            item['adapter_id']
+            for item in adapters
+            if item['execution_ready']
+        ],
+        'blocked_adapter_ids': [
+            item['adapter_id']
+            for item in adapters
+            if not item['execution_ready']
+        ],
+        'adapters': adapters,
+    }
 
 
 def get_wallet(wallet_id, org_id=None):

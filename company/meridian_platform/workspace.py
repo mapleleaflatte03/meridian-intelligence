@@ -22,6 +22,9 @@ Endpoints:
   GET  /api/treasury/accounts     → Treasury sub-accounts
   GET  /api/treasury/funding-sources → Funding source records
   GET  /api/treasury/settlement-adapters → Settlement adapter registry
+  GET  /api/treasury/settlement-adapters/readiness → Settlement adapter execution readiness
+  GET  /api/runtimes              → Runtime registry with contract compliance and binding usage
+  GET  /api/runtimes/<id>         → Single runtime registry entry with contract compliance and binding usage
   GET  /api/subscriptions         → Institution-owned subscription service state on the founding-locked host
   GET  /api/subscriptions/delivery-targets → Institution-owned delivery-target calculation on the founding-locked host
   GET  /api/subscriptions/loom-delivery-jobs → Inspect queued Loom delivery jobs on the founding-locked host
@@ -162,6 +165,8 @@ WORKSPACE_ORG_ID = (os.environ.get('MERIDIAN_WORKSPACE_ORG_ID') or '').strip() o
 WORKSPACE_AUTH_REQUIRED = os.environ.get('MERIDIAN_WORKSPACE_AUTH_REQUIRED', '').lower() in (
     '1', 'true', 'yes', 'on'
 )
+KERNEL_ROOT = os.environ.get('MERIDIAN_KERNEL_ROOT', '/opt/meridian-kernel')
+KERNEL_RUNTIME_ADAPTER_FILE = os.path.join(KERNEL_ROOT, 'kernel', 'runtime_adapter.py')
 sys.path.insert(0, PLATFORM_DIR)
 
 from organizations import (load_orgs, set_charter, set_policy_defaults,
@@ -187,6 +192,17 @@ _phase_spec = importlib.util.spec_from_file_location('company_phase_machine', PH
 _phase_mod = importlib.util.module_from_spec(_phase_spec)
 _phase_spec.loader.exec_module(_phase_mod)
 
+_runtime_adapter_spec = importlib.util.spec_from_file_location(
+    'meridian_kernel_runtime_adapter',
+    KERNEL_RUNTIME_ADAPTER_FILE,
+)
+_runtime_adapter_mod = importlib.util.module_from_spec(_runtime_adapter_spec)
+_runtime_adapter_spec.loader.exec_module(_runtime_adapter_mod)
+kernel_load_runtimes = _runtime_adapter_mod.load_runtimes
+kernel_get_runtime = _runtime_adapter_mod.get_runtime
+kernel_check_all_contracts = _runtime_adapter_mod.check_all_contracts
+kernel_check_contract = _runtime_adapter_mod.check_contract
+
 # Import authority, treasury, court via their public APIs
 from authority import (check_authority, request_approval, decide_approval,
                        delegate, revoke_delegation, engage_kill_switch,
@@ -197,6 +213,7 @@ from treasury import (treasury_snapshot, get_balance,
                       load_treasury_accounts, load_funding_sources,
                       list_payout_proposals, payout_proposal_summary,
                       list_settlement_adapters, settlement_adapter_summary,
+                      settlement_adapter_readiness_snapshot,
                       preflight_settlement_adapter,
                       settlement_adapter_contract_snapshot,
                       settlement_adapter_contract_digest,
@@ -663,6 +680,55 @@ def _payout_snapshot(bound_org_id, *, host_supported_adapters=None):
             host_supported_adapters=host_supported_adapters,
         ),
         'settlement_adapters': list_settlement_adapters(bound_org_id),
+    }
+
+
+def _settlement_adapter_readiness_snapshot(bound_org_id, *, host_supported_adapters=None):
+    return settlement_adapter_readiness_snapshot(
+        bound_org_id,
+        host_supported_adapters=host_supported_adapters,
+    )
+
+
+def _agent_runtime_usage_snapshot(org_id=None):
+    usage = {}
+    unregistered_bindings = []
+    agents = [
+        normalize_agent_record(agent)
+        for agent in load_registry().get('agents', {}).values()
+        if agent.get('org_id') in (None, '', org_id)
+    ]
+    for agent in agents:
+        binding = dict(agent.get('runtime_binding') or {})
+        runtime_id = (binding.get('runtime_id') or '').strip()
+        if not runtime_id:
+            continue
+        entry = usage.setdefault(runtime_id, {
+            'runtime_id': runtime_id,
+            'bound_agent_ids': [],
+            'bound_org_ids': [],
+        })
+        entry['bound_agent_ids'].append(agent.get('id'))
+        bound_org_id = agent.get('org_id')
+        if bound_org_id:
+            entry['bound_org_ids'].append(bound_org_id)
+        if not binding.get('runtime_registered', True):
+            unregistered_bindings.append({
+                'agent_id': agent.get('id'),
+                'org_id': bound_org_id,
+                'runtime_id': runtime_id,
+                'registration_status': binding.get('registration_status', 'missing_runtime'),
+            })
+
+    for entry in usage.values():
+        entry['bound_agent_ids'] = sorted({aid for aid in entry['bound_agent_ids'] if aid})
+        entry['bound_org_ids'] = sorted({oid for oid in entry['bound_org_ids'] if oid})
+        entry['bound_agent_count'] = len(entry['bound_agent_ids'])
+        entry['runtime_binding_status'] = 'in_use' if entry['bound_agent_count'] else 'declared_unused'
+
+    return {
+        'runtimes': usage,
+        'unregistered_bindings': unregistered_bindings,
     }
 
 
@@ -4413,6 +4479,12 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                 ),
                 'adapters': list_settlement_adapters(org_id),
             })
+        elif path == '/api/treasury/settlement-adapters/readiness':
+            host_identity, _admission_registry = _runtime_host_state(org_id)
+            return self._json(_settlement_adapter_readiness_snapshot(
+                org_id,
+                host_supported_adapters=getattr(host_identity, 'settlement_adapters', []),
+            ))
         elif path == '/api/subscriptions':
             return self._json(service_state.subscription_snapshot(org_id))
         elif path == '/api/subscriptions/delivery-targets':
@@ -4494,6 +4566,44 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                 host_identity=host_identity,
                 admission_registry=admission_registry,
             ))
+        elif path == '/api/runtimes':
+            data = kernel_load_runtimes()
+            contracts = kernel_check_all_contracts()
+            runtimes = data.get('runtimes', {})
+            usage_snapshot = _agent_runtime_usage_snapshot(org_id=org_id)
+            result = {}
+            for runtime_id, runtime in runtimes.items():
+                result[runtime_id] = dict(runtime)
+                result[runtime_id]['contract_check'] = contracts.get(runtime_id, {})
+                result[runtime_id]['runtime_usage'] = usage_snapshot['runtimes'].get(runtime_id, {
+                    'runtime_id': runtime_id,
+                    'bound_agent_ids': [],
+                    'bound_org_ids': [],
+                    'bound_agent_count': 0,
+                    'runtime_binding_status': 'declared_unused',
+                })
+            return self._json({
+                'runtimes': result,
+                'contract_requirements': data.get('contract_requirements', {}),
+                'compliance_thresholds': data.get('compliance_thresholds', {}),
+                'runtime_usage': usage_snapshot,
+            })
+        elif path.startswith('/api/runtimes/'):
+            runtime_id = path[len('/api/runtimes/'):]
+            runtime = kernel_get_runtime(runtime_id)
+            if runtime is None:
+                return self._json({'error': f'Runtime {runtime_id!r} not found'}, 404)
+            usage_snapshot = _agent_runtime_usage_snapshot(org_id=org_id)
+            enriched = dict(runtime)
+            enriched['contract_check'] = kernel_check_contract(runtime_id)
+            enriched['runtime_usage'] = usage_snapshot['runtimes'].get(runtime_id, {
+                'runtime_id': runtime_id,
+                'bound_agent_ids': [],
+                'bound_org_ids': [],
+                'bound_agent_count': 0,
+                'runtime_binding_status': 'declared_unused',
+            })
+            return self._json(enriched)
         elif path == '/api/session/validate':
             qs = parse_qs(parsed.query)
             token = None
