@@ -37,6 +37,7 @@ for _path in (WORKSPACE_DIR, COMPANY_DIR, PLATFORM_DIR):
 
 from company import mcp_server
 from loom_runtime_discovery import preferred_loom_bin, preferred_loom_root, runtime_value
+from session_history import append_session_event
 from team_topology import SPECIALIST_KEYS, load_team_topology, sync_loom_team_profiles
 from telegram_history import imported_history_context
 
@@ -629,7 +630,20 @@ def _team_route_plan(text: str, session_key: str) -> dict[str, Any]:
 
 def _manager_direct_response(goal: str, session_key: str) -> str:
     if _looks_like_meridian_internal_query(goal):
-        return _render_meridian_internal_answer(goal)
+        answer = _render_meridian_internal_answer(goal)
+        append_session_event(session_key, {
+            "history_type": "manager_response",
+            "status": "completed",
+            "agent_id": TEAM_MANAGER_AGENT_ID,
+            "speaker": "manager",
+            "text": answer,
+            "provider_profile": TEAM_TOPOLOGY.manager.profile_name,
+            "model": TEAM_TOPOLOGY.manager.model,
+            "transport_kind": "codex_session",
+            "auth_mode": "codex_auth_json",
+            "execution_owner": "meridian",
+        }, loom_root=LOOM_ROOT)
+        return answer
     manager = _loom_manager_defaults()
     history_context = imported_history_context(session_key, loom_root=LOOM_ROOT, limit=24)
     result = _run_codex_exec(
@@ -646,8 +660,35 @@ def _manager_direct_response(goal: str, session_key: str) -> str:
         timeout=REQUEST_TIMEOUT_SECONDS,
     )
     if result.get("ok") and str(result.get("output_text") or "").strip():
-        return str(result.get("output_text") or "").strip()
-    return "Unable to complete the request right now."
+        answer = str(result.get("output_text") or "").strip()
+        append_session_event(session_key, {
+            "history_type": "manager_response",
+            "status": "completed",
+            "agent_id": TEAM_MANAGER_AGENT_ID,
+            "speaker": "manager",
+            "text": answer,
+            "provider_profile": TEAM_TOPOLOGY.manager.profile_name,
+            "model": TEAM_TOPOLOGY.manager.model,
+            "transport_kind": "codex_session",
+            "auth_mode": "codex_auth_json",
+            "execution_owner": "meridian",
+        }, loom_root=LOOM_ROOT)
+        return answer
+    answer = "Unable to complete the request right now."
+    append_session_event(session_key, {
+        "history_type": "manager_response",
+        "status": "failed",
+        "agent_id": TEAM_MANAGER_AGENT_ID,
+        "speaker": "manager",
+        "text": answer,
+        "provider_profile": TEAM_TOPOLOGY.manager.profile_name,
+        "model": TEAM_TOPOLOGY.manager.model,
+        "transport_kind": "codex_session",
+        "auth_mode": "codex_auth_json",
+        "execution_owner": "meridian",
+        "warnings": [str(result.get("stderr") or "codex exec failed").strip()],
+    }, loom_root=LOOM_ROOT)
+    return answer
 
 
 def _run_specialist_step(agent_key: str, request: str, session_key: str, plan: dict[str, Any]) -> dict[str, Any]:
@@ -660,7 +701,7 @@ def _run_specialist_step(agent_key: str, request: str, session_key: str, plan: d
             agent_id=specialist.registry_id,
             session_id=session_key,
         )
-        return {
+        receipt = {
             "agent_id": specialist.registry_id,
             "role": specialist.role,
             "task_kind": specialist.task_kind,
@@ -676,6 +717,23 @@ def _run_specialist_step(agent_key: str, request: str, session_key: str, plan: d
             "status": "ok" if not result.get("error") else "error",
             "raw": result,
         }
+        append_session_event(session_key, {
+            "history_type": "worker_receipt",
+            "status": receipt["status"],
+            "agent_id": specialist.registry_id,
+            "speaker": "worker",
+            "role": specialist.role,
+            "task_kind": specialist.task_kind,
+            "request_id": receipt["request_id"],
+            "provider_profile": specialist.profile_name,
+            "model": specialist.model,
+            "transport_kind": receipt["transport_kind"],
+            "text": receipt["result"],
+            "confidence": receipt["confidence"],
+            "citations": receipt["citations"],
+            "warnings": receipt["warnings"],
+        }, loom_root=LOOM_ROOT)
+        return receipt
 
     if agent_key == "AEGIS":
         result = mcp_server.do_qa_verify_route(
@@ -684,7 +742,7 @@ def _run_specialist_step(agent_key: str, request: str, session_key: str, plan: d
             agent_id=specialist.registry_id,
             session_id=session_key,
         )
-        return {
+        receipt = {
             "agent_id": specialist.registry_id,
             "role": specialist.role,
             "task_kind": specialist.task_kind,
@@ -700,6 +758,23 @@ def _run_specialist_step(agent_key: str, request: str, session_key: str, plan: d
             "status": "ok" if not result.get("error") else "error",
             "raw": result,
         }
+        append_session_event(session_key, {
+            "history_type": "worker_receipt",
+            "status": receipt["status"],
+            "agent_id": specialist.registry_id,
+            "speaker": "worker",
+            "role": specialist.role,
+            "task_kind": specialist.task_kind,
+            "request_id": receipt["request_id"],
+            "provider_profile": specialist.profile_name,
+            "model": specialist.model,
+            "transport_kind": receipt["transport_kind"],
+            "text": receipt["result"],
+            "confidence": receipt["confidence"],
+            "citations": receipt["citations"],
+            "warnings": receipt["warnings"],
+        }, loom_root=LOOM_ROOT)
+        return receipt
 
     prompt = textwrap.dedent(
         f"""
@@ -738,7 +813,7 @@ def _run_specialist_step(agent_key: str, request: str, session_key: str, plan: d
     if isinstance(host_response, dict):
         output_text = str(host_response.get("output_text") or "").strip()
     payload = _extract_json(output_text) if output_text else None
-    return {
+    receipt = {
         "agent_id": specialist.registry_id,
         "role": specialist.role,
         "task_kind": specialist.task_kind,
@@ -754,6 +829,23 @@ def _run_specialist_step(agent_key: str, request: str, session_key: str, plan: d
         "status": "ok" if loom_result.get("ok") else "error",
         "raw": loom_result,
     }
+    append_session_event(session_key, {
+        "history_type": "worker_receipt",
+        "status": receipt["status"],
+        "agent_id": specialist.registry_id,
+        "speaker": "worker",
+        "role": specialist.role,
+        "task_kind": specialist.task_kind,
+        "request_id": receipt["request_id"],
+        "provider_profile": specialist.profile_name,
+        "model": specialist.model,
+        "transport_kind": receipt["transport_kind"],
+        "text": receipt["result"],
+        "confidence": receipt["confidence"],
+        "citations": receipt["citations"],
+        "warnings": receipt["warnings"],
+    }, loom_root=LOOM_ROOT)
+    return receipt
 
 
 def _manager_synthesis(goal: str, session_key: str, steps: list[dict[str, Any]]) -> str:
@@ -774,12 +866,52 @@ def _manager_synthesis(goal: str, session_key: str, steps: list[dict[str, Any]])
         timeout=REQUEST_TIMEOUT_SECONDS,
     )
     if result.get("ok") and str(result.get("output_text") or "").strip():
-        return str(result.get("output_text") or "").strip()
+        answer = str(result.get("output_text") or "").strip()
+        append_session_event(session_key, {
+            "history_type": "manager_response",
+            "status": "completed",
+            "agent_id": TEAM_MANAGER_AGENT_ID,
+            "speaker": "manager",
+            "text": answer,
+            "provider_profile": TEAM_TOPOLOGY.manager.profile_name,
+            "model": TEAM_TOPOLOGY.manager.model,
+            "transport_kind": "codex_session",
+            "auth_mode": "codex_auth_json",
+            "execution_owner": "meridian",
+        }, loom_root=LOOM_ROOT)
+        return answer
     for item in steps:
         text = str(item.get("result") or "").strip()
         if text:
+            append_session_event(session_key, {
+                "history_type": "manager_response",
+                "status": "degraded",
+                "agent_id": TEAM_MANAGER_AGENT_ID,
+                "speaker": "manager",
+                "text": text,
+                "provider_profile": TEAM_TOPOLOGY.manager.profile_name,
+                "model": TEAM_TOPOLOGY.manager.model,
+                "transport_kind": "codex_session",
+                "auth_mode": "codex_auth_json",
+                "execution_owner": "meridian",
+                "warnings": ["manager_synthesis_fallback_to_worker_result"],
+            }, loom_root=LOOM_ROOT)
             return text
-    return "Unable to complete the managed team response."
+    answer = "Unable to complete the managed team response."
+    append_session_event(session_key, {
+        "history_type": "manager_response",
+        "status": "failed",
+        "agent_id": TEAM_MANAGER_AGENT_ID,
+        "speaker": "manager",
+        "text": answer,
+        "provider_profile": TEAM_TOPOLOGY.manager.profile_name,
+        "model": TEAM_TOPOLOGY.manager.model,
+        "transport_kind": "codex_session",
+        "auth_mode": "codex_auth_json",
+        "execution_owner": "meridian",
+        "warnings": ["manager_synthesis_empty"],
+    }, loom_root=LOOM_ROOT)
+    return answer
 
 
 def _run_team_route(text: str, session_key: str, runtime: AgentRuntime) -> tuple[str, dict[str, Any]]:
@@ -790,6 +922,22 @@ def _run_team_route(text: str, session_key: str, runtime: AgentRuntime) -> tuple
         return _telegram_help_text(), {"mode": "help", "steps": []}
     request = arg or text.strip()
     plan = _team_route_plan(request, session_key)
+    append_session_event(session_key, {
+        "history_type": "manager_plan",
+        "status": "planned",
+        "agent_id": TEAM_MANAGER_AGENT_ID,
+        "speaker": "manager",
+        "text": str(plan.get("manager_brief") or request).strip(),
+        "workers": list(plan.get("workers") or []),
+        "mode": str(plan.get("mode") or ""),
+        "criteria": str(plan.get("criteria") or ""),
+        "depth": str(plan.get("depth") or ""),
+        "provider_profile": TEAM_TOPOLOGY.manager.profile_name,
+        "model": TEAM_TOPOLOGY.manager.model,
+        "transport_kind": "codex_session",
+        "auth_mode": "codex_auth_json",
+        "execution_owner": "meridian",
+    }, loom_root=LOOM_ROOT)
     if plan.get("mode") == "direct":
         return _manager_direct_response(request, session_key), {"mode": "direct", "steps": [], "plan": plan}
     if plan.get("mode") == "internal_status":

@@ -192,6 +192,11 @@ def _specialist_llm_result(loom_result: dict, *, preferred_key: str) -> tuple[st
     return output_text or _extract_loom_content(worker_result, (preferred_key, 'response', 'message', 'text', 'output_text')), output_text
 
 
+def _specialist_llm_json(raw_output: str) -> dict[str, Any]:
+    payload = _extract_json_object(raw_output or "")
+    return payload if isinstance(payload, dict) else {}
+
+
 def _normalize_runtime(runtime: str) -> str:
     runtime = (runtime or '').strip().lower()
     return 'loom' if runtime in {'loom', ''} else 'legacy'
@@ -1270,9 +1275,21 @@ def _run_loom_on_demand_research(
     agent_id: str = 'agent_atlas',
     session_id: str = '',
 ) -> tuple[dict, dict]:
+    specialist_payload = _specialist_llm_payload(
+        agent_id,
+        (
+            f"You are Meridian specialist {agent_id}. Perform research and analysis for depth={depth}. "
+            "Return strict JSON with keys result, confidence, citations, warnings. "
+            "Never invent citations, URLs, document names, or sources. "
+            "If verifiable evidence is unavailable in the current execution context, say so explicitly and leave citations empty."
+        ),
+        prompt,
+        max_tokens=1200,
+    )
+    capability_name = 'loom.llm.inference.v1' if specialist_payload else _loom_research_capability()
     loom_result = _run_loom_capability(
-        _loom_research_capability(),
-        _loom_research_payload(topic, depth, prompt),
+        capability_name,
+        specialist_payload or _loom_research_payload(topic, depth, prompt),
         timeout=150,
         agent_id=agent_id,
         session_id=session_id,
@@ -1281,20 +1298,36 @@ def _run_loom_on_demand_research(
     )
     if loom_result.get('ok'):
         worker_result = loom_result.get('worker_result') or {}
+        raw_output = ''
+        parsed = {}
+        if specialist_payload:
+            research_text, raw_output = _specialist_llm_result(loom_result, preferred_key='result')
+            parsed = _specialist_llm_json(raw_output)
+            host_response = worker_result.get('host_response_json') if isinstance(worker_result, dict) else {}
+            if not research_text and isinstance(host_response, dict):
+                research_text = str(host_response.get('note') or host_response.get('decision') or '').strip()
+        else:
+            research_text = _extract_loom_research_content(worker_result)
         return ({
             'topic': topic,
             'depth': depth,
-            'research': _extract_loom_research_content(worker_result),
+            'research': research_text,
             'runtime': 'loom',
-            'capability_name': loom_result.get('capability_name', ''),
+            'capability_name': loom_result.get('capability_name', capability_name),
             'job_id': loom_result.get('job_id', ''),
             'source': 'Meridian Research Pipeline',
+            'provider_profile': (specialist_payload or {}).get('provider_profile', ''),
+            'model': (specialist_payload or {}).get('model', ''),
+            'confidence': parsed.get('confidence', ''),
+            'citations': parsed.get('citations', []) if isinstance(parsed.get('citations'), list) else [],
+            'warnings': parsed.get('warnings', []) if isinstance(parsed.get('warnings'), list) else [],
+            'raw_output': raw_output,
         }, loom_result)
     return ({
         'topic': topic,
         'depth': depth,
         'runtime': 'loom',
-        'capability_name': loom_result.get('capability_name', ''),
+        'capability_name': loom_result.get('capability_name', capability_name),
         'job_id': loom_result.get('job_id', ''),
         'error': loom_result.get('error', 'Loom runtime failed'),
     }, loom_result)
