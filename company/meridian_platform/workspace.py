@@ -49,6 +49,8 @@ Endpoints:
   GET  /api/federation            → Federation gateway state
   GET  /api/federation/peers      → Federation peer registry state
   GET  /api/federation/inbox      → Founding federation inbox state
+  GET  /api/federation/handoff-preview-queue → Federation handoff preview queue
+  GET  /api/federation/handoff-dispatch-queue → Federation handoff dispatch queue
   GET  /api/federation/execution-jobs → Receiver-side federated execution jobs
   GET  /api/federation/manifest   → Public host federation manifest
   GET  /api/federation/witness/archive → Witness-host archival evidence state
@@ -112,6 +114,8 @@ Endpoints:
   POST /api/federation/peers/suspend → Structurally reject peer suspension changes on live
   POST /api/federation/peers/revoke → Structurally reject peer revocation changes on live
   POST /api/federation/send       → Attempt a federation delivery and fail closed when disabled
+  POST /api/federation/handoff-preview-queue/acknowledge → Acknowledge a remote handoff preview and queue dispatch
+  POST /api/federation/handoff-dispatch-queue/run → Run a queued federation handoff dispatch
   POST /api/federation/execution-jobs/execute → Fail closed; receiver-side execution jobs stay review-only
   POST /api/federation/receive    → Validate and consume a federation envelope
   POST /api/federation/witness/archive → Archive independently validated witness evidence
@@ -131,6 +135,7 @@ boundaries, and mutation-role map.
 """
 import argparse
 import base64
+import copy
 import datetime
 import hashlib
 import hmac
@@ -229,6 +234,26 @@ kernel_payout_plan_approval_candidate_queue_snapshot = _kernel_treasury_mod.payo
 kernel_inspect_payout_plan_approval_candidate_queue = _kernel_treasury_mod.inspect_payout_plan_approval_candidate_queue
 kernel_payout_execution_queue_snapshot = _kernel_treasury_mod.payout_execution_queue_snapshot
 kernel_promote_payout_plan_preview_to_approval_candidate = _kernel_treasury_mod.promote_payout_plan_preview_to_approval_candidate
+
+_kernel_handoff_queue_spec = importlib.util.spec_from_file_location(
+    'meridian_kernel_federation_handoff_queue',
+    os.path.join(KERNEL_MODULE_DIR, 'federation_handoff_queue.py'),
+)
+_kernel_handoff_queue_mod = importlib.util.module_from_spec(_kernel_handoff_queue_spec)
+_kernel_handoff_queue_spec.loader.exec_module(_kernel_handoff_queue_mod)
+kernel_handoff_preview_queue_snapshot = _kernel_handoff_queue_mod.handoff_preview_queue_snapshot
+kernel_acknowledge_handoff_preview = _kernel_handoff_queue_mod.acknowledge_handoff_preview
+
+_kernel_handoff_dispatch_spec = importlib.util.spec_from_file_location(
+    'meridian_kernel_federation_handoff_dispatch_queue',
+    os.path.join(KERNEL_MODULE_DIR, 'federation_handoff_dispatch_queue.py'),
+)
+_kernel_handoff_dispatch_mod = importlib.util.module_from_spec(_kernel_handoff_dispatch_spec)
+_kernel_handoff_dispatch_spec.loader.exec_module(_kernel_handoff_dispatch_mod)
+kernel_handoff_dispatch_queue_snapshot = _kernel_handoff_dispatch_mod.handoff_dispatch_queue_snapshot
+kernel_get_handoff_dispatch_record = _kernel_handoff_dispatch_mod.get_handoff_dispatch_record
+kernel_promote_acknowledged_handoff_preview_to_dispatch_record = _kernel_handoff_dispatch_mod.promote_acknowledged_handoff_preview_to_dispatch_record
+kernel_mark_handoff_dispatch_record_dispatched = _kernel_handoff_dispatch_mod.mark_handoff_dispatch_record_dispatched
 
 # Import authority, treasury, court via their public APIs
 from authority import (check_authority, request_approval, decide_approval,
@@ -1227,6 +1252,172 @@ def _federation_claims_dict(claims):
     if hasattr(claims, 'to_dict'):
         return claims.to_dict()
     return {}
+
+
+def _acknowledge_and_dispatch_remote_handoff_preview(bound_org_id, handoff_id, *, actor_id, note=''):
+    preview = kernel_acknowledge_handoff_preview(
+        bound_org_id,
+        handoff_id,
+        by=actor_id,
+        note=note,
+    )
+    result = {
+        'handoff_preview': preview,
+        'dispatch_record': None,
+        'dispatch_record_created': False,
+        'dispatch_record_error': '',
+    }
+    if not preview.get('dispatch_ready'):
+        return result
+    try:
+        dispatch_record = kernel_promote_acknowledged_handoff_preview_to_dispatch_record(
+            bound_org_id,
+            handoff_id,
+            promoted_by=actor_id,
+            promotion_note=note,
+        )
+    except (LookupError, PermissionError, ValueError) as exc:
+        result['dispatch_record_error'] = str(exc)
+        return result
+    result['dispatch_record'] = dispatch_record
+    result['dispatch_record_created'] = True
+    return result
+
+
+def _merged_dispatch_execution_request(dispatch_record):
+    record = dict(dispatch_record or {})
+    preview_snapshot = dict(record.get('preview_snapshot') or {})
+    preview_draft = dict(preview_snapshot.get('draft_execution_request') or {})
+    draft = dict(preview_draft)
+    draft.update(dict(record.get('draft_execution_request') or {}))
+    return preview_snapshot, draft
+
+
+def _existing_remote_dispatch_result(dispatch_record):
+    record = dict(dispatch_record or {})
+    if record.get('state') != 'dispatched':
+        return None
+    if record.get('dispatch_runner') != 'remote_http_federation_runner':
+        return None
+    delivery_snapshot = dict(record.get('delivery_snapshot') or {})
+    if not delivery_snapshot:
+        return None
+    response_processing = dict(delivery_snapshot.get('response_processing') or {})
+    execution_job = dict(record.get('execution_job_snapshot') or response_processing.get('execution_job') or {})
+    receiver_warrant = dict(response_processing.get('receiver_warrant') or {})
+    blocking_case = dict(response_processing.get('case') or response_processing.get('blocking_case') or {})
+    return {
+        'dispatch_record': record,
+        'delivery': delivery_snapshot,
+        'execution_job': execution_job or None,
+        'receiver_warrant': receiver_warrant or None,
+        'blocking_case': blocking_case or None,
+        'dispatch_runner': 'remote_http_federation_runner',
+        'dispatch_state': 'dispatched',
+        'dispatch_blockers': [],
+        'execution_job_created': bool(execution_job),
+        'delivery_received': True,
+        'already_dispatched': True,
+    }
+
+
+def _run_federation_dispatch(bound_org_id, dispatch_id, *, actor_id, note='', session_id=None,
+                             payload=None, warrant_id='', commitment_id='', ttl_seconds=None):
+    dispatch_id = (dispatch_id or '').strip()
+    actor_id = (actor_id or '').strip()
+    if not dispatch_id:
+        raise ValueError('dispatch_id is required')
+    if not actor_id:
+        raise ValueError('actor_id is required')
+
+    dispatch_record = kernel_get_handoff_dispatch_record(dispatch_id, bound_org_id)
+    if not dispatch_record:
+        raise LookupError(f'Federation handoff dispatch record not found: {dispatch_id}')
+
+    existing_result = _existing_remote_dispatch_result(dispatch_record)
+    if existing_result is not None:
+        return existing_result
+
+    preview_snapshot, draft = _merged_dispatch_execution_request(dispatch_record)
+    target_host_id = (
+        draft.get('target_host_id')
+        or dispatch_record.get('target_host_id')
+        or ''
+    ).strip()
+    target_institution_id = (
+        draft.get('target_institution_id')
+        or dispatch_record.get('requested_org_id')
+        or ''
+    ).strip()
+    if not target_host_id:
+        raise ValueError('target_host_id is required for federation handoff dispatch')
+    if not target_institution_id:
+        raise ValueError('target_institution_id is required for federation handoff dispatch')
+
+    request_payload = payload if payload is not None else draft.get('payload')
+    if request_payload is None:
+        request_payload = {}
+    if not isinstance(request_payload, dict):
+        raise ValueError('payload must be a JSON object for federation handoff dispatch')
+
+    resolved_warrant_id = (warrant_id or draft.get('warrant_id') or '').strip()
+    resolved_commitment_id = (commitment_id or draft.get('commitment_id') or '').strip()
+    message_type = (draft.get('message_type') or 'execution_request').strip()
+
+    delivery, federation_state = _deliver_federation_envelope(
+        bound_org_id,
+        target_host_id,
+        target_institution_id,
+        message_type,
+        payload=request_payload,
+        actor_type='user',
+        actor_id=actor_id,
+        session_id=session_id or '',
+        warrant_id=resolved_warrant_id,
+        commitment_id=resolved_commitment_id,
+        ttl_seconds=ttl_seconds,
+    )
+    response_processing = dict((delivery.get('response') or {}).get('processing') or {})
+    remote_execution_job = dict(response_processing.get('execution_job') or {})
+    blocking_case = dict(response_processing.get('case') or response_processing.get('blocking_case') or {})
+    receiver_warrant = dict(response_processing.get('receiver_warrant') or {})
+    dispatch_note = note or (
+        'Remote HTTP federation dispatch delivered envelope and receiver-side execution job was persisted'
+        if remote_execution_job and not blocking_case else
+        'Remote HTTP federation dispatch delivered envelope and receiver-side execution job was blocked by case'
+        if blocking_case else
+        'Remote HTTP federation dispatch delivered envelope'
+    )
+    delivery_snapshot = {
+        'message_type': (delivery.get('claims') or {}).get('message_type', ''),
+        'claims': copy.deepcopy(delivery.get('claims') or {}),
+        'receipt': copy.deepcopy(delivery.get('receipt') or {}),
+        'response_processing': copy.deepcopy(response_processing),
+    }
+    updated_dispatch = kernel_mark_handoff_dispatch_record_dispatched(
+        bound_org_id,
+        dispatch_id,
+        dispatched_by=actor_id,
+        note=dispatch_note,
+        dispatch_runner='remote_http_federation_runner',
+        execution_job_id=(remote_execution_job.get('job_id') or '').strip(),
+        execution_job_state=(remote_execution_job.get('state') or '').strip(),
+        execution_job_snapshot=remote_execution_job,
+        delivery_snapshot=delivery_snapshot,
+        dispatch_truth_source='remote_federation_receipt_and_receiver_processing',
+    )
+    return {
+        'dispatch_record': updated_dispatch,
+        'delivery': delivery,
+        'execution_job': remote_execution_job or None,
+        'receiver_warrant': receiver_warrant or None,
+        'blocking_case': blocking_case or None,
+        'federation_state': federation_state,
+        'dispatch_runner': 'remote_http_federation_runner',
+        'dispatch_state': 'dispatched',
+        'dispatch_blockers': [],
+        'execution_job_created': bool(remote_execution_job),
+    }
 
 
 def _federation_audit_details(claims, **extra):
@@ -4581,6 +4772,10 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
             ))
         elif path == '/api/federation/inbox':
             return self._json(_federation_inbox_snapshot(org_id))
+        elif path == '/api/federation/handoff-preview-queue':
+            return self._json(kernel_handoff_preview_queue_snapshot(org_id))
+        elif path == '/api/federation/handoff-dispatch-queue':
+            return self._json(kernel_handoff_dispatch_queue_snapshot(org_id))
         elif path == '/api/federation/execution-jobs':
             return self._json(_federation_execution_jobs_snapshot(org_id))
         elif path == '/api/federation/manifest':
@@ -6427,6 +6622,109 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                     'delivery': delivery,
                     **({'runtime_core': case_notice_delivery['runtime_core']} if body.get('federate') else {}),
                 })
+
+            elif path == '/api/federation/handoff-preview-queue/acknowledge':
+                handoff_id = (body.get('handoff_id') or '').strip()
+                if not handoff_id:
+                    return self._json({'error': 'handoff_id is required'}, 400)
+                by_actor = (body.get('by') or by or '').strip()
+                if not by_actor:
+                    return self._json({'error': 'by is required'}, 400)
+                try:
+                    promotion = _acknowledge_and_dispatch_remote_handoff_preview(
+                        org_id,
+                        handoff_id,
+                        actor_id=by_actor,
+                        note=body.get('note', ''),
+                    )
+                except LookupError as e:
+                    return self._json({'error': str(e)}, 404)
+                except PermissionError as e:
+                    return self._json({'error': str(e)}, 403)
+                except ValueError as e:
+                    return self._json({'error': str(e)}, 400)
+                response = {
+                    'message': 'Federation handoff preview acknowledged',
+                    **promotion,
+                }
+                if promotion.get('dispatch_record_created'):
+                    response['message'] = (
+                        'Federation handoff preview acknowledged and promoted to dispatch'
+                    )
+                return self._json(response)
+
+            elif path == '/api/federation/handoff-dispatch-queue/run':
+                dispatch_id = (body.get('dispatch_id') or body.get('handoff_id') or '').strip()
+                if not dispatch_id:
+                    return self._json({'error': 'dispatch_id is required'}, 400)
+                by_actor = (body.get('by') or by or '').strip()
+                if not by_actor:
+                    return self._json({'error': 'by is required'}, 400)
+                try:
+                    dispatch_runner = _run_federation_dispatch(
+                        org_id,
+                        dispatch_id,
+                        actor_id=by_actor,
+                        note=body.get('note', ''),
+                        session_id=_sid or '',
+                        payload=body.get('payload'),
+                        warrant_id=(body.get('warrant_id') or '').strip(),
+                        commitment_id=(body.get('commitment_id') or '').strip(),
+                        ttl_seconds=body.get('ttl_seconds'),
+                    )
+                except LookupError as e:
+                    return self._json({'error': str(e)}, 404)
+                except FederationUnavailable as e:
+                    return self._json({'error': str(e)}, 503)
+                except PermissionError as e:
+                    case_record = getattr(e, 'case_record', None)
+                    if case_record:
+                        return self._json({
+                            'error': str(e),
+                            'case': case_record,
+                            'federation_peer': getattr(e, 'federation_peer', None),
+                            'warrant': getattr(e, 'warrant', None),
+                        }, 409)
+                    return self._json({'error': str(e)}, 403)
+                except FederationDeliveryError as e:
+                    return self._json({
+                        'error': str(e),
+                        'peer_host_id': e.peer_host_id,
+                        'claims': _federation_claims_dict(e.claims),
+                        'case': getattr(e, 'case_record', None),
+                        'federation_peer': getattr(e, 'federation_peer', None),
+                        'warrant': getattr(e, 'warrant', None),
+                    }, 502)
+                except ValueError as e:
+                    return self._json({'error': str(e)}, 400)
+                response = {
+                    'message': 'Federation handoff dispatch executed',
+                    **dispatch_runner,
+                }
+                if dispatch_runner.get('dispatch_runner') == 'remote_http_federation_runner':
+                    response['message'] = (
+                        'Federation handoff dispatch delivered to remote host '
+                        'and receiver-side execution job was persisted'
+                    )
+                    if dispatch_runner.get('blocking_case'):
+                        response['message'] = (
+                            'Federation handoff dispatch delivered to remote host '
+                            'and receiver-side execution job was blocked by case'
+                        )
+                    if dispatch_runner.get('already_dispatched'):
+                        response['message'] = (
+                            'Federation handoff dispatch was already delivered to the remote host'
+                        )
+                else:
+                    response['message'] = (
+                        'Federation handoff dispatch promoted to receiver-side execution job'
+                    )
+                    if dispatch_runner.get('blocking_case'):
+                        response['message'] = (
+                            'Federation handoff dispatch promoted to blocked '
+                            'receiver-side execution job'
+                        )
+                return self._json(response)
 
             elif path == '/api/federation/send':
                 target_host_id = (body.get('target_host_id') or '').strip()

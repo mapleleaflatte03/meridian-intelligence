@@ -99,6 +99,8 @@ WORKSPACE_MUTATION_ROLE_REQUIREMENTS = {
     '/api/admission/admit': 'owner',
     '/api/admission/suspend': 'owner',
     '/api/admission/revoke': 'owner',
+    '/api/federation/handoff-preview-queue/acknowledge': 'admin',
+    '/api/federation/handoff-dispatch-queue/run': 'admin',
     '/api/federation/send': 'admin',
     '/api/federation/peers/upsert': 'owner',
     '/api/federation/peers/refresh': 'owner',
