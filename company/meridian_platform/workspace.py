@@ -19,10 +19,19 @@ Endpoints:
   POST /api/agents/sync-economy   → Sync REP/AUTH and sanctions from the economy ledger
   GET  /api/authority             → Authority state (kill switch, approvals, delegations)
   GET  /api/treasury              → Treasury snapshot
+  GET  /api/treasury/wallets      → Treasury wallet registry
   GET  /api/treasury/accounts     → Treasury sub-accounts
+  GET  /api/treasury/maintainers  → Treasury maintainer registry
+  GET  /api/treasury/contributors → Treasury contributor registry
+  GET  /api/treasury/proposals    → Treasury payout proposal registry
   GET  /api/treasury/funding-sources → Funding source records
   GET  /api/treasury/settlement-adapters → Settlement adapter registry
   GET  /api/treasury/settlement-adapters/readiness → Settlement adapter execution readiness
+  GET  /api/treasury/payout-plan-preview-queue → Payout plan preview queue
+  GET  /api/treasury/payout-plan-preview-queue/inspect → Payout plan preview queue inspection
+  GET  /api/treasury/payout-plan-approval-candidate-queue → Approval-candidate queue
+  GET  /api/treasury/payout-plan-approval-candidate-queue/inspect → Approval-candidate queue inspection
+  GET  /api/treasury/payout-execution-queue → Payout execution queue
   GET  /api/runtimes              → Runtime registry with contract compliance and binding usage
   GET  /api/runtimes/<id>         → Single runtime registry entry with contract compliance and binding usage
   GET  /api/subscriptions         → Institution-owned subscription service state on the founding-locked host
@@ -72,6 +81,7 @@ Endpoints:
   POST /api/treasury/contribute   → Record owner capital contribution
   POST /api/treasury/reserve-floor → Update reserve floor policy
   POST /api/treasury/settlement-adapters/preflight → Validate settlement-adapter execution requirements
+  POST /api/treasury/payout-plan-approval-candidate-queue/promote → Promote a preview into the approval-candidate queue
   POST /api/subscriptions/add     → Create an institution-owned subscription record on the founding-locked host
   POST /api/subscriptions/convert → Convert a trial into a paid subscription
   POST /api/subscriptions/checkout-capture → Customer-initiated preview checkout capture that validates payment evidence
@@ -166,6 +176,7 @@ WORKSPACE_AUTH_REQUIRED = os.environ.get('MERIDIAN_WORKSPACE_AUTH_REQUIRED', '')
     '1', 'true', 'yes', 'on'
 )
 KERNEL_ROOT = os.environ.get('MERIDIAN_KERNEL_ROOT', '/opt/meridian-kernel')
+KERNEL_MODULE_DIR = os.path.join(KERNEL_ROOT, 'kernel')
 KERNEL_RUNTIME_ADAPTER_FILE = os.path.join(KERNEL_ROOT, 'kernel', 'runtime_adapter.py')
 sys.path.insert(0, PLATFORM_DIR)
 
@@ -203,6 +214,22 @@ kernel_get_runtime = _runtime_adapter_mod.get_runtime
 kernel_check_all_contracts = _runtime_adapter_mod.check_all_contracts
 kernel_check_contract = _runtime_adapter_mod.check_contract
 
+if KERNEL_MODULE_DIR not in sys.path:
+    sys.path.append(KERNEL_MODULE_DIR)
+_kernel_treasury_spec = importlib.util.spec_from_file_location(
+    'meridian_kernel_treasury',
+    os.path.join(KERNEL_MODULE_DIR, 'treasury.py'),
+)
+_kernel_treasury_mod = importlib.util.module_from_spec(_kernel_treasury_spec)
+_kernel_treasury_spec.loader.exec_module(_kernel_treasury_mod)
+kernel_load_maintainers = _kernel_treasury_mod.load_maintainers
+kernel_payout_plan_preview_queue_snapshot = _kernel_treasury_mod.payout_plan_preview_queue_snapshot
+kernel_inspect_payout_plan_preview_queue = _kernel_treasury_mod.inspect_payout_plan_preview_queue
+kernel_payout_plan_approval_candidate_queue_snapshot = _kernel_treasury_mod.payout_plan_approval_candidate_queue_snapshot
+kernel_inspect_payout_plan_approval_candidate_queue = _kernel_treasury_mod.inspect_payout_plan_approval_candidate_queue
+kernel_payout_execution_queue_snapshot = _kernel_treasury_mod.payout_execution_queue_snapshot
+kernel_promote_payout_plan_preview_to_approval_candidate = _kernel_treasury_mod.promote_payout_plan_preview_to_approval_candidate
+
 # Import authority, treasury, court via their public APIs
 from authority import (check_authority, request_approval, decide_approval,
                        delegate, revoke_delegation, engage_kill_switch,
@@ -210,8 +237,10 @@ from authority import (check_authority, request_approval, decide_approval,
                        get_sprint_lead, is_kill_switch_engaged, _load_queue)
 from treasury import (treasury_snapshot, get_balance,
                       contribute_owner_capital, set_reserve_floor_policy,
-                      load_treasury_accounts, load_funding_sources,
+                      load_wallets, load_treasury_accounts, load_funding_sources,
+                      load_contributors,
                       list_payout_proposals, payout_proposal_summary,
+                      load_payout_proposals,
                       list_settlement_adapters, settlement_adapter_summary,
                       settlement_adapter_readiness_snapshot,
                       preflight_settlement_adapter,
@@ -4465,8 +4494,16 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                     host_supported_adapters=getattr(host_identity, 'settlement_adapters', []),
                 )
             )
+        elif path == '/api/treasury/wallets':
+            return self._json(load_wallets(org_id))
         elif path == '/api/treasury/accounts':
             return self._json(load_treasury_accounts(org_id))
+        elif path == '/api/treasury/maintainers':
+            return self._json(kernel_load_maintainers(org_id))
+        elif path == '/api/treasury/contributors':
+            return self._json(load_contributors(org_id))
+        elif path == '/api/treasury/proposals':
+            return self._json(load_payout_proposals(org_id))
         elif path == '/api/treasury/funding-sources':
             return self._json(load_funding_sources(org_id))
         elif path == '/api/treasury/settlement-adapters':
@@ -4485,6 +4522,16 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                 org_id,
                 host_supported_adapters=getattr(host_identity, 'settlement_adapters', []),
             ))
+        elif path == '/api/treasury/payout-plan-preview-queue':
+            return self._json(kernel_payout_plan_preview_queue_snapshot(org_id))
+        elif path == '/api/treasury/payout-plan-preview-queue/inspect':
+            return self._json(kernel_inspect_payout_plan_preview_queue(org_id))
+        elif path == '/api/treasury/payout-plan-approval-candidate-queue':
+            return self._json(kernel_payout_plan_approval_candidate_queue_snapshot(org_id))
+        elif path == '/api/treasury/payout-execution-queue':
+            return self._json(kernel_payout_execution_queue_snapshot(org_id))
+        elif path == '/api/treasury/payout-plan-approval-candidate-queue/inspect':
+            return self._json(kernel_inspect_payout_plan_approval_candidate_queue(org_id))
         elif path == '/api/subscriptions':
             return self._json(service_state.subscription_snapshot(org_id))
         elif path == '/api/subscriptions/delivery-targets':
@@ -5110,6 +5157,35 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                     session_id=_sid,
                 )
                 return self._json(result)
+
+            elif path == '/api/treasury/payout-plan-approval-candidate-queue/promote':
+                preview_id = (body.get('preview_id') or '').strip()
+                if not preview_id:
+                    return self._json({'error': 'preview_id is required'}, 400)
+                candidate = kernel_promote_payout_plan_preview_to_approval_candidate(
+                    preview_id,
+                    by,
+                    org_id=org_id,
+                    promotion_note=body.get('note', ''),
+                )
+                log_event(
+                    org_id,
+                    by,
+                    'payout_plan_preview_promoted_to_approval_candidate',
+                    outcome='success',
+                    resource=preview_id,
+                    details={
+                        'proposal_id': candidate.get('proposal_id', ''),
+                        'candidate_id': candidate.get('candidate_id', ''),
+                        'promoted_at': candidate.get('promoted_at', ''),
+                    },
+                    session_id=_sid,
+                )
+                return self._json({
+                    'message': f'Payout-plan approval candidate promoted: {preview_id}',
+                    'candidate': candidate,
+                    'summary': kernel_payout_plan_approval_candidate_queue_snapshot(org_id).get('summary', {}),
+                })
 
             elif path == '/api/subscriptions/add':
                 result = subscription_service.create_subscription(

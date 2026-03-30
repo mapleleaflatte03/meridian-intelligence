@@ -74,6 +74,7 @@ WORKSPACE_MUTATION_ROLE_REQUIREMENTS = {
     '/api/treasury/contribute': 'owner',
     '/api/treasury/reserve-floor': 'owner',
     '/api/treasury/settlement-adapters/preflight': 'member',
+    '/api/treasury/payout-plan-approval-candidate-queue/promote': 'admin',
     '/api/subscriptions/add': 'admin',
     '/api/subscriptions/draft-from-preview': 'admin',
     '/api/subscriptions/activate-from-preview': 'admin',
