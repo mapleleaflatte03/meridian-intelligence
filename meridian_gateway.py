@@ -37,6 +37,8 @@ for _path in (WORKSPACE_DIR, COMPANY_DIR, PLATFORM_DIR):
 
 from company import mcp_server
 from loom_runtime_discovery import preferred_loom_bin, preferred_loom_root, runtime_value
+from team_topology import SPECIALIST_KEYS, load_team_topology, sync_loom_team_profiles
+from telegram_history import imported_history_context
 
 SOUL_PATH = WORKSPACE_DIR / "SOUL.md"
 MEMORY_PATH = WORKSPACE_DIR / "MEMORY.md"
@@ -50,7 +52,7 @@ LOOM_ORG_ID = (
     or runtime_value('org_id', '')
     or "org_48b05c21"
 )
-LOOM_AGENT_ID = os.environ.get("MERIDIAN_LOOM_AGENT_ID", "atlas")
+LOOM_AGENT_ID = os.environ.get("MERIDIAN_LOOM_AGENT_ID", "agent_leviathann")
 MERIDIAN_CODEX_HOME = os.environ.get(
     "MERIDIAN_CODEX_HOME",
     "/home/ubuntu/.meridian/auth/codex/login-home",
@@ -77,9 +79,52 @@ ANSI_RED = "\033[31m"
 LLM_BASE_URL = ""
 LLM_MODEL = ""
 LLM_API_KEY = ""
-TEAM_MANAGER_AGENT_ID = os.environ.get("MERIDIAN_TEAM_MANAGER_AGENT_ID", "leviathann").strip() or "leviathann"
-TEAM_RESEARCH_AGENT_ID = os.environ.get("MERIDIAN_TEAM_RESEARCH_AGENT_ID", "agent_atlas").strip() or "agent_atlas"
-TEAM_VERIFY_AGENT_ID = os.environ.get("MERIDIAN_TEAM_VERIFY_AGENT_ID", "agent_aegis").strip() or "agent_aegis"
+TEAM_TOPOLOGY = load_team_topology()
+sync_loom_team_profiles(TEAM_TOPOLOGY, loom_root=LOOM_ROOT)
+TEAM_MANAGER_AGENT_ID = TEAM_TOPOLOGY.manager.registry_id
+
+
+def _profile_transport_kind(provider_kind: str) -> str:
+    value = (provider_kind or "").strip().lower()
+    if value == "openai_codex":
+        return "codex_session"
+    if value == "openai_compatible":
+        return "openai_rest"
+    if value == "custom_endpoint":
+        return "custom_http"
+    return "ollama_local"
+
+
+def _profile_auth_mode(provider_kind: str) -> str:
+    value = (provider_kind or "").strip().lower()
+    if value == "openai_codex":
+        return "codex_auth_json"
+    if value == "local_ollama":
+        return "none"
+    return "bearer_env"
+
+
+def _team_route_fallback(agent_id: str) -> dict[str, Any]:
+    target = (agent_id or "").strip().lower()
+    if target in {TEAM_TOPOLOGY.manager.registry_id.lower(), TEAM_TOPOLOGY.manager.handle.lower(), TEAM_TOPOLOGY.manager.name.lower()}:
+        manager = TEAM_TOPOLOGY.manager
+        return {
+            "profile": manager.profile_name,
+            "model": manager.model,
+            "transport_kind": _profile_transport_kind(manager.provider_kind),
+            "auth_mode": _profile_auth_mode(manager.provider_kind),
+            "execution_owner": "meridian",
+        }
+    specialist = TEAM_TOPOLOGY.specialist_by_id(agent_id)
+    if specialist is None:
+        return {}
+    return {
+        "profile": specialist.profile_name,
+        "model": specialist.model,
+        "transport_kind": _profile_transport_kind(specialist.provider_kind),
+        "auth_mode": _profile_auth_mode(specialist.provider_kind),
+        "execution_owner": "meridian",
+    }
 
 
 def _loom_manager_defaults() -> dict[str, str]:
@@ -248,7 +293,9 @@ def _loom_manager_route(*, agent_id: str = "", org_id: str = "") -> dict[str, An
     if org_id:
         command.extend(["--org-id", org_id])
     result = _run_loom_json(command)
-    return result.get("payload") if result.get("ok") and isinstance(result.get("payload"), dict) else {}
+    if result.get("ok") and isinstance(result.get("payload"), dict):
+        return result.get("payload")
+    return _team_route_fallback(agent_id)
 
 
 def _loom_session_route(
@@ -476,11 +523,10 @@ def _run_codex_exec(*, system_prompt: str, user_prompt: str, model: str, timeout
 
 def _telegram_help_text() -> str:
     return (
-        "Telegram team routes:\n"
-        "/team <request> -> Leviathann coordinates Atlas + Aegis and replies with a managed answer.\n"
-        "/atlas <topic> -> Atlas research only.\n"
-        "/aegis <text> or /aegis <criteria>::<text> -> Aegis verification only.\n"
-        "Plain text defaults to the managed team route."
+        "Telegram conversation surface:\n"
+        "/help -> show this help.\n"
+        "Any other message goes to Leviathann.\n"
+        "Leviathann decides which internal specialists to call and returns the final answer."
     )
 
 
@@ -490,16 +536,22 @@ def _parse_telegram_command(text: str) -> dict[str, str]:
         return {"mode": "empty", "arg": ""}
     if stripped == "/help" or stripped.startswith("/help "):
         return {"mode": "help", "arg": stripped[5:].strip()}
-    for mode in ("team", "atlas", "aegis"):
-        prefix = f"/{mode}"
-        if stripped == prefix:
-            return {"mode": mode, "arg": ""}
-        if stripped.startswith(prefix + " "):
-            return {"mode": mode, "arg": stripped[len(prefix) + 1 :].strip()}
+    if stripped.startswith("/"):
+        parts = stripped.split(None, 1)
+        return {"mode": "team", "arg": parts[1].strip() if len(parts) > 1 else stripped}
     return {"mode": "team", "arg": stripped}
 
 
-def _team_route_plan(text: str) -> dict[str, Any]:
+def _team_specialist_catalog() -> str:
+    lines = []
+    for agent in TEAM_TOPOLOGY.specialists:
+        lines.append(
+            f"- {agent.env_key}: {agent.name} ({agent.role}) -> {agent.purpose}"
+        )
+    return "\n".join(lines)
+
+
+def _team_route_plan(text: str, session_key: str) -> dict[str, Any]:
     stripped = text.strip()
     if not stripped:
         return {"mode": "direct", "reason": "empty"}
@@ -513,15 +565,24 @@ def _team_route_plan(text: str) -> dict[str, Any]:
             "criteria": "consistency",
             "reason": "meridian_internal_status",
         }
+    history_context = imported_history_context(session_key, loom_root=LOOM_ROOT, limit=24)
     manager = _loom_manager_defaults()
     plan = _run_codex_exec(
         system_prompt=(
             "You are Leviathann, Meridian's manager and orchestrator. "
-            "Classify whether the user request should go through the managed team route or be answered directly. "
-            "Return strict JSON only with keys: mode, topic, depth, criteria, reason. "
-            "mode must be direct or team. depth must be quick, standard, or deep. criteria must be factual, readiness, or consistency."
+            "Decide whether to answer directly or delegate to internal specialists. "
+            "Return strict JSON only with keys: mode, workers, topic, depth, criteria, manager_brief, reason. "
+            "mode must be direct or team. "
+            "workers must be an array containing zero or more of: ATLAS, SENTINEL, FORGE, QUILL, AEGIS, PULSE. "
+            "depth must be quick, standard, or deep. criteria must be factual, readiness, or consistency. "
+            "manager_brief must be a concise execution brief for specialists.\n\n"
+            "Specialists:\n"
+            f"{_team_specialist_catalog()}"
         ),
-        user_prompt=f"User request:\n{stripped}",
+        user_prompt=(
+            f"Imported conversation continuity for this session:\n{history_context or '(none)'}\n\n"
+            f"User request:\n{stripped}"
+        ),
         model=manager["model"],
         timeout=min(REQUEST_TIMEOUT_SECONDS, 45),
     )
@@ -532,6 +593,8 @@ def _team_route_plan(text: str) -> dict[str, Any]:
             "topic": stripped,
             "depth": "standard",
             "criteria": "factual",
+            "workers": ["ATLAS", "AEGIS"],
+            "manager_brief": stripped,
             "reason": "planner_fallback",
         }
     mode = str(payload.get("mode") or "team").strip().lower()
@@ -544,38 +607,179 @@ def _team_route_plan(text: str) -> dict[str, Any]:
     if criteria not in {"factual", "readiness", "consistency"}:
         criteria = "factual"
     topic = str(payload.get("topic") or stripped).strip() or stripped
+    requested_workers = payload.get("workers")
+    workers: list[str] = []
+    if isinstance(requested_workers, list):
+        for item in requested_workers:
+            value = str(item or "").strip().upper()
+            if value in SPECIALIST_KEYS and value not in workers:
+                workers.append(value)
+    if mode == "team" and not workers:
+        workers = ["ATLAS", "AEGIS"]
     return {
         "mode": mode,
         "topic": topic,
         "depth": depth,
         "criteria": criteria,
+        "workers": workers,
+        "manager_brief": str(payload.get("manager_brief") or topic).strip() or topic,
         "reason": str(payload.get("reason") or "").strip(),
     }
 
 
-def _manager_synthesis(goal: str, research: dict[str, Any], verification: dict[str, Any]) -> str:
+def _manager_direct_response(goal: str, session_key: str) -> str:
+    if _looks_like_meridian_internal_query(goal):
+        return _render_meridian_internal_answer(goal)
     manager = _loom_manager_defaults()
-    research_text = str(research.get("research") or research.get("error") or "").strip()
-    verification_text = str(verification.get("verification") or verification.get("error") or "").strip()
+    history_context = imported_history_context(session_key, loom_root=LOOM_ROOT, limit=24)
     result = _run_codex_exec(
         system_prompt=(
             "You are Leviathann, Meridian's manager. "
-            "Given specialist outputs from Atlas and Aegis, produce the final user-facing Telegram reply. "
-            "Be concise, practical, and explicit about uncertainty if verification raises concerns."
+            "Answer the user directly. Use conversation continuity when relevant. "
+            "Do not mention internal specialist routing unless asked."
         ),
         user_prompt=(
-            f"Original user request:\n{goal.strip()}\n\n"
-            f"Atlas research:\n{research_text}\n\n"
-            f"Aegis verification:\n{verification_text}"
+            f"Imported conversation continuity:\n{history_context or '(none)'}\n\n"
+            f"User request:\n{goal.strip()}"
         ),
         model=manager["model"],
         timeout=REQUEST_TIMEOUT_SECONDS,
     )
     if result.get("ok") and str(result.get("output_text") or "").strip():
         return str(result.get("output_text") or "").strip()
-    if research_text:
-        return research_text
-    return verification_text or "Unable to complete the managed team response."
+    return "Unable to complete the request right now."
+
+
+def _run_specialist_step(agent_key: str, request: str, session_key: str, plan: dict[str, Any]) -> dict[str, Any]:
+    specialist = next(agent for agent in TEAM_TOPOLOGY.specialists if agent.env_key == agent_key)
+    context_block = imported_history_context(session_key, loom_root=LOOM_ROOT, limit=20)
+    if agent_key == "ATLAS":
+        result = mcp_server.do_on_demand_research_route(
+            str(plan.get("topic") or request),
+            str(plan.get("depth") or "standard"),
+            agent_id=specialist.registry_id,
+            session_id=session_key,
+        )
+        return {
+            "agent_id": specialist.registry_id,
+            "role": specialist.role,
+            "task_kind": specialist.task_kind,
+            "request_id": str(result.get("job_id") or ""),
+            "session_key": session_key,
+            "provider_profile": specialist.profile_name,
+            "model": specialist.model,
+            "transport_kind": "loom_capability",
+            "result": str(result.get("research") or result.get("error") or "").strip(),
+            "confidence": "",
+            "citations": [],
+            "warnings": [str(result.get("error") or "").strip()] if result.get("error") else [],
+            "status": "ok" if not result.get("error") else "error",
+            "raw": result,
+        }
+
+    if agent_key == "AEGIS":
+        result = mcp_server.do_qa_verify_route(
+            request,
+            str(plan.get("criteria") or "factual"),
+            agent_id=specialist.registry_id,
+            session_id=session_key,
+        )
+        return {
+            "agent_id": specialist.registry_id,
+            "role": specialist.role,
+            "task_kind": specialist.task_kind,
+            "request_id": str(result.get("job_id") or ""),
+            "session_key": session_key,
+            "provider_profile": specialist.profile_name,
+            "model": specialist.model,
+            "transport_kind": "loom_capability",
+            "result": str(result.get("verification") or result.get("error") or "").strip(),
+            "confidence": "",
+            "citations": [],
+            "warnings": [str(result.get("error") or "").strip()] if result.get("error") else [],
+            "status": "ok" if not result.get("error") else "error",
+            "raw": result,
+        }
+
+    prompt = textwrap.dedent(
+        f"""
+        You are {specialist.name}, Meridian's {specialist.role}.
+        Purpose: {specialist.purpose}
+        Manager brief: {str(plan.get('manager_brief') or request).strip()}
+        Conversation continuity:
+        {context_block or '(none)'}
+
+        User request:
+        {request.strip()}
+
+        Return strict JSON only with keys:
+        result, confidence, citations, warnings.
+        """
+    ).strip()
+    loom_result = mcp_server._shared_run_loom_capability(  # type: ignore[attr-defined]
+        mcp_server._loom_runtime_context(),  # type: ignore[attr-defined]
+        "loom.llm.inference.v1",
+        {
+            "provider_profile": specialist.profile_name,
+            "model": specialist.model,
+            "system_prompt": f"You are {specialist.name}. {specialist.purpose}",
+            "user_prompt": prompt,
+            "max_tokens": 900,
+        },
+        timeout=120,
+        agent_id=specialist.registry_id,
+        session_id=session_key,
+        action_type=specialist.task_kind,
+        resource=session_key,
+    )
+    output_text = ""
+    worker_result = loom_result.get("worker_result") or {}
+    host_response = worker_result.get("host_response_json")
+    if isinstance(host_response, dict):
+        output_text = str(host_response.get("output_text") or "").strip()
+    payload = _extract_json(output_text) if output_text else None
+    return {
+        "agent_id": specialist.registry_id,
+        "role": specialist.role,
+        "task_kind": specialist.task_kind,
+        "request_id": str(loom_result.get("job_id") or ""),
+        "session_key": session_key,
+        "provider_profile": specialist.profile_name,
+        "model": specialist.model,
+        "transport_kind": "loom_capability",
+        "result": str((payload or {}).get("result") or output_text or loom_result.get("error") or "").strip(),
+        "confidence": str((payload or {}).get("confidence") or "").strip(),
+        "citations": (payload or {}).get("citations") if isinstance((payload or {}).get("citations"), list) else [],
+        "warnings": (payload or {}).get("warnings") if isinstance((payload or {}).get("warnings"), list) else ([] if loom_result.get("ok") else [str(loom_result.get("error") or "loom failure")]),
+        "status": "ok" if loom_result.get("ok") else "error",
+        "raw": loom_result,
+    }
+
+
+def _manager_synthesis(goal: str, session_key: str, steps: list[dict[str, Any]]) -> str:
+    manager = _loom_manager_defaults()
+    history_context = imported_history_context(session_key, loom_root=LOOM_ROOT, limit=24)
+    result = _run_codex_exec(
+        system_prompt=(
+            "You are Leviathann, Meridian's manager. "
+            "Given specialist outputs, produce the final user-facing reply. "
+            "Resolve conflicts, call out uncertainty, and keep the answer concise but complete."
+        ),
+        user_prompt=(
+            f"Original user request:\n{goal.strip()}\n\n"
+            f"Imported conversation continuity:\n{history_context or '(none)'}\n\n"
+            f"Specialist outputs:\n{json.dumps(steps, indent=2, ensure_ascii=False)}"
+        ),
+        model=manager["model"],
+        timeout=REQUEST_TIMEOUT_SECONDS,
+    )
+    if result.get("ok") and str(result.get("output_text") or "").strip():
+        return str(result.get("output_text") or "").strip()
+    for item in steps:
+        text = str(item.get("result") or "").strip()
+        if text:
+            return text
+    return "Unable to complete the managed team response."
 
 
 def _run_team_route(text: str, session_key: str, runtime: AgentRuntime) -> tuple[str, dict[str, Any]]:
@@ -584,53 +788,25 @@ def _run_team_route(text: str, session_key: str, runtime: AgentRuntime) -> tuple
     arg = parsed["arg"].strip()
     if mode == "help":
         return _telegram_help_text(), {"mode": "help", "steps": []}
-    if mode == "atlas":
-        topic = arg or text.strip()
-        result = mcp_server.do_on_demand_research_route(topic, "standard", agent_id=TEAM_RESEARCH_AGENT_ID, session_id=session_key)
-        answer = str(result.get("research") or result.get("error") or "").strip() or "Atlas returned no output."
-        return answer, {"mode": "atlas", "steps": [result], "job_id": str(result.get("job_id") or "").strip()}
-    if mode == "aegis":
-        criteria = "factual"
-        qa_text = arg or text.strip()
-        if "::" in qa_text:
-            criteria_part, payload_part = qa_text.split("::", 1)
-            if payload_part.strip():
-                criteria = criteria_part.strip() or "factual"
-                qa_text = payload_part.strip()
-        result = mcp_server.do_qa_verify_route(qa_text, criteria, agent_id=TEAM_VERIFY_AGENT_ID, session_id=session_key)
-        answer = str(result.get("verification") or result.get("error") or "").strip() or "Aegis returned no output."
-        return answer, {"mode": "aegis", "steps": [result], "job_id": str(result.get("job_id") or "").strip()}
-
     request = arg or text.strip()
-    plan = _team_route_plan(request)
+    plan = _team_route_plan(request, session_key)
     if plan.get("mode") == "direct":
-        return runtime.run_goal(request), {"mode": "direct", "steps": [], "plan": plan}
+        return _manager_direct_response(request, session_key), {"mode": "direct", "steps": [], "plan": plan}
     if plan.get("mode") == "internal_status":
         answer = _render_meridian_internal_answer(request)
         return answer, {"mode": "internal_status", "steps": [], "plan": plan}
 
-    research = mcp_server.do_on_demand_research_route(
-        str(plan.get("topic") or request),
-        str(plan.get("depth") or "standard"),
-        agent_id=TEAM_RESEARCH_AGENT_ID,
-        session_id=session_key,
-    )
-    if research.get("error"):
-        answer = str(research.get("error") or "Managed research failed").strip()
-        return answer, {"mode": "team", "steps": [research], "plan": plan, "job_id": str(research.get("job_id") or "").strip()}
-
-    verification = mcp_server.do_qa_verify_route(
-        str(research.get("research") or ""),
-        str(plan.get("criteria") or "factual"),
-        agent_id=TEAM_VERIFY_AGENT_ID,
-        session_id=session_key,
-    )
-    answer = _manager_synthesis(request, research, verification)
-    final_job_id = str(verification.get("job_id") or research.get("job_id") or "").strip()
+    steps: list[dict[str, Any]] = []
+    final_job_id = ""
+    for worker in plan.get("workers") or []:
+        step = _run_specialist_step(str(worker), request, session_key, plan)
+        steps.append(step)
+        final_job_id = str(step.get("request_id") or final_job_id).strip()
+    answer = _manager_synthesis(request, session_key, steps)
     return answer, {
         "mode": "team",
         "plan": plan,
-        "steps": [research, verification],
+        "steps": steps,
         "job_id": final_job_id,
     }
 

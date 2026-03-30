@@ -71,6 +71,7 @@ Endpoints:
   POST /api/subscriptions/remove  → Cancel active subscriptions for a Telegram user
   POST /api/subscriptions/set-email → Update subscription email metadata
   POST /api/subscriptions/record-delivery → Append a subscription delivery record
+  POST /api/telegram/history/import → Import Telegram Desktop export into Leviathann session continuity
   POST /api/pilot/intake         → Persist a public manual-pilot intake request
   POST /api/accounting/expense    → Record an owner-paid expense in the institution-owned ledger
   POST /api/accounting/reimburse  → Reimburse an owner-paid expense from treasury
@@ -215,6 +216,7 @@ import status_surface
 import pilot_intake
 import subscription_preview_queue
 import subscription_service
+from telegram_history import import_telegram_history
 from constitutional_model import constitutional_model
 from federation import (
     FederationAuthority,
@@ -4792,6 +4794,39 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
         _sid = auth_context.get('session_id')  # session traceability for audit
 
         try:
+            if path == '/api/telegram/history/import':
+                export_path = str(body.get('export_path') or '').strip()
+                session_key = str(body.get('session_key') or '').strip()
+                manager_name = str(body.get('manager_name') or 'Leviathann').strip() or 'Leviathann'
+                if not export_path:
+                    return self._json({'error': 'export_path is required'}, 400)
+                if not session_key:
+                    return self._json({'error': 'session_key is required'}, 400)
+                result = import_telegram_history(
+                    export_path,
+                    session_key,
+                    manager_name=manager_name,
+                    loom_root=body.get('loom_root') or None,
+                )
+                log_event(
+                    org_id,
+                    by,
+                    'telegram_history_imported',
+                    resource=session_key,
+                    outcome='success',
+                    details={
+                        'export_path': export_path,
+                        'manager_name': manager_name,
+                        'message_count': result.get('message_count', 0),
+                        'storage_path': result.get('storage_path', ''),
+                    },
+                    session_id=_sid,
+                )
+                return self._json({
+                    'message': 'Telegram history imported into Leviathann session continuity',
+                    'result': result,
+                }, 201)
+
             if path == '/api/authority/kill-switch':
                 if body.get('engage'):
                     engage_kill_switch(by, body.get('reason', ''), org_id=org_id)

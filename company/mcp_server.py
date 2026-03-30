@@ -93,6 +93,7 @@ from loom_runtime_discovery import runtime_value as _shared_runtime_value
 from loom_runtime_client import LoomRuntimeContext
 from loom_runtime_client import capability_preflight as _shared_loom_capability_preflight
 from loom_runtime_client import run_capability as _shared_run_loom_capability
+from team_topology import load_team_topology, sync_loom_team_profiles
 
 # Founding institution binding — resolved once at startup.
 # All audit, metering, treasury, and revenue calls use this org_id.
@@ -137,6 +138,58 @@ _LOOM_IMPORTED_WORKER_ENTRY_RE = re.compile(r'^workers/python/imported-(?P<impor
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(name)s] %(message)s')
 logger = logging.getLogger('meridian.mcp')
+TEAM_TOPOLOGY = load_team_topology()
+
+
+def _team_specialist(agent_id: str):
+    if not agent_id:
+        return None
+    return TEAM_TOPOLOGY.specialist_by_id(agent_id)
+
+
+def _extract_json_object(text: str) -> dict | None:
+    raw = (text or '').strip()
+    if not raw:
+        return None
+    candidates = [raw]
+    for opener, closer in (('{', '}'), ('[', ']')):
+        first = raw.find(opener)
+        last = raw.rfind(closer)
+        if first != -1 and last != -1 and last > first:
+            candidates.append(raw[first:last + 1])
+    for candidate in candidates:
+        try:
+            parsed = json.loads(candidate)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(parsed, dict):
+            return parsed
+    return None
+
+
+def _specialist_llm_payload(agent_id: str, system_prompt: str, user_prompt: str, *, max_tokens: int = 900) -> dict | None:
+    specialist = _team_specialist(agent_id)
+    if specialist is None:
+        return None
+    return {
+        'provider_profile': specialist.profile_name,
+        'model': specialist.model,
+        'system_prompt': system_prompt,
+        'user_prompt': user_prompt,
+        'max_tokens': max_tokens,
+    }
+
+
+def _specialist_llm_result(loom_result: dict, *, preferred_key: str) -> tuple[str, str]:
+    worker_result = loom_result.get('worker_result') or {}
+    host_response = worker_result.get('host_response_json') or {}
+    output_text = str(host_response.get('output_text') or '').strip()
+    payload = _extract_json_object(output_text) if output_text else None
+    if isinstance(payload, dict):
+        value = str(payload.get(preferred_key) or payload.get('result') or '').strip()
+        if value:
+            return value, output_text
+    return output_text or _extract_loom_content(worker_result, (preferred_key, 'response', 'message', 'text', 'output_text')), output_text
 
 
 def _normalize_runtime(runtime: str) -> str:
@@ -350,10 +403,11 @@ def _loom_qa_capability() -> str:
     configured = (os.environ.get('MERIDIAN_LOOM_QA_CAPABILITY') or '').strip()
     if configured:
         return configured
-    return _discover_loom_capability('company.qa.v0', 'loom.llm.inference.v1')
+    return 'loom.llm.inference.v1'
 
 
 def _loom_runtime_context() -> LoomRuntimeContext:
+    sync_loom_team_profiles(TEAM_TOPOLOGY, loom_root=_loom_root())
     return LoomRuntimeContext(
         loom_bin=_loom_bin(),
         loom_root=_loom_root(),
@@ -1367,9 +1421,15 @@ def do_qa_verify(
 
     requested_runtime = _intelligence_exec_runtime('qa')
     if requested_runtime == 'loom':
+        specialist_payload = _specialist_llm_payload(
+            agent_id,
+            f'You are Meridian specialist {agent_id}. Verify claims for {criteria} quality and return strict JSON with keys verification, confidence, warnings.',
+            prompt,
+        )
+        loom_payload = specialist_payload or {'text': text, 'criteria': criteria, 'prompt': prompt}
         loom_result = _run_loom_capability(
             _loom_qa_capability(),
-            {'text': text, 'criteria': criteria, 'prompt': prompt},
+            loom_payload,
             timeout=90,
             agent_id=agent_id,
             session_id=session_id,
@@ -1377,14 +1437,17 @@ def do_qa_verify(
             resource=session_id or '',
         )
         if loom_result.get('ok'):
-            worker_result = loom_result.get('worker_result') or {}
+            verification, raw_output = _specialist_llm_result(loom_result, preferred_key='verification')
             return {
                 'criteria': criteria,
-                'verification': _extract_loom_content(worker_result, ('verification', 'response', 'message', 'text', 'output_text')),
+                'verification': verification,
                 'runtime': 'loom',
                 'capability_name': loom_result.get('capability_name', ''),
                 'job_id': loom_result.get('job_id', ''),
                 'source': 'Meridian QA Pipeline',
+                'provider_profile': (specialist_payload or {}).get('provider_profile', ''),
+                'model': (specialist_payload or {}).get('model', ''),
+                'raw_output': raw_output,
             }
         return {
             'criteria': criteria,
@@ -1454,9 +1517,14 @@ def do_qa_verify_route(
             loom_preflight=loom_preflight,
         )
 
+    specialist_payload = _specialist_llm_payload(
+        agent_id,
+        f'You are Meridian specialist {agent_id}. Verify claims for {criteria} quality and return strict JSON with keys verification, confidence, warnings.',
+        prompt,
+    )
     loom_result = _run_loom_capability(
         _loom_qa_capability(),
-        {'text': text, 'criteria': criteria, 'prompt': prompt},
+        specialist_payload or {'text': text, 'criteria': criteria, 'prompt': prompt},
         timeout=90,
         agent_id=agent_id,
         session_id=session_id,
@@ -1464,14 +1532,17 @@ def do_qa_verify_route(
         resource=session_id or '',
     )
     if loom_result.get('ok'):
-        worker_result = loom_result.get('worker_result') or {}
+        verification, raw_output = _specialist_llm_result(loom_result, preferred_key='verification')
         result = {
             'criteria': criteria,
-            'verification': _extract_loom_content(worker_result, ('verification', 'response', 'message', 'text')),
+            'verification': verification,
             'runtime': 'loom',
             'capability_name': loom_result.get('capability_name', ''),
             'job_id': loom_result.get('job_id', ''),
             'source': 'Meridian QA Pipeline',
+            'provider_profile': (specialist_payload or {}).get('provider_profile', ''),
+            'model': (specialist_payload or {}).get('model', ''),
+            'raw_output': raw_output,
         }
         return _with_qa_verify_cutover(
             result,
