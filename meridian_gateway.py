@@ -425,6 +425,15 @@ _MERIDIAN_COMPLEX_OPERATOR_TERMS = (
     "three things at once",
 )
 
+
+def _looks_like_meridian_operator_workflow_query(text: str) -> bool:
+    lowered = text.strip().lower()
+    if not lowered:
+        return False
+    mentions_complex_ops = any(term in lowered for term in _MERIDIAN_COMPLEX_OPERATOR_TERMS)
+    mentions_meridian = any(term in lowered for term in _MERIDIAN_INTERNAL_STATUS_TERMS)
+    return mentions_meridian and mentions_complex_ops
+
 _MERIDIAN_POSITIONING_TERMS = (
     "leviathann",
     "direct specialists",
@@ -671,6 +680,22 @@ def _team_route_plan(text: str, session_key: str) -> dict[str, Any]:
             "depth": "quick",
             "criteria": "consistency",
             "reason": "meridian_internal_status",
+        }
+    if _looks_like_meridian_operator_workflow_query(stripped):
+        workers = _normalize_worker_selection(["FORGE", "QUILL", "AEGIS"], stripped)
+        return {
+            "mode": "team",
+            "topic": stripped,
+            "depth": "deep",
+            "criteria": "consistency",
+            "workers": workers,
+            "manager_brief": (
+                "Use live Meridian host truth for governance posture. "
+                "Forge should draft the operational remediation sequence. "
+                "Quill should turn the result into a clear operator/founder-facing brief. "
+                "Aegis should reject unsupported claims and flag blocked lanes."
+            ),
+            "reason": "meridian_operator_workflow",
         }
     if _looks_like_meridian_positioning_query(stripped):
         workers = _normalize_worker_selection(["QUILL", "AEGIS"], stripped)

@@ -76,12 +76,12 @@ class GatewayTeamRouteTests(unittest.TestCase):
             'states what happens if Sentinel is sanction-restricted while QA is still required, '
             'and produces an internal remediation plan for Telegram delivery and founder-facing messaging.'
         )
-        with mock.patch.object(meridian_gateway, '_run_codex_exec', return_value={'ok': False, 'output_text': ''}):
-            plan = meridian_gateway._team_route_plan(prompt, 'telegram:5322393870')
+        plan = meridian_gateway._team_route_plan(prompt, 'telegram:5322393870')
         self.assertEqual(plan['mode'], 'team')
-        self.assertEqual(plan['reason'], 'planner_fallback')
-        self.assertIn('ATLAS', plan['workers'])
+        self.assertEqual(plan['reason'], 'meridian_operator_workflow')
+        self.assertIn('FORGE', plan['workers'])
         self.assertIn('AEGIS', plan['workers'])
+        self.assertIn('QUILL', plan['workers'])
 
 
 if __name__ == '__main__':
