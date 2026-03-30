@@ -24,10 +24,16 @@ DEFAULT_LOOM_ROOT = Path(
         "/home/ubuntu/.local/share/meridian-loom/runtime/default",
     )
 )
+DEFAULT_CODEX_HOME = Path(
+    os.environ.get(
+        "MERIDIAN_CODEX_HOME",
+        str(MERIDIAN_HOME / "auth" / "codex" / "login-home"),
+    )
+)
 DEFAULT_CODEX_AUTH_PATH = Path(
     os.environ.get(
         "MERIDIAN_CODEX_AUTH_PATH",
-        str(MERIDIAN_HOME / "auth" / "codex" / "auth.json"),
+        str(DEFAULT_CODEX_HOME / ".codex" / "auth.json"),
     )
 )
 
