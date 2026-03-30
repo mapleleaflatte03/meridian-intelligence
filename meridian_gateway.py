@@ -620,6 +620,19 @@ _MERIDIAN_COUNCIL_TERMS = (
     "thong nhat",
 )
 
+_MERIDIAN_COUNCIL_EXPLICIT_TRIGGERS = (
+    "/council",
+    "board review for meridian",
+    "internal council for meridian",
+    "meridian board review",
+    "meridian council",
+    "meridian council meeting",
+    "meridian internal council",
+    "meridian strategy council",
+    "họp hội đồng meridian",
+    "hoi dong meridian",
+)
+
 _MERIDIAN_CUSTOMER_STRATEGY_TERMS = (
     "customer",
     "buyer",
@@ -671,6 +684,9 @@ def _looks_like_meridian_positioning_query(text: str) -> bool:
 def _looks_like_meridian_council_query(text: str) -> bool:
     lowered = text.strip().lower()
     if not lowered:
+        return False
+    explicit_trigger = any(trigger in lowered for trigger in _MERIDIAN_COUNCIL_EXPLICIT_TRIGGERS)
+    if not explicit_trigger:
         return False
     mentions_council = any(term in lowered for term in _MERIDIAN_COUNCIL_TERMS)
     mentions_strategy = any(term in lowered for term in _MERIDIAN_CUSTOMER_STRATEGY_TERMS)

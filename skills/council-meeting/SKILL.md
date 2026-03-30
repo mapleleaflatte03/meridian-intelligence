@@ -10,6 +10,11 @@ metadata:
 
 Use the shared council context pack at `company/COUNCIL_CUSTOMER_READINESS_CONTEXT.md`.
 
+This skill is for the **internal Meridian council event**, not the external Codex `/subagent` council event.
+
+- External Codex `/subagent` council: exploratory, off-system, research/debate first.
+- Internal Meridian council: in-system, Leviathann-chaired, decision/action first.
+
 Use this skill when the user asks for things like:
 - council meeting
 - board review

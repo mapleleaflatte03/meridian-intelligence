@@ -2,6 +2,25 @@
 
 Use this file to keep council-style discussions anchored in verified Meridian truth.
 
+## Boundary
+
+This is the context pack for the **internal Meridian council event**.
+
+It is not the same as an external Codex `/subagent` council:
+
+- External Codex `/subagent` council:
+  - off-system
+  - exploratory
+  - adversarial research and debate
+  - can challenge Meridian from outside its own runtime assumptions
+- Internal Meridian council:
+  - in-system
+  - manager-first
+  - uses Meridian's own agent team
+  - turns an already-serious question into an institutional decision, dissent log, and action register
+
+Do not blur these two events together.
+
 ## Questions the council must answer
 
 1. Is Meridian currently simple and credible enough for a real outside customer to buy?
