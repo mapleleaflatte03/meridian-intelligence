@@ -547,6 +547,70 @@ def _render_meridian_internal_answer(_goal: str) -> str:
     )
 
 
+def _recent_telegram_delivery_summary(limit: int = 5) -> dict[str, Any]:
+    delivery_dir = Path(LOOM_ROOT) / "state" / "channels" / "delivery"
+    records: list[dict[str, Any]] = []
+    try:
+        candidates = sorted(delivery_dir.glob("*.json"), reverse=True)
+    except Exception:
+        candidates = []
+    for path in candidates:
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if not isinstance(payload, dict):
+            continue
+        if str(payload.get("channel_id") or "").strip() != "telegram":
+            continue
+        records.append(payload)
+        if len(records) >= limit:
+            break
+    return {
+        "checked_count": len(records),
+        "delivered_count": sum(1 for item in records if str(item.get("status") or "").strip() == "delivered"),
+        "failed_count": sum(1 for item in records if str(item.get("status") or "").strip() == "failed"),
+        "pending_count": sum(1 for item in records if str(item.get("status") or "").strip() not in {"delivered", "failed"}),
+        "latest_status": str(records[0].get("status") or "").strip() if records else "",
+        "latest_delivery_id": str(records[0].get("delivery_id") or "").strip() if records else "",
+    }
+
+
+def _build_meridian_operator_truth_packet() -> dict[str, Any]:
+    status = _workspace_api_get_json("/api/status")
+    proof = _workspace_api_get_json("/api/runtime-proof")
+    payouts = _workspace_api_get_json("/api/payouts")
+    status_payload = dict(status.get("payload") or {}) if status.get("ok") else {}
+    proof_payload = dict(proof.get("payload") or {}) if proof.get("ok") else {}
+    payouts_payload = dict(payouts.get("payload") or {}) if payouts.get("ok") else {}
+    context = dict(status_payload.get("context") or {})
+    treasury = dict(status_payload.get("treasury") or {})
+    observability = dict(status_payload.get("observability") or {})
+    slo = dict(status_payload.get("slo") or observability.get("slo") or {})
+    alert_queue = dict(status_payload.get("alert_queue") or {})
+    authority = dict(status_payload.get("authority") or {})
+    cases = dict(status_payload.get("cases") or {})
+    execution_gate = dict(payouts_payload.get("execution_gate") or {})
+    phase_machine = dict(payouts_payload.get("phase_machine") or {})
+    return {
+        "runtime_id": str(status_payload.get("runtime_id") or proof_payload.get("runtime_id") or "").strip(),
+        "org_id": str(context.get("bound_org_id") or LOOM_ORG_ID).strip(),
+        "preflight": str(status_payload.get("preflight") or status_payload.get("ci_vertical", {}).get("preflight") or "").strip(),
+        "slo_status": str(slo.get("status") or "").strip(),
+        "queued_alerts": int(alert_queue.get("queue_count") or 0),
+        "treasury_balance_usd": float(treasury.get("balance_usd") or 0.0),
+        "treasury_reserve_floor_usd": float(treasury.get("reserve_floor_usd") or 0.0),
+        "pending_approvals": len(authority.get("pending_approvals") or []),
+        "open_cases": int(cases.get("open") or 0),
+        "payout_phase_number": phase_machine.get("number"),
+        "payout_phase_name": phase_machine.get("name"),
+        "payout_execution_gate_ok": bool(execution_gate.get("phase_ok")),
+        "payout_execution_gate_reason": str(execution_gate.get("reason") or "").strip(),
+        "sentinel_restricted": _worker_is_restricted("SENTINEL"),
+        "telegram_delivery": _recent_telegram_delivery_summary(),
+    }
+
+
 def _request_needs_writer(text: str) -> bool:
     lowered = (text or "").strip().lower()
     writer_phrases = (
@@ -706,6 +770,7 @@ def _team_route_plan(text: str, session_key: str) -> dict[str, Any]:
                 "Quill should turn the result into a clear operator/founder-facing brief. "
                 "Aegis should reject unsupported claims and flag blocked lanes."
             ),
+            "verified_facts": _build_meridian_operator_truth_packet(),
             "reason": "meridian_operator_workflow",
         }
     if _looks_like_meridian_positioning_query(stripped):
@@ -853,6 +918,8 @@ def _manager_direct_response(goal: str, session_key: str) -> str:
 def _run_specialist_step(agent_key: str, request: str, session_key: str, plan: dict[str, Any]) -> dict[str, Any]:
     specialist = next(agent for agent in TEAM_TOPOLOGY.specialists if agent.env_key == agent_key)
     context_block = imported_history_context(session_key, loom_root=LOOM_ROOT, limit=20)
+    verified_facts = plan.get("verified_facts")
+    verified_facts_block = json.dumps(verified_facts, indent=2, ensure_ascii=False) if isinstance(verified_facts, dict) else "(none)"
     if agent_key == "ATLAS":
         result = mcp_server.do_on_demand_research_route(
             str(plan.get("topic") or request),
@@ -896,7 +963,7 @@ def _run_specialist_step(agent_key: str, request: str, session_key: str, plan: d
 
     if agent_key == "AEGIS":
         result = mcp_server.do_qa_verify_route(
-            request,
+            f"{request}\n\nVerified Meridian host facts:\n{verified_facts_block}",
             str(plan.get("criteria") or "factual"),
             agent_id=specialist.registry_id,
             session_id=session_key,
@@ -944,6 +1011,8 @@ def _run_specialist_step(agent_key: str, request: str, session_key: str, plan: d
         You are {specialist.name}, Meridian's {specialist.role}.
         Purpose: {specialist.purpose}
         Manager brief: {str(plan.get('manager_brief') or request).strip()}
+        Verified Meridian host facts (treat these as the only trusted factual baseline):
+        {verified_facts_block}
         Conversation continuity:
         {context_block or '(none)'}
 
@@ -952,6 +1021,7 @@ def _run_specialist_step(agent_key: str, request: str, session_key: str, plan: d
 
         Return strict JSON only with keys:
         result, confidence, citations, warnings.
+        Do not introduce governance facts, citations, controls, or delivery claims that are not supported by the verified facts above.
         """
     ).strip()
     if specialist.env_key == "SENTINEL":
@@ -1058,20 +1128,25 @@ def _run_specialist_step(agent_key: str, request: str, session_key: str, plan: d
     return receipt
 
 
-def _manager_synthesis(goal: str, session_key: str, steps: list[dict[str, Any]]) -> str:
+def _manager_synthesis(goal: str, session_key: str, steps: list[dict[str, Any]], plan: dict[str, Any] | None = None) -> str:
     manager = _loom_manager_defaults()
     history_context = imported_history_context(session_key, loom_root=LOOM_ROOT, limit=24)
     cleaned_steps = _manager_step_view(steps)
+    verified_facts = {}
+    if isinstance(plan, dict) and isinstance(plan.get("verified_facts"), dict):
+        verified_facts = dict(plan.get("verified_facts") or {})
     result = _run_codex_exec(
         system_prompt=(
             "You are Leviathann, Meridian's manager. "
             "Given specialist outputs, produce the final user-facing reply. "
             "Resolve conflicts, call out uncertainty, and keep the answer concise but complete. "
             "Treat worker warnings and empty citations as first-class truth. "
+            "Verified Meridian host facts are the source of truth over worker claims. "
             "Do not elevate unsupported marketing claims above the warnings."
         ),
         user_prompt=(
             f"Original user request:\n{goal.strip()}\n\n"
+            f"Verified Meridian host facts:\n{json.dumps(verified_facts, indent=2, ensure_ascii=False) or '{}'}\n\n"
             f"Imported conversation continuity:\n{history_context or '(none)'}\n\n"
             f"Specialist outputs:\n{json.dumps(cleaned_steps, indent=2, ensure_ascii=False)}"
         ),
@@ -1196,7 +1271,7 @@ def _run_team_route(text: str, session_key: str, runtime: AgentRuntime) -> tuple
         step = _run_specialist_step(str(worker), request, session_key, plan)
         steps.append(step)
         final_job_id = str(step.get("request_id") or final_job_id).strip()
-    answer = _manager_synthesis(request, session_key, steps)
+    answer = _manager_synthesis(request, session_key, steps, plan)
     return answer, {
         "mode": "team",
         "plan": plan,
