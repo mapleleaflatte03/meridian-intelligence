@@ -117,11 +117,11 @@ Connect via SSE: `https://app.welliam.codes/sse`
 
 | Tool | Price | Description |
 |------|-------|-------------|
-| `intelligence_latest_brief` | **$0.50 USDC** | Daily intelligence alert with cited findings |
-| `intelligence_on_demand_research` | **$2.00 USDC** | Research any topic with sourced findings |
-| `intelligence_competitor_snapshot` | **$3.00 USDC** | Battlecard-ready competitor snapshot |
-| `intelligence_qa_verify` | **$1.00 USDC** | QA verification of claims or text |
-| `intelligence_weekly_digest` | **$1.50 USDC** | Weekly digest across tracked competitors |
+| `intelligence_latest_brief` | **$0.50 USDC** | Metered brief tool for the founding Meridian institution; external-customer settlement proof is still pending |
+| `intelligence_on_demand_research` | **$2.00 USDC** | Metered research tool with sourced findings on the current public MCP surface |
+| `intelligence_competitor_snapshot` | **$3.00 USDC** | Metered competitor snapshot tool; public battlecard layouts remain reference examples |
+| `intelligence_qa_verify` | **$1.00 USDC** | Metered QA verification of claims or text |
+| `intelligence_weekly_digest` | **$1.50 USDC** | Metered digest tool; public weekly brief layouts remain reference examples |
 | `company_info` | **FREE** | Meridian capabilities and pricing |
 
 On the live host today, every MCP tool call is audited and metered for the
