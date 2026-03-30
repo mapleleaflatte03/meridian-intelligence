@@ -124,6 +124,7 @@ SKILL_STOPWORDS = {
 SKILL_WORKER_HINTS = {
     "ai-intelligence": ["ATLAS", "QUILL", "AEGIS"],
     "download-quarantine": ["FORGE", "SENTINEL"],
+    "founder-update": ["QUILL", "AEGIS"],
     "malware-triage": ["FORGE", "SENTINEL"],
     "mvp-sprint-scope": ["ATLAS", "QUILL", "FORGE"],
     "night-shift-ops": ["FORGE", "PULSE", "QUILL"],
@@ -724,6 +725,162 @@ def _build_meridian_operator_truth_packet() -> dict[str, Any]:
     }
 
 
+def _verified_fact_mode_enabled(request: str, skills_used: list[str], verified_facts: dict[str, Any] | None) -> bool:
+    if not isinstance(verified_facts, dict) or not verified_facts:
+        return False
+    names = {str(item or "").strip().lower() for item in skills_used if str(item or "").strip()}
+    if names & {"ops-snapshot", "founder-update"}:
+        return True
+    return (
+        _looks_like_meridian_internal_query(request)
+        or _looks_like_meridian_operator_workflow_query(request)
+        or _looks_like_meridian_positioning_query(request)
+    )
+
+
+def _format_usd(value: Any) -> str:
+    try:
+        return f"${float(value or 0.0):.2f}"
+    except Exception:
+        return "$0.00"
+
+
+def _verified_fact_citations(verified_facts: dict[str, Any]) -> list[str]:
+    telegram = dict(verified_facts.get("telegram_delivery") or {})
+    return [
+        f"runtime_id: {verified_facts.get('runtime_id')}",
+        f"preflight: {verified_facts.get('preflight')}",
+        f"slo_status: {verified_facts.get('slo_status')}",
+        f"queued_alerts: {verified_facts.get('queued_alerts')}",
+        f"treasury_balance_usd: {verified_facts.get('treasury_balance_usd')}",
+        f"treasury_reserve_floor_usd: {verified_facts.get('treasury_reserve_floor_usd')}",
+        f"pending_approvals: {verified_facts.get('pending_approvals')}",
+        f"open_cases: {verified_facts.get('open_cases')}",
+        f"payout_phase: {verified_facts.get('payout_phase_number')} / {verified_facts.get('payout_phase_name')}",
+        f"payout_execution_gate_ok: {verified_facts.get('payout_execution_gate_ok')}",
+        f"telegram_delivery_checked: {telegram.get('checked_count')}",
+        f"telegram_delivery_latest_status: {telegram.get('latest_status')}",
+    ]
+
+
+def _verified_fact_warnings(verified_facts: dict[str, Any], *, include_unknowns: bool = True) -> list[str]:
+    warnings: list[str] = []
+    if not bool(verified_facts.get("payout_execution_gate_ok")):
+        reason = str(verified_facts.get("payout_execution_gate_reason") or "").strip()
+        if reason:
+            warnings.append(f"payout_execution_gate: {reason}")
+    if bool(verified_facts.get("sentinel_restricted")):
+        warnings.append("sentinel lane is currently restricted by live host controls")
+    if include_unknowns:
+        warnings.append("disk pressure and scheduled-job status were not independently verified in this snapshot")
+    return warnings
+
+
+def _verified_fact_worker_receipt(
+    specialist: TeamSpecialist,
+    request: str,
+    session_key: str,
+    verified_facts: dict[str, Any],
+    skills_used: list[str],
+) -> dict[str, Any]:
+    telegram = dict(verified_facts.get("telegram_delivery") or {})
+    runtime_id = str(verified_facts.get("runtime_id") or "unknown").strip() or "unknown"
+    org_id = str(verified_facts.get("org_id") or LOOM_ORG_ID).strip() or LOOM_ORG_ID
+    preflight = str(verified_facts.get("preflight") or "unknown").strip() or "unknown"
+    slo_status = str(verified_facts.get("slo_status") or "unknown").strip() or "unknown"
+    queued_alerts = int(verified_facts.get("queued_alerts") or 0)
+    pending_approvals = int(verified_facts.get("pending_approvals") or 0)
+    open_cases = int(verified_facts.get("open_cases") or 0)
+    treasury_balance = _format_usd(verified_facts.get("treasury_balance_usd"))
+    reserve_floor = _format_usd(verified_facts.get("treasury_reserve_floor_usd"))
+    phase_number = verified_facts.get("payout_phase_number")
+    phase_name = str(verified_facts.get("payout_phase_name") or "").strip()
+    payout_reason = str(verified_facts.get("payout_execution_gate_reason") or "").strip()
+    checked = int(telegram.get("checked_count") or 0)
+    delivered = int(telegram.get("delivered_count") or 0)
+    failed = int(telegram.get("failed_count") or 0)
+    pending = int(telegram.get("pending_count") or 0)
+    latest_status = str(telegram.get("latest_status") or "").strip() or "unknown"
+    warnings = _verified_fact_warnings(verified_facts)
+    citations = _verified_fact_citations(verified_facts)
+    names = {str(item or "").strip().lower() for item in skills_used if str(item or "").strip()}
+
+    if specialist.env_key == "FORGE":
+        if "ops-snapshot" in names:
+            result = (
+                f"Operational Meridian snapshot: runtime `{runtime_id}` for `{org_id}` is up, preflight is `{preflight}`, "
+                f"SLO is `{slo_status}`, queued alerts `{queued_alerts}`, pending approvals `{pending_approvals}`, and open cases `{open_cases}`. "
+                f"Treasury is {treasury_balance} against a reserve floor of {reserve_floor}. "
+                f"Payout execution is {'enabled' if bool(verified_facts.get('payout_execution_gate_ok')) else 'blocked'} in phase `{phase_number}` (`{phase_name}`)."
+            )
+        else:
+            result = (
+                f"Execution lane should stay constrained to verified Meridian facts. Current live posture is runtime `{runtime_id}`, "
+                f"preflight `{preflight}`, SLO `{slo_status}`, treasury {treasury_balance} vs reserve floor {reserve_floor}, "
+                f"and payout execution {'enabled' if bool(verified_facts.get('payout_execution_gate_ok')) else 'blocked'}."
+            )
+    elif specialist.env_key == "PULSE":
+        result = (
+            f"Compressed Meridian snapshot: `{runtime_id}` on `{org_id}`, preflight `{preflight}`, SLO `{slo_status}`, "
+            f"alerts `{queued_alerts}`, approvals `{pending_approvals}`, cases `{open_cases}`, treasury {treasury_balance} vs floor {reserve_floor}, "
+            f"Telegram `{delivered}/{checked}` delivered with `{failed}` failed and `{pending}` pending, latest status `{latest_status}`."
+        )
+    elif specialist.env_key == "QUILL":
+        result = (
+            "Founder update:\n\n"
+            f"Meridian is operating on `{runtime_id}` for `{org_id}` with preflight `{preflight}` and SLO `{slo_status}`. "
+            f"There are `{queued_alerts}` queued alerts, `{pending_approvals}` pending approvals, and `{open_cases}` open cases.\n\n"
+            f"Treasury is {treasury_balance} against a reserve floor of {reserve_floor}. "
+            f"Payouts are {'currently executable' if bool(verified_facts.get('payout_execution_gate_ok')) else 'not executable right now'} "
+            f"because the system is in Phase `{phase_number}` (`{phase_name}`)."
+        )
+        if payout_reason:
+            result += f" Execution gate reason: {payout_reason}."
+        result += (
+            f"\n\nTelegram delivery is currently `{latest_status}` based on the last `{checked}` checked deliveries: "
+            f"`{delivered}` delivered, `{failed}` failed, `{pending}` pending."
+        )
+    elif specialist.env_key == "AEGIS":
+        result = (
+            "PASS: the bounded Meridian response can be grounded entirely in verified host facts. "
+            "Do not claim payout availability beyond the current execution gate. "
+            "Do not claim disk pressure, scheduled-job status, or non-Telegram delivery health unless separately verified."
+        )
+    elif specialist.env_key == "SENTINEL":
+        result = (
+            f"Risk review: Meridian runtime `{runtime_id}` is live, but treasury headroom is thin at {treasury_balance} against floor {reserve_floor}. "
+            f"Payout execution is {'enabled' if bool(verified_facts.get('payout_execution_gate_ok')) else 'blocked'} in phase `{phase_number}` (`{phase_name}`). "
+            f"Telegram evidence currently shows `{delivered}/{checked}` delivered."
+        )
+    else:
+        result = (
+            f"Verified Meridian facts: runtime `{runtime_id}`, preflight `{preflight}`, SLO `{slo_status}`, "
+            f"treasury {treasury_balance} vs floor {reserve_floor}."
+        )
+
+    return {
+        "agent_id": specialist.registry_id,
+        "role": specialist.role,
+        "task_kind": specialist.task_kind,
+        "request_id": f"verified-facts::{specialist.registry_id}::{int(time.time())}",
+        "session_key": session_key,
+        "provider_profile": specialist.profile_name,
+        "model": specialist.model,
+        "transport_kind": "meridian_verified_fact_playbook",
+        "result": result,
+        "confidence": "high",
+        "citations": citations,
+        "warnings": warnings,
+        "status": "ok",
+        "skills_used": skills_used,
+        "raw": {
+            "verified_facts": verified_facts,
+            "mode": "meridian_verified_fact_playbook",
+            "request": request,
+        },
+    }
+
+
 def _request_needs_writer(text: str) -> bool:
     lowered = (text or "").strip().lower()
     writer_phrases = (
@@ -1069,6 +1226,33 @@ def _run_specialist_step(agent_key: str, request: str, session_key: str, plan: d
     matched_skills = [dict(item) for item in plan_skills if isinstance(item, dict)] or TEAM_SKILLS.search(request, limit=2)
     skill_guidance_block = TEAM_SKILLS.guidance_block(matched_skills)
     skills_used = [str(item.get("name") or "").strip() for item in matched_skills if str(item.get("name") or "").strip()]
+    if _verified_fact_mode_enabled(request, skills_used, verified_facts) and agent_key != "ATLAS":
+        receipt = _verified_fact_worker_receipt(
+            specialist,
+            request,
+            session_key,
+            dict(verified_facts or {}),
+            skills_used,
+        )
+        append_session_event(session_key, {
+            "history_type": "worker_receipt",
+            "status": receipt["status"],
+            "agent_id": specialist.registry_id,
+            "speaker": "worker",
+            "role": specialist.role,
+            "task_kind": specialist.task_kind,
+            "request_id": receipt["request_id"],
+            "provider_profile": specialist.profile_name,
+            "model": specialist.model,
+            "transport_kind": receipt["transport_kind"],
+            "text": receipt["result"],
+            "confidence": receipt["confidence"],
+            "citations": receipt["citations"],
+            "warnings": receipt["warnings"],
+            "skills_used": skills_used,
+        }, loom_root=LOOM_ROOT)
+        return receipt
+
     if agent_key == "ATLAS":
         result = mcp_server.do_on_demand_research_route(
             (
@@ -1522,6 +1706,25 @@ class SkillRegistry:
     def _workers_for_skill(name: str) -> list[str]:
         return list(SKILL_WORKER_HINTS.get((name or "").strip().lower(), []))
 
+    @staticmethod
+    def _workers_from_body(body: str) -> list[str]:
+        patterns = (
+            r"preferred specialists:\s*([A-Z,\s]+)",
+            r"suggested workers:\s*([A-Z,\s]+)",
+        )
+        for pattern in patterns:
+            match = re.search(pattern, body or "", flags=re.IGNORECASE)
+            if not match:
+                continue
+            workers: list[str] = []
+            for raw in re.split(r"[,\s]+", str(match.group(1) or "").strip()):
+                value = str(raw or "").strip().upper()
+                if value in SPECIALIST_KEYS and value not in workers:
+                    workers.append(value)
+            if workers:
+                return workers
+        return []
+
     def load(self) -> list[dict[str, str]]:
         items: list[dict[str, str]] = []
         if not self.root.exists():
@@ -1574,7 +1777,7 @@ class SkillRegistry:
                         "source": rel,
                         "path": str(path),
                         "body_excerpt": excerpt,
-                        "workers": ",".join(self._workers_for_skill(name)),
+                        "workers": ",".join(self._workers_for_skill(name) or self._workers_from_body(body)),
                         "search_tokens": " ".join(
                             sorted(
                                 self._tokenize(name)
@@ -1816,6 +2019,49 @@ def _skill_bundle_for_request(
                 },
                 loom_root=LOOM_ROOT,
             )
+    lowered = (request or "").strip().lower()
+    if matches:
+        names = {str(item.get("name") or "").strip().lower() for item in matches}
+        meridian_internal_skill = (
+            _looks_like_meridian_internal_query(request)
+            or _looks_like_meridian_operator_workflow_query(request)
+            or _looks_like_meridian_positioning_query(request)
+            or any(
+                term in lowered
+                for term in (
+                    "meridian",
+                    "loom_native",
+                    "preflight",
+                    "treasury",
+                    "reserve floor",
+                    "payout",
+                    "telegram",
+                    "ops snapshot",
+                )
+            )
+        )
+        if meridian_internal_skill and "ai-intelligence" in names and len(matches) > 1:
+            filtered = [
+                item
+                for item in matches
+                if str(item.get("name") or "").strip().lower() != "ai-intelligence"
+            ]
+            if filtered:
+                matches = filtered
+                names = {str(item.get("name") or "").strip().lower() for item in matches}
+        if "ops-snapshot" in names and any(term in lowered for term in ("ops", "snapshot", "health", "status")):
+            filtered = [
+                item for item in matches if str(item.get("name") or "").strip().lower() == "ops-snapshot"
+            ]
+            if filtered:
+                matches = filtered
+                names = {str(item.get("name") or "").strip().lower() for item in matches}
+        if "founder-update" in names and any(term in lowered for term in ("founder", "update", "brief")):
+            filtered = [
+                item for item in matches if str(item.get("name") or "").strip().lower() == "founder-update"
+            ]
+            if filtered:
+                matches = filtered
     guidance = TEAM_SKILLS.guidance_block(matches)
     workers: list[str] = []
     for item in matches:
@@ -2669,6 +2915,25 @@ class WebAPIAdapter(ChannelAdapter):
                 self.end_headers()
                 self.wfile.write(body)
 
+            def _reconcile_stale_web_deliveries(self) -> None:
+                cutoff_ms = int(time.time() * 1000) - 5000
+                for record in _loom_channel_deliveries(limit=50):
+                    if str(record.get("channel_id") or "").strip() != "web_api":
+                        continue
+                    if str(record.get("status") or "").strip() != "queued":
+                        continue
+                    submitted_at = int(record.get("submitted_at_unix_ms") or 0)
+                    if submitted_at > cutoff_ms:
+                        continue
+                    delivery_id = str(record.get("delivery_id") or "").strip()
+                    if not delivery_id:
+                        continue
+                    _loom_channel_update(
+                        delivery_id,
+                        "failed",
+                        detail="client_disconnected_or_unacknowledged_http_response",
+                    )
+
             def do_OPTIONS(self) -> None:  # noqa: N802
                 if not self._origin_allowed():
                     self._send_json(403, {"status": "error", "output": "origin_not_allowed"})
@@ -2737,6 +3002,7 @@ class WebAPIAdapter(ChannelAdapter):
                 if not self._origin_allowed():
                     self._send_json(403, {"status": "error", "output": "origin_not_allowed"})
                     return
+                self._reconcile_stale_web_deliveries()
                 parsed = urlparse(self.path)
                 request_path = parsed.path
                 try:
@@ -2851,7 +3117,26 @@ class WebAPIAdapter(ChannelAdapter):
                     delivery_id=delivery_id,
                     job_id=str((team_meta or {}).get("job_id") or "").strip(),
                 )
-                self._send_json(200, {"status": "success", "output": answer})
+                try:
+                    self._send_json(200, {"status": "success", "output": answer})
+                except (BrokenPipeError, ConnectionResetError, TimeoutError, OSError) as exc:
+                    if delivery_id:
+                        _loom_channel_update(
+                            delivery_id,
+                            "failed",
+                            detail=f"{exc.__class__.__name__}: {exc}",
+                        )
+                    _record_gateway_audit(
+                        "manager_response_delivery_failed",
+                        session_key=session_key,
+                        channel="web_api",
+                        text=answer,
+                        outcome="failed",
+                        ingress_request_id=ingress_request_id,
+                        delivery_id=delivery_id,
+                        extra_details={"error": f"{exc.__class__.__name__}: {exc}"},
+                    )
+                    return
                 if delivery_id:
                     _loom_channel_update(delivery_id, "delivered", external_ref="http_response", detail="")
                 _record_gateway_audit(
