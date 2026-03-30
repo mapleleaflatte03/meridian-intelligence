@@ -58,12 +58,12 @@ def _empty_store(org_id):
         'requests': {},
         'states': list(REQUEST_STATES),
         '_meta': {
-            'service_scope': 'manual_pilot_intake',
+            'service_scope': 'pilot_intake',
             'bound_org_id': resolve_org_id(org_id) or '',
             'boundary_name': 'pilot_intake',
             'identity_model': 'public_submission',
             'storage_model': 'capsule_canonical',
-            'offer_scope': 'founder_led_manual_pilot',
+            'offer_scope': 'founder_led_pilot_with_public_paid_checkout',
         },
     }
 
@@ -365,13 +365,14 @@ def queue_snapshot(org_id=None, *, limit=50):
     limited_requests = requests[:limit] if limit else []
     return {
         'bound_org_id': resolve_org_id(org_id) or '',
-        'management_mode': 'manual_pilot_intake',
+        'management_mode': 'pilot_intake_with_public_checkout_preview',
         'mutation_enabled': True,
         'mutation_disabled_reason': '',
-        'service_scope': 'manual_pilot_intake',
+        'service_scope': 'pilot_intake',
         'boundary_name': 'pilot_intake',
         'identity_model': 'public_submission',
         'storage_model': 'capsule_canonical',
+        'checkout_preview_publication_enabled': True,
         'request_paths': {
             'submit': '/api/pilot/intake',
             'inspect': '/api/pilot/intake',
@@ -392,7 +393,7 @@ def operator_review_snapshot(org_id=None, *, limit=50):
         'inspect_path': '/api/pilot/intake/operator',
         'review_path': '/api/pilot/intake/operator/review',
         'fulfillment_claimed': False,
-        'fulfillment_note': 'review only; no automated fulfillment',
+        'fulfillment_note': 'operator review only; public paid checkout can publish a preview without claiming manual fulfillment',
         'acknowledged_count': snapshot['summary'].get('acknowledged_count', 0),
         'reviewed_count': snapshot['summary'].get('reviewed_count', 0),
         'reviewable_count': snapshot['summary'].get('reviewable_count', 0),

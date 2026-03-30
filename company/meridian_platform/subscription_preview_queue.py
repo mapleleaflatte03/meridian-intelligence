@@ -62,7 +62,7 @@ def _empty_store(org_id):
             'service_scope': 'institution_owned_subscription_preview_queue',
             'bound_org_id': (org_id or '').strip(),
             'boundary_name': 'subscription_preview_queue',
-            'identity_model': 'operator_review',
+            'identity_model': 'public_submission_or_operator_review',
             'storage_model': 'capsule_canonical',
             'truth_boundary': 'published_plan_table_only',
         },
@@ -77,10 +77,16 @@ def _normalize_state(state, *, existing_state=''):
     return state or existing_state or 'previewed'
 
 
-def _plan_options():
+def _plan_options(requested_offer=''):
+    requested_offer = (requested_offer or '').strip()
+    restricted_plan = ''
+    if requested_offer == subscription_service.PUBLIC_CHECKOUT_PLAN:
+        restricted_plan = subscription_service.PUBLIC_CHECKOUT_PLAN
     options = []
     for plan_name in sorted(subscription_service.PLANS.keys()):
         if plan_name == 'trial':
+            continue
+        if restricted_plan and plan_name != restricted_plan:
             continue
         plan = subscription_service.PLANS[plan_name]
         options.append({
@@ -293,11 +299,20 @@ def get_subscription_preview(preview_id, org_id=None):
     return _normalize_preview(preview, org_id, existing=preview)
 
 
-def preview_from_pilot_request(request, *, org_id=None, by='', note=''):
+def preview_from_pilot_request(request, *, org_id=None, by='', note='', billing_model='', preview_truth_source=''):
     request = dict(request or {})
     request_id = (request.get('request_id') or '').strip()
     if not request_id:
         raise ValueError('request_id is required')
+    requested_offer = (request.get('requested_offer') or 'manual_pilot').strip()
+    is_public_checkout_offer = requested_offer == subscription_service.PUBLIC_CHECKOUT_PLAN
+    default_billing_model = 'customer_initiated_checkout_capture' if is_public_checkout_offer else 'manual_continuation_only'
+    default_truth_source = (
+        'public_intake_and_published_plan_table_only'
+        if is_public_checkout_offer
+        else 'pilot_intake_review_and_published_plan_table_only'
+    )
+    review_state = 'reviewed' if (request.get('reviewed_at') or request.get('reviewed_by')) else 'previewed'
 
     preview = {
         'preview_id': f'quote_{request_id}',
@@ -307,18 +322,18 @@ def preview_from_pilot_request(request, *, org_id=None, by='', note=''):
         'email': request.get('email', ''),
         'telegram_handle': request.get('telegram_handle', ''),
         'requested_cadence': request.get('requested_cadence', ''),
-        'requested_offer': request.get('requested_offer', 'manual_pilot'),
+        'requested_offer': requested_offer,
         'reviewed_by': (request.get('reviewed_by') or by or '').strip(),
         'review_note': (request.get('review_note') or note or '').strip(),
         'reviewed_at': request.get('reviewed_at', ''),
         'created_by': (by or request.get('submitted_by') or '').strip(),
-        'billing_model': 'manual_continuation_only',
-        'preview_truth_source': 'pilot_intake_review_and_published_plan_table_only',
-        'state': 'reviewed' if (request.get('reviewed_at') or by or note) else 'previewed',
+        'billing_model': (billing_model or default_billing_model).strip(),
+        'preview_truth_source': (preview_truth_source or default_truth_source).strip(),
+        'state': review_state,
         'checkout_claimed': False,
         'payment_capture_claimed': False,
         'fulfillment_claimed': False,
-        'plan_options': _plan_options(),
+        'plan_options': _plan_options(requested_offer),
     }
     if request.get('competitors') is not None:
         preview['competitors'] = list(request.get('competitors') or [])
@@ -327,8 +342,15 @@ def preview_from_pilot_request(request, *, org_id=None, by='', note=''):
     return preview
 
 
-def queue_subscription_preview(request, *, org_id=None, by='', note=''):
-    preview = preview_from_pilot_request(request, org_id=org_id, by=by, note=note)
+def queue_subscription_preview(request, *, org_id=None, by='', note='', billing_model='', preview_truth_source=''):
+    preview = preview_from_pilot_request(
+        request,
+        org_id=org_id,
+        by=by,
+        note=note,
+        billing_model=billing_model,
+        preview_truth_source=preview_truth_source,
+    )
     with _preview_lock(org_id):
         store = _load_store(org_id)
         existing = store.get('subscription_previews', {}).get(preview['preview_id'])
@@ -480,14 +502,15 @@ def subscription_preview_queue_snapshot(org_id=None, *, limit=50):
     limited_previews = previews[:limit] if limit else []
     return {
         'bound_org_id': (org_id or '').strip(),
-        'management_mode': 'manual_subscription_preview_queue',
+        'management_mode': 'subscription_preview_queue',
         'mutation_enabled': True,
         'mutation_disabled_reason': '',
         'service_scope': 'institution_owned_subscription_preview_queue',
         'boundary_name': 'subscription_preview_queue',
-        'identity_model': 'operator_review',
+        'identity_model': 'public_submission_or_operator_review',
         'storage_model': 'capsule_canonical',
         'queue_paths': {
+            'public_intake': '/api/pilot/intake',
             'inspect': '/api/subscriptions/preview-queue',
             'source_review': '/api/pilot/intake/operator/review',
             'checkout_capture': '/api/subscriptions/checkout-capture',

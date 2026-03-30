@@ -18,8 +18,8 @@ PUBLIC_SURFACE_GET_ROUTES = (
 )
 
 PUBLIC_SURFACE_POST_ROUTES = (
-    ('/api/pilot/intake', 'Public pilot intake submission'),
-    ('/api/subscriptions/checkout-capture', 'Customer-initiated captured checkout activation'),
+    ('/api/pilot/intake', 'Public pilot intake submission with optional checkout preview publication'),
+    ('/api/subscriptions/checkout-capture', 'Customer-initiated captured checkout activation with payment-evidence validation'),
     ('/api/federation/receive', 'Inbound federation envelope validation/receipt'),
 )
 

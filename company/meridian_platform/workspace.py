@@ -39,7 +39,7 @@ Endpoints:
   GET  /api/subscriptions/loom-delivery-jobs → Inspect queued Loom delivery jobs on the founding-locked host
   GET  /api/subscriptions/loom-delivery-runs → Inspect persisted Loom delivery runs on the founding-locked host
   GET  /api/accounting            → Institution-owned accounting owner-ledger state on the founding-locked host
-  GET  /api/pilot/intake          → Manual pilot intake queue snapshot on the founding-locked host
+  GET  /api/pilot/intake          → Pilot intake queue snapshot on the founding-locked host
   GET  /api/payouts              → Payout proposals and summary
   GET  /api/court                 → Court records
   GET  /api/warrants              → Warrant records and summary
@@ -94,7 +94,7 @@ Endpoints:
   POST /api/subscriptions/set-email → Update subscription email metadata
   POST /api/subscriptions/record-delivery → Append a subscription delivery record
   POST /api/telegram/history/import → Import Telegram Desktop export into Leviathann session continuity
-  POST /api/pilot/intake         → Persist a public manual-pilot intake request
+  POST /api/pilot/intake         → Persist a public pilot intake request and optionally publish a checkout preview
   POST /api/accounting/expense    → Record an owner-paid expense in the institution-owned ledger
   POST /api/accounting/reimburse  → Reimburse an owner-paid expense from treasury
   POST /api/accounting/draw       → Take an owner draw from treasury above reserve floor
@@ -4994,6 +4994,7 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
             try:
                 inst_ctx = _resolve_workspace_context()
                 body = self._read_body()
+                requested_offer = body.get('requested_offer') or 'manual_pilot'
                 result = pilot_intake.submit_pilot_request(
                     body.get('name'),
                     body.get('company'),
@@ -5004,10 +5005,19 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                     topics=body.get('topics') or [],
                     notes=body.get('notes') or '',
                     source_page=body.get('source_page') or 'pilot.html',
-                    requested_offer=body.get('requested_offer') or 'manual_pilot',
+                    requested_offer=requested_offer,
                     org_id=inst_ctx.org_id,
                     submitted_by='public:intake',
                 )
+                preview_result = None
+                if bool(body.get('publish_preview')) or requested_offer == subscription_service.PUBLIC_CHECKOUT_PLAN:
+                    preview_result = subscription_preview_queue.queue_subscription_preview(
+                        result['request'],
+                        org_id=inst_ctx.org_id,
+                        by='public:checkout-preview',
+                        note='Public checkout preview generated from pilot intake',
+                    )
+                checkout_offer = subscription_service.public_checkout_offer()
                 log_event(
                     inst_ctx.org_id,
                     'public:intake',
@@ -5020,13 +5030,24 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                         'contact_channel': result['request'].get('contact_channel', ''),
                         'status': result['request'].get('status', ''),
                         'source_page': result['request'].get('source_page', ''),
+                        'requested_offer': requested_offer,
                     },
                 )
-                return self._json({
+                response = {
                     'message': 'Pilot intake request recorded',
                     'request': result['request'],
                     'summary': result['summary'],
-                }, 201)
+                }
+                if preview_result:
+                    response['message'] = 'Pilot intake recorded and public checkout preview published'
+                    response['subscription_preview'] = preview_result['preview']
+                    response['subscription_preview_summary'] = preview_result['summary']
+                    response['checkout'] = {
+                        'preview_id': preview_result['preview'].get('preview_id', ''),
+                        'checkout_capture_path': '/api/subscriptions/checkout-capture',
+                        'offer': checkout_offer,
+                    }
+                return self._json(response, 201)
             except RuntimeError as e:
                 return self._service_unavailable(str(e), is_api=True)
             except ValueError as e:
@@ -5062,11 +5083,27 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                 payment_ref = (body.get('payment_ref') or '').strip()
                 if not payment_ref and isinstance(payment_evidence, dict):
                     payment_ref = (payment_evidence.get('payment_ref') or '').strip()
+                payment_method = (body.get('payment_method') or 'captured').strip()
+                if isinstance(payment_evidence, dict):
+                    tx_hash = str(payment_evidence.get('tx_hash') or '').strip()
+                    if tx_hash and not payment_ref:
+                        payment_ref = tx_hash
+                        payment_evidence['payment_ref'] = payment_ref
+                settlement_verification = {}
+                plan_name = (body.get('plan') or (draft.get('plan') if draft else '') or '').strip()
+                if payment_method == subscription_service.PUBLIC_CHECKOUT_PAYMENT_METHOD:
+                    settlement_verification = subscription_service.ensure_base_usdc_customer_payment(
+                        preview,
+                        plan_name=plan_name or subscription_service._default_plan_from_preview(preview),
+                        payment_ref=payment_ref,
+                        tx_hash=(payment_evidence.get('tx_hash') if isinstance(payment_evidence, dict) else ''),
+                        org_id=inst_ctx.org_id,
+                    )
                 result = subscription_service.capture_subscription_from_preview(
                     preview,
                     telegram_id=body.get('telegram_id') or (draft.get('telegram_id') if draft else None),
-                    plan=(body.get('plan') or (draft.get('plan') if draft else '') or '').strip(),
-                    payment_method=body.get('payment_method') or 'captured',
+                    plan=plan_name,
+                    payment_method=payment_method,
                     payment_ref=payment_ref,
                     payment_evidence=payment_evidence,
                     org_id=inst_ctx.org_id,
@@ -5103,15 +5140,18 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                         'preview_id': preview_id,
                         'draft_id': draft_id,
                         'telegram_id': result['telegram_id'],
+                        'subscriber_id': result.get('subscriber_id', ''),
                         'plan': activated.get('plan', ''),
                         'payment_ref': activated.get('payment_ref', ''),
                         'payment_verified': bool(activated.get('payment_verified')),
                         'delivery_state': run.get('state', ''),
+                        'payment_method': payment_method,
                     },
                 )
                 return self._json({
                     'message': 'Captured checkout activated from preview or draft record; Loom execution and customer delivery ran automatically when the runtime and delivery channels were healthy',
                     'result': result,
+                    'settlement_verification': settlement_verification,
                     'preview': preview_result['preview'],
                     'subscription_preview_summary': preview_result['summary'],
                     'service_state': service_state.subscription_snapshot(inst_ctx.org_id),

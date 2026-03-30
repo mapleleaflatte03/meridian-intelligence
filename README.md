@@ -93,7 +93,7 @@ Start with the demo and pilot surfaces:
 - Support the work: https://app.welliam.codes/support.html
 - Contact: Telegram [@Enhanhsj](https://t.me/Enhanhsj) or email `nguyensimon186@gmail.com`
 
-The honest current offer is a founder-led manual pilot plus an evidence-backed checkout capture rail. More cash in treasury only clears the reserve gate; automated delivery still waits for customer-backed phase progression, runtime preflight, and constitutional approval where required.
+The honest current offer is a founder-led paid pilot plus an evidence-backed checkout capture rail. More cash in treasury only clears the reserve gate; broader automated delivery still waits for customer-backed phase progression, runtime preflight, and constitutional approval where required.
 If you want to back Meridian without pretending that support equals customer delivery, use the dedicated support path instead of the pilot flow.
 
 If you are confused about support vs pilot vs customer revenue vs future contributor payouts, read:
@@ -139,7 +139,7 @@ implicit.
 ## Payment
 
 - **MCP tool calls:** [x402](https://x402.org) over USDC on Base L2
-- **Pilot engagements:** manual activation is available via bank transfer, Wise, or stablecoin; the repo also exposes a customer-initiated checkout-capture rail for validated payment evidence, but card checkout is not live
+- **Pilot engagements:** the live public buy path is exact-amount USDC on Base with validated checkout capture; bank transfer, Wise, and manual exceptions remain secondary rails, and card checkout is not live
 - **Support / sponsorship:** use the support page for non-customer backing of the build, infra, and open kernel
 - **Chain:** Base L2 (Chain ID 8453)
 - **Token:** USDC (`0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`)

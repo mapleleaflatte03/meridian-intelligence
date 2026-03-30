@@ -11,6 +11,7 @@ import sys
 import tempfile
 import time
 import uuid
+from urllib import request as urllib_request
 from urllib.parse import quote_plus
 
 from capsule import (
@@ -34,7 +35,30 @@ _revenue_spec = importlib.util.spec_from_file_location('subscription_service_rev
 _revenue_mod = importlib.util.module_from_spec(_revenue_spec)
 _revenue_spec.loader.exec_module(_revenue_mod)
 
+MERIDIAN_HOME = os.environ.get('MERIDIAN_HOME', os.path.expanduser('~/.meridian'))
+BASE_WALLET_FILE = os.environ.get(
+    'MERIDIAN_BASE_WALLET_FILE',
+    os.path.join(MERIDIAN_HOME, 'credentials', 'base_wallet.json'),
+)
+BASE_CHAIN_ID = 8453
+BASE_USDC_ASSET = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913'
+BASE_USDC_DECIMALS = 6
+BASE_USDC_TRANSFER_TOPIC = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef'
+BASE_RPC_URLS = tuple(
+    url.strip()
+    for url in (
+        os.environ.get('MERIDIAN_BASE_RPC_URL', ''),
+        os.environ.get('MERIDIAN_BASE_RPC_URL_BACKUP', ''),
+        'https://base-rpc.publicnode.com',
+        'https://base-mainnet.public.blastapi.io',
+    )
+    if str(url or '').strip()
+)
+PUBLIC_CHECKOUT_PLAN = 'founder-pilot-week'
+PUBLIC_CHECKOUT_PAYMENT_METHOD = 'base_usdc'
+
 PLANS = {
+    PUBLIC_CHECKOUT_PLAN:         {'price_usd': 49.00, 'duration_days': 7,  'type': 'one-time'},
     'premium-brief-monthly': {'price_usd': 9.99, 'duration_days': 30, 'type': 'recurring'},
     'premium-brief-weekly':  {'price_usd': 2.99, 'duration_days': 7,  'type': 'recurring'},
     'deep-dive-single':      {'price_usd': 9.99, 'duration_days': 0,  'type': 'one-time'},
@@ -59,6 +83,246 @@ def now_ts():
 
 def now_dt():
     return datetime.datetime.utcnow()
+
+
+def _load_base_wallet_address():
+    if os.path.exists(BASE_WALLET_FILE):
+        with open(BASE_WALLET_FILE) as f:
+            payload = json.load(f)
+        address = str(payload.get('address') or '').strip()
+        if address:
+            return address
+    raise RuntimeError(f'Base wallet not found at {BASE_WALLET_FILE}')
+
+
+def public_checkout_offer():
+    plan = dict(PLANS[PUBLIC_CHECKOUT_PLAN])
+    return {
+        'requested_offer': PUBLIC_CHECKOUT_PLAN,
+        'plan': PUBLIC_CHECKOUT_PLAN,
+        'price_usd': float(plan['price_usd']),
+        'duration_days': int(plan['duration_days']),
+        'billing_type': plan['type'],
+        'payment_method': PUBLIC_CHECKOUT_PAYMENT_METHOD,
+        'payment_instructions': {
+            'method': PUBLIC_CHECKOUT_PAYMENT_METHOD,
+            'network': 'Base L2',
+            'chain_id': BASE_CHAIN_ID,
+            'asset': 'USDC',
+            'asset_address': BASE_USDC_ASSET,
+            'amount_usd': float(plan['price_usd']),
+            'recipient_wallet': _load_base_wallet_address(),
+            'payment_ref_mode': 'tx_hash',
+            'checkout_capture_path': '/api/subscriptions/checkout-capture',
+            'note': 'Pay the exact USDC amount on Base, then submit the transaction hash as payment_ref.',
+        },
+    }
+
+
+def _rpc_json(url, method, params):
+    payload = json.dumps({
+        'jsonrpc': '2.0',
+        'id': 1,
+        'method': method,
+        'params': params,
+    }).encode('utf-8')
+    req = urllib_request.Request(
+        url,
+        data=payload,
+        headers={
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            'User-Agent': 'Meridian/1.0',
+        },
+    )
+    with urllib_request.urlopen(req, timeout=10) as response:
+        body = json.loads(response.read().decode('utf-8'))
+    if body.get('error'):
+        raise RuntimeError(str(body['error']))
+    return body.get('result')
+
+
+def _rpc_json_any(method, params):
+    last_error = 'no Base RPC URL configured'
+    for url in BASE_RPC_URLS:
+        try:
+            result = _rpc_json(url, method, params)
+            return result, url
+        except Exception as exc:
+            last_error = f'{url}: {exc}'
+    raise RuntimeError(f'Base RPC request failed for {method}: {last_error}')
+
+
+def _topic_address(topic):
+    value = str(topic or '').strip().lower()
+    if value.startswith('0x'):
+        value = value[2:]
+    if len(value) != 64:
+        return ''
+    return '0x' + value[-40:]
+
+
+def _usd_to_base_usdc_units(amount_usd):
+    return int(round(float(amount_usd or 0.0) * (10 ** BASE_USDC_DECIMALS)))
+
+
+def _verify_base_usdc_payment(tx_hash, *, amount_usd):
+    tx_hash = str(tx_hash or '').strip()
+    if not tx_hash:
+        raise ValueError('tx_hash is required for Base USDC verification')
+    if not tx_hash.startswith('0x') or len(tx_hash) != 66:
+        raise ValueError('tx_hash must be a 0x-prefixed 32-byte hash')
+
+    chain_id_hex, chain_rpc_url = _rpc_json_any('eth_chainId', [])
+    if int(chain_id_hex, 16) != BASE_CHAIN_ID:
+        raise RuntimeError(f'Unexpected Base RPC chain id: {chain_id_hex}')
+
+    receipt, receipt_rpc_url = _rpc_json_any('eth_getTransactionReceipt', [tx_hash])
+    if not receipt:
+        raise LookupError(f'Base transaction receipt not found for {tx_hash}')
+    if int(receipt.get('status') or '0x0', 16) != 1:
+        raise ValueError(f'Base transaction {tx_hash} did not execute successfully')
+
+    receiving_wallet = _load_base_wallet_address().lower()
+    expected_units = _usd_to_base_usdc_units(amount_usd)
+    total_units = 0
+    payer_wallet = ''
+    matched_logs = []
+    for entry in receipt.get('logs') or []:
+        if str(entry.get('address') or '').lower() != BASE_USDC_ASSET.lower():
+            continue
+        topics = entry.get('topics') or []
+        if len(topics) < 3:
+            continue
+        if str(topics[0] or '').lower() != BASE_USDC_TRANSFER_TOPIC:
+            continue
+        recipient = _topic_address(topics[2]).lower()
+        if recipient != receiving_wallet:
+            continue
+        units = int(str(entry.get('data') or '0x0'), 16)
+        total_units += units
+        payer_wallet = payer_wallet or _topic_address(topics[1]).lower()
+        matched_logs.append({
+            'log_index': entry.get('logIndex', ''),
+            'from': _topic_address(topics[1]),
+            'to': recipient,
+            'amount_units': units,
+        })
+
+    if total_units < expected_units:
+        raise ValueError(
+            f'Base USDC receipt {tx_hash} transferred {total_units / (10 ** BASE_USDC_DECIMALS):.6f} USDC '
+            f'to {receiving_wallet}, below required {float(amount_usd):.2f} USDC'
+        )
+
+    return {
+        'network': 'Base L2',
+        'chain_id': BASE_CHAIN_ID,
+        'tx_hash': tx_hash,
+        'asset': 'USDC',
+        'asset_address': BASE_USDC_ASSET,
+        'recipient_wallet': receiving_wallet,
+        'payer_wallet': payer_wallet,
+        'received_units': total_units,
+        'received_amount_usdc': round(total_units / (10 ** BASE_USDC_DECIMALS), 6),
+        'required_amount_usdc': float(amount_usd),
+        'receipt_rpc_url': receipt_rpc_url,
+        'chain_rpc_url': chain_rpc_url,
+        'matched_logs': matched_logs,
+    }
+
+
+def ensure_base_usdc_customer_payment(preview, *, plan_name='', payment_ref='', tx_hash='', org_id=None):
+    preview = dict(preview or {})
+    plan_name = (plan_name or '').strip()
+    if plan_name not in PLANS:
+        raise ValueError(f"unknown plan '{plan_name}'. Available: {', '.join(sorted(PLANS.keys()))}")
+    tx_hash = str(tx_hash or '').strip()
+    payment_ref = str(payment_ref or tx_hash).strip()
+    if not tx_hash:
+        raise ValueError('tx_hash is required for Base USDC checkout capture')
+    if not payment_ref:
+        raise ValueError('payment_ref is required for Base USDC checkout capture')
+
+    amount_usd = float(PLANS[plan_name]['price_usd'])
+    existing = _revenue_mod.find_customer_payment_evidence(
+        payment_ref=payment_ref,
+        tx_hash=tx_hash,
+        min_amount_usd=amount_usd,
+    )
+    if existing:
+        return {
+            'mode': 'existing_customer_payment',
+            'payment_ref': payment_ref,
+            'tx_hash': tx_hash,
+            'evidence': dict(existing),
+            'verification': {
+                'network': 'Base L2',
+                'chain_id': BASE_CHAIN_ID,
+                'status': 'already_recorded',
+            },
+        }
+
+    verification = _verify_base_usdc_payment(tx_hash, amount_usd=amount_usd)
+    client_name = (preview.get('company') or preview.get('name') or preview.get('preview_id') or 'meridian-customer').strip()
+    client_contact = (
+        preview.get('email')
+        or preview.get('telegram_handle')
+        or preview.get('preview_id')
+        or payment_ref
+    )
+    record = _revenue_mod.record_external_customer_payment(
+        plan_name,
+        amount_usd,
+        payment_key=f'ref:{payment_ref}',
+        client_name=client_name,
+        client_contact=client_contact,
+        note=f'Base USDC checkout capture for {preview.get("preview_id") or "preview"}',
+        tx_hash=tx_hash,
+        payment_ref=payment_ref,
+        payment_source='base_usdc_checkout',
+    )
+    evidence = _revenue_mod.find_customer_payment_evidence(
+        payment_ref=payment_ref,
+        tx_hash=tx_hash,
+        min_amount_usd=amount_usd,
+    ) or {}
+    return {
+        'mode': 'verified_base_usdc_recorded',
+        'payment_ref': payment_ref,
+        'tx_hash': tx_hash,
+        'record': dict(record),
+        'verification': verification,
+        'evidence': dict(evidence),
+    }
+
+
+def _default_plan_from_preview(preview):
+    preview = dict(preview or {})
+    options = []
+    for entry in preview.get('plan_options') or []:
+        if not isinstance(entry, dict):
+            continue
+        plan_name = str(entry.get('plan') or '').strip()
+        if plan_name:
+            options.append(plan_name)
+    unique = sorted(set(options))
+    if len(unique) == 1:
+        return unique[0]
+    return ''
+
+
+def _delivery_telegram_target(preview, explicit_telegram_id=''):
+    explicit = str(explicit_telegram_id or '').strip()
+    if explicit and not explicit.lower().startswith('email:'):
+        return explicit
+    preview_telegram_id = str(dict(preview or {}).get('telegram_id') or '').strip()
+    if preview_telegram_id and not preview_telegram_id.lower().startswith('email:'):
+        return preview_telegram_id
+    handle = str(dict(preview or {}).get('telegram_handle') or '').strip()
+    if handle and not handle.lower().startswith('email:'):
+        return handle
+    return ''
 
 
 def _default_subscriptions(org_id=None):
@@ -260,7 +524,7 @@ def _subscription_delivery_eligible(sub, *, org_id=None, now=None):
     now = now or now_dt()
     if sub.get('status') != 'active':
         return False
-    if sub.get('plan') not in ('premium-brief-monthly', 'premium-brief-weekly', 'trial'):
+    if sub.get('plan') not in (PUBLIC_CHECKOUT_PLAN, 'premium-brief-monthly', 'premium-brief-weekly', 'trial'):
         return False
     expires_at = (sub.get('expires_at') or '').strip()
     if expires_at:
@@ -937,7 +1201,7 @@ def queue_loom_delivery(subscription, *, preview=None, org_id=None, actor=''):
         'job_id': job_id,
         'subscription_id': subscription_id,
         'preview_id': (preview.get('preview_id') or subscription.get('activated_from_preview_id') or '').strip(),
-        'telegram_id': (subscription.get('telegram_id') or subscription.get('subscriber_id') or subscription.get('created_for') or '').strip(),
+        'telegram_id': (subscription.get('telegram_id') or '').strip(),
         'email': (subscription.get('email') or preview.get('email') or '').strip(),
         'name': (preview.get('name') or '').strip(),
         'company': (preview.get('company') or '').strip(),
@@ -1250,15 +1514,17 @@ def activate_subscription_from_preview(preview, *, telegram_id=None, plan=None,
     preview_id = (preview.get('preview_id') or '').strip()
     if not preview_id:
         raise ValueError('preview_id is required')
-    plan_name = (plan or '').strip()
+    plan_name = (plan or '').strip() or _default_plan_from_preview(preview)
     if not plan_name:
         raise ValueError('plan is required to activate a subscription from preview')
     if plan_name not in PLANS:
         raise ValueError(f"unknown plan '{plan_name}'. Available: {', '.join(sorted(PLANS.keys()))}")
 
-    subscriber_key = (telegram_id or preview.get('telegram_id') or preview.get('telegram_handle') or '').strip()
+    email = str(preview.get('email') or '').strip().lower()
+    delivery_telegram_id = _delivery_telegram_target(preview, explicit_telegram_id=telegram_id)
+    subscriber_key = delivery_telegram_id or (f'email:{email}' if email else '')
     if not subscriber_key:
-        raise ValueError('telegram_id is required to activate a subscription from preview')
+        raise ValueError('telegram_id or email is required to activate a subscription from preview')
 
     payment_ref = (payment_ref or '').strip()
     confirm_payment = plan_name != 'trial'
@@ -1273,7 +1539,7 @@ def activate_subscription_from_preview(preview, *, telegram_id=None, plan=None,
         payment_evidence=payment_evidence,
         confirm_payment=confirm_payment,
         trial=(plan_name == 'trial'),
-        email=preview.get('email') or None,
+        email=email or None,
         org_id=org_id,
         actor=actor,
     )
@@ -1287,13 +1553,17 @@ def activate_subscription_from_preview(preview, *, telegram_id=None, plan=None,
             record['activation_state'] = 'captured'
             record['activation_source'] = 'subscription_preview_queue'
             record['subscription_source'] = 'subscription_preview_queue'
-            record['telegram_id'] = subscriber_key
+            record['telegram_id'] = delivery_telegram_id
+            record['telegram_handle'] = str(preview.get('telegram_handle') or '').strip()
             record['subscriber_id'] = subscriber_key
             record['created_for'] = subscriber_key
             record['preview_id'] = preview_id
             record['created_from_preview'] = True
             record['activated_at'] = now_ts()
             record['activated_by'] = actor or ''
+            record['contact_channel'] = 'telegram' if delivery_telegram_id else 'email'
+            if email:
+                record['email'] = email
             records[index] = record
             subscription = record
             result['subscription'] = record
@@ -1312,7 +1582,9 @@ def activate_subscription_from_preview(preview, *, telegram_id=None, plan=None,
     delivery_job = payload.get('loom_delivery_jobs', {}).get(delivery_job['job_id'], delivery_job)
     return {
         'preview_id': preview_id,
-        'telegram_id': subscriber_key,
+        'subscriber_id': subscriber_key,
+        'telegram_id': delivery_telegram_id,
+        'email': email,
         'subscription': subscription,
         'delivery_job': delivery_job,
         'delivery_run': delivery_run['run'],
