@@ -42,12 +42,14 @@ from audit import log_event
 from court import get_restrictions
 from loom_runtime_discovery import preferred_loom_bin, preferred_loom_root, runtime_value
 from session_history import append_session_event
+from subscription_service import public_checkout_offer, subscription_summary
 from team_topology import SPECIALIST_KEYS, load_team_topology, sync_loom_team_profiles
 from telegram_history import imported_history_context
 
 SOUL_PATH = WORKSPACE_DIR / "SOUL.md"
 MEMORY_PATH = WORKSPACE_DIR / "MEMORY.md"
 SKILLS_DIR = WORKSPACE_DIR / "skills"
+COUNCIL_CONTEXT_PATH = COMPANY_DIR / "COUNCIL_CUSTOMER_READINESS_CONTEXT.md"
 LOOM_MEMORY_PATH = "workspace/MEMORY.md"
 LOOM_BIN = runtime_value('binary_path', preferred_loom_bin())
 LOOM_ROOT = runtime_value('runtime_root', preferred_loom_root())
@@ -123,6 +125,7 @@ SKILL_STOPWORDS = {
 }
 SKILL_WORKER_HINTS = {
     "ai-intelligence": ["ATLAS", "QUILL", "AEGIS"],
+    "council-meeting": ["ATLAS", "SENTINEL", "QUILL", "AEGIS", "FORGE", "PULSE"],
     "download-quarantine": ["FORGE", "SENTINEL"],
     "founder-update": ["QUILL", "AEGIS"],
     "malware-triage": ["FORGE", "SENTINEL"],
@@ -136,6 +139,37 @@ SKILL_WORKER_HINTS = {
 }
 SKILL_ALIAS_HINTS = {
     "ai-intelligence": {"brief", "digest", "competitor", "intelligence", "latest", "research", "snapshot", "weekly"},
+    "council-meeting": {
+        "board",
+        "buyable",
+        "buyer",
+        "council",
+        "customer",
+        "direction",
+        "gtm",
+        "meeting",
+        "open",
+        "opensource",
+        "product",
+        "source",
+        "strategy",
+        "why",
+        "khach",
+        "khách",
+        "mua",
+        "huong",
+        "hướng",
+        "dinh",
+        "định",
+        "hoi",
+        "hội",
+        "dong",
+        "đồng",
+        "phan",
+        "phản",
+        "bien",
+        "biện",
+    },
     "download-quarantine": {"artifact", "download", "file", "hash", "quarantine", "remote"},
     "malware-triage": {"artifact", "indicator", "malware", "risk", "sample", "triage"},
     "mvp-sprint-scope": {"build", "day", "days", "fast", "mvp", "prototype", "scope", "ship", "sprint"},
@@ -570,10 +604,54 @@ _MERIDIAN_POSITIONING_TERMS = (
     "homepage version",
 )
 
+_MERIDIAN_COUNCIL_TERMS = (
+    "council",
+    "board",
+    "meeting",
+    "hội đồng",
+    "hoi dong",
+    "phản biện",
+    "phan bien",
+    "tranh luận",
+    "tranh luan",
+    "đối chiếu",
+    "doi chieu",
+    "thống nhất",
+    "thong nhat",
+)
+
+_MERIDIAN_CUSTOMER_STRATEGY_TERMS = (
+    "customer",
+    "buyer",
+    "buyable",
+    "buy",
+    "product",
+    "money",
+    "pay",
+    "pricing",
+    "open source",
+    "opensource",
+    "direction",
+    "strategy",
+    "wedge",
+    "khách",
+    "khach",
+    "mua",
+    "sản phẩm",
+    "san pham",
+    "kiếm tiền",
+    "kiem tien",
+    "opensouce",
+    "định hướng",
+    "dinh huong",
+)
+
 
 def _looks_like_meridian_internal_query(text: str) -> bool:
     lowered = text.strip().lower()
     if not lowered:
+        return False
+    if _looks_like_meridian_council_query(text):
         return False
     mentions_meridian = any(term in lowered for term in _MERIDIAN_INTERNAL_STATUS_TERMS)
     asks_for_state = any(term in lowered for term in _MERIDIAN_INTERNAL_QUESTION_TERMS)
@@ -588,6 +666,21 @@ def _looks_like_meridian_positioning_query(text: str) -> bool:
     mentions_positioning = any(term in lowered for term in _MERIDIAN_POSITIONING_TERMS)
     mentions_complex_ops = any(term in lowered for term in _MERIDIAN_COMPLEX_OPERATOR_TERMS)
     return mentions_positioning and not mentions_complex_ops
+
+
+def _looks_like_meridian_council_query(text: str) -> bool:
+    lowered = text.strip().lower()
+    if not lowered:
+        return False
+    mentions_council = any(term in lowered for term in _MERIDIAN_COUNCIL_TERMS)
+    mentions_strategy = any(term in lowered for term in _MERIDIAN_CUSTOMER_STRATEGY_TERMS)
+    mentions_meridian = "meridian" in lowered or "leviathann" in lowered or "loom" in lowered or "kernel" in lowered
+    strategy_hits = sum(1 for term in _MERIDIAN_CUSTOMER_STRATEGY_TERMS if term in lowered)
+    return (
+        (mentions_council and (mentions_strategy or mentions_meridian))
+        or (mentions_meridian and strategy_hits >= 2)
+        or (strategy_hits >= 3 and any(term in lowered for term in ("open source", "opensource", "định hướng", "dinh huong", "mua", "buy", "customer", "khách")))
+    )
 
 
 def _worker_is_restricted(agent_key: str) -> bool:
@@ -725,10 +818,126 @@ def _build_meridian_operator_truth_packet() -> dict[str, Any]:
     }
 
 
+def _build_meridian_council_truth_packet() -> dict[str, Any]:
+    operator_truth = _build_meridian_operator_truth_packet()
+    status = _workspace_api_get_json("/api/status")
+    readiness = _workspace_api_get_json("/api/treasury/settlement-adapters/readiness")
+    status_payload = dict(status.get("payload") or {}) if status.get("ok") else {}
+    service_state = dict(status_payload.get("service_state") or {})
+    preview_state = dict(service_state.get("subscription_preview") or {})
+    pilot_state = dict(service_state.get("pilot_intake") or {})
+    subscriptions_state = dict(service_state.get("subscriptions") or {})
+    readiness_payload = dict(readiness.get("payload") or {}) if readiness.get("ok") else {}
+    readiness_summary = dict(readiness_payload.get("summary") or {})
+    try:
+        live_offer = dict(public_checkout_offer() or {})
+    except Exception as exc:
+        live_offer = {"error": f"{exc.__class__.__name__}: {exc}"}
+    try:
+        live_subscriptions = dict(subscription_summary(LOOM_ORG_ID) or {})
+    except Exception as exc:
+        live_subscriptions = {"error": f"{exc.__class__.__name__}: {exc}"}
+    return {
+        "operator_truth": operator_truth,
+        "public_offer": {
+            "name": "Paid 7-Day Founder Pilot",
+            "requested_offer": live_offer.get("requested_offer"),
+            "price_usd": live_offer.get("price_usd"),
+            "duration_days": live_offer.get("duration_days"),
+            "billing_type": live_offer.get("billing_type"),
+            "payment_method": live_offer.get("payment_method"),
+            "payment_instructions": dict(live_offer.get("payment_instructions") or {}),
+            "buy_path_live": True,
+            "buy_path_description": "exact_amount_usdc_on_base_with_tx_hash_capture",
+            "checkout_preview_path": dict(live_offer.get("payment_instructions") or {}).get("checkout_capture_path") and "/api/pilot/intake" or "",
+            "checkout_capture_path": dict(live_offer.get("payment_instructions") or {}).get("checkout_capture_path"),
+            "continuation_mode": "by_arrangement_after_pilot",
+        },
+        "delivery_truth": {
+            "email_bounded_delivery_live": True,
+            "telegram_bounded_delivery_live": True,
+            "broad_customer_automation_live": False,
+            "nightly_pipeline_state": "treasury_gated_and_preflight_gated",
+            "founder_led_customer_offer": True,
+        },
+        "payment_truth": {
+            "card_checkout_live": False,
+            "paypal_checkout_live": False,
+            "manual_bank_wire_primary": False,
+            "x402_external_customer_proof": False,
+            "base_usdc_public_checkout_live": True,
+        },
+        "service_state_truth": {
+            "pilot_intake_mode": pilot_state.get("management_mode"),
+            "subscription_preview_public_path": preview_state.get("public_intake_path"),
+            "public_checkout_paths": dict(subscriptions_state.get("public_checkout_paths") or {}),
+        },
+        "subscription_truth": live_subscriptions,
+        "settlement_truth": {
+            "ready_adapter_ids": list(readiness_payload.get("ready_adapter_ids") or []),
+            "blocked_adapter_ids": list(readiness_payload.get("blocked_adapter_ids") or []),
+            "host_supported_adapters": list(readiness_summary.get("host_supported_adapters") or []),
+            "default_payout_adapter": readiness_payload.get("default_payout_adapter"),
+        },
+        "open_source_truth": {
+            "kernel_open_source": True,
+            "kernel_role": "runtime_neutral_governance_layer",
+            "intelligence_role": "first_commercial_wedge",
+            "loom_role": "live_execution_runtime_on_this_host_and_installable_local_runtime",
+            "hosted_service_fully_open": False,
+            "not_open_scope": [
+                "delivery_pipelines",
+                "payment_processing",
+                "customer_data",
+                "proprietary_research_sources",
+            ],
+            "doctrine_rule": "prefer_the_narrower_claim_that_can_be_honored_today",
+        },
+        "council_paths": {
+            "doctrine": "company/MERIDIAN_DOCTRINE.md",
+            "context_pack": str(COUNCIL_CONTEXT_PATH.relative_to(WORKSPACE_DIR)),
+            "homepage": "company/www/index.html",
+            "demo": "company/www/demo.html",
+            "pilot": "company/www/pilot.html",
+            "boundary": "company/www/OPEN_SOURCE_BOUNDARY.html",
+            "kernel_readme": "/opt/meridian-kernel/README.md",
+            "public_readme": "README.md",
+        },
+    }
+
+
+def _load_council_context() -> str:
+    try:
+        return COUNCIL_CONTEXT_PATH.read_text(encoding="utf-8").strip()
+    except Exception:
+        return ""
+
+
+def _atlas_should_use_internal_analysis(plan: dict[str, Any], request: str) -> bool:
+    reason = str(plan.get("reason") or "").strip().lower()
+    lowered = str(request or "").strip().lower()
+    skill_names = {
+        str(item.get("name") or "").strip().lower()
+        for item in list(plan.get("skills") or [])
+        if isinstance(item, dict)
+    }
+    if reason in {
+        "meridian_council_meeting",
+        "meridian_positioning",
+        "meridian_operator_workflow",
+    }:
+        return True
+    if "council-meeting" in skill_names:
+        return True
+    return any(token in lowered for token in ("meridian", "leviathann", "loom", "kernel", "open source", "opensource"))
+
+
 def _verified_fact_mode_enabled(request: str, skills_used: list[str], verified_facts: dict[str, Any] | None) -> bool:
     if not isinstance(verified_facts, dict) or not verified_facts:
         return False
     names = {str(item or "").strip().lower() for item in skills_used if str(item or "").strip()}
+    if "council-meeting" in names or _looks_like_meridian_council_query(request):
+        return False
     if names & {"ops-snapshot", "founder-update"}:
         return True
     return (
@@ -896,6 +1105,34 @@ def _request_needs_writer(text: str) -> bool:
     return any(phrase in lowered for phrase in writer_phrases)
 
 
+def _council_role_instruction(agent_key: str) -> str:
+    if agent_key == "ATLAS":
+        return (
+            "Assess what a real buyer can purchase now, what makes the offer credible, and the top blockers to customer acquisition."
+        )
+    if agent_key == "SENTINEL":
+        return (
+            "Attack assumptions, contradictions, and self-deception. Prefer disconfirming evidence over optimism."
+        )
+    if agent_key == "QUILL":
+        return (
+            "Write board-style minutes and a resolution that sounds like serious internal human work, not marketing copy."
+        )
+    if agent_key == "AEGIS":
+        return (
+            "Separate verified statements from inference, reject unsupported claims, and mark where evidence is too weak."
+        )
+    if agent_key == "FORGE":
+        return (
+            "Turn the council decision into a 7-day execution register with proofs of done, not vague advice."
+        )
+    if agent_key == "PULSE":
+        return (
+            "Compress consensus, dissent, unresolved questions, and the shortest truthful conclusion."
+        )
+    return ""
+
+
 def _run_codex_exec(*, system_prompt: str, user_prompt: str, model: str, timeout: int = REQUEST_TIMEOUT_SECONDS) -> dict[str, Any]:
     codex_bin = str(MERIDIAN_CODEX_BIN).strip() or "codex"
     codex_home = str(MERIDIAN_CODEX_HOME).strip() or "/home/ubuntu/.meridian/auth/codex/login-home"
@@ -1024,6 +1261,28 @@ def _team_route_plan(text: str, session_key: str) -> dict[str, Any]:
         manager_brief=stripped,
         allow_create=True,
     )
+    if _looks_like_meridian_council_query(stripped):
+        workers = _normalize_worker_selection(["ATLAS", "SENTINEL", "QUILL", "AEGIS", "FORGE", "PULSE"], stripped)
+        return {
+            "mode": "team",
+            "topic": stripped,
+            "depth": "deep",
+            "criteria": "readiness",
+            "workers": workers,
+            "manager_brief": (
+                "Run a Meridian council meeting, not a generic answer. "
+                "Atlas should assess buyer readiness, product credibility, and why a real outside customer would or would not pay now. "
+                "Sentinel should attack contradictions, weak strategic claims, trust gaps, and open-source confusion. "
+                "Quill should write human-readable board minutes and a final council resolution. "
+                "Aegis should separate verified statements from inference and reject unsupported claims. "
+                "Forge should convert the council's consensus into immediate execution priorities and revenue-facing next moves. "
+                "Pulse should compress disagreements, unresolved questions, and the final operator summary. "
+                "The meeting must include arguments for, objections, consensus, unresolved questions, and immediate decisions."
+            ),
+            "verified_facts": _build_meridian_council_truth_packet(),
+            "reason": "meridian_council_meeting",
+            "skills": skill_bundle["matches"],
+        }
     if _looks_like_meridian_internal_query(stripped):
         return {
             "mode": "internal_status",
@@ -1226,6 +1485,8 @@ def _run_specialist_step(agent_key: str, request: str, session_key: str, plan: d
     matched_skills = [dict(item) for item in plan_skills if isinstance(item, dict)] or TEAM_SKILLS.search(request, limit=2)
     skill_guidance_block = TEAM_SKILLS.guidance_block(matched_skills)
     skills_used = [str(item.get("name") or "").strip() for item in matched_skills if str(item.get("name") or "").strip()]
+    council_context_block = _load_council_context() if str(plan.get("reason") or "").strip() == "meridian_council_meeting" else ""
+    council_role_block = _council_role_instruction(agent_key) if council_context_block else ""
     if _verified_fact_mode_enabled(request, skills_used, verified_facts) and agent_key != "ATLAS":
         receipt = _verified_fact_worker_receipt(
             specialist,
@@ -1253,7 +1514,7 @@ def _run_specialist_step(agent_key: str, request: str, session_key: str, plan: d
         }, loom_root=LOOM_ROOT)
         return receipt
 
-    if agent_key == "ATLAS":
+    if agent_key == "ATLAS" and not _atlas_should_use_internal_analysis(plan, request):
         result = mcp_server.do_on_demand_research_route(
             (
                 f"{str(plan.get('topic') or request)}\n\n{skill_guidance_block}"
@@ -1358,6 +1619,10 @@ def _run_specialist_step(agent_key: str, request: str, session_key: str, plan: d
         Manager brief: {str(plan.get('manager_brief') or request).strip()}
         Verified Meridian host facts (treat these as the only trusted factual baseline):
         {verified_facts_block}
+        Shared council context pack:
+        {council_context_block or '(none)'}
+        Your council role in this meeting:
+        {council_role_block or '(none)'}
         Relevant internal skills:
         {skill_guidance_block or '(none)'}
         Conversation continuity:
@@ -1373,7 +1638,7 @@ def _run_specialist_step(agent_key: str, request: str, session_key: str, plan: d
     ).strip()
     if specialist.env_key == "SENTINEL":
         specialist_timeout = 10
-    elif specialist.env_key in {"QUILL", "PULSE"}:
+    elif specialist.env_key in {"ATLAS", "QUILL", "PULSE"}:
         specialist_timeout = 45
     else:
         specialist_timeout = 120
@@ -1405,7 +1670,7 @@ def _run_specialist_step(agent_key: str, request: str, session_key: str, plan: d
     payload = _extract_json(output_text) if output_text else None
     direct_fallback = None
     fallback_warning = ""
-    if specialist.env_key in {"QUILL", "PULSE"} and (not output_text or host_decision == "denied" or not loom_result.get("ok")):
+    if specialist.env_key in {"ATLAS", "QUILL", "PULSE"} and (not output_text or host_decision == "denied" or not loom_result.get("ok")):
         direct_fallback = mcp_server._specialist_direct_provider_fallback(  # type: ignore[attr-defined]
             specialist.registry_id,
             system_prompt=f"You are {specialist.name}. {specialist.purpose}",
@@ -1484,6 +1749,7 @@ def _manager_synthesis(goal: str, session_key: str, steps: list[dict[str, Any]],
     verified_facts = {}
     if isinstance(plan, dict) and isinstance(plan.get("verified_facts"), dict):
         verified_facts = dict(plan.get("verified_facts") or {})
+    council_context_block = _load_council_context() if isinstance(plan, dict) and str(plan.get("reason") or "").strip() == "meridian_council_meeting" else ""
     result = _run_codex_exec(
         system_prompt=(
             "You are Leviathann, Meridian's manager. "
@@ -1491,11 +1757,13 @@ def _manager_synthesis(goal: str, session_key: str, steps: list[dict[str, Any]],
             "Resolve conflicts, call out uncertainty, and keep the answer concise but complete. "
             "Treat worker warnings and empty citations as first-class truth. "
             "Verified Meridian host facts are the source of truth over worker claims. "
-            "Do not elevate unsupported marketing claims above the warnings."
+            "Do not elevate unsupported marketing claims above the warnings. "
+            "If this is a council-style review, write it like real board minutes with explicit disagreement, consensus, unresolved questions, and decisions."
         ),
         user_prompt=(
             f"Original user request:\n{goal.strip()}\n\n"
             f"Verified Meridian host facts:\n{json.dumps(verified_facts, indent=2, ensure_ascii=False) or '{}'}\n\n"
+            f"Shared council context pack:\n{council_context_block or '(none)'}\n\n"
             f"Imported conversation continuity:\n{history_context or '(none)'}\n\n"
             f"Specialist outputs:\n{json.dumps(cleaned_steps, indent=2, ensure_ascii=False)}"
         ),
@@ -1981,6 +2249,8 @@ def _short_prompt_skill_candidate(text: str) -> bool:
 def _skill_route_verified_facts(request: str, matches: list[dict[str, Any]]) -> dict[str, Any]:
     lowered = (request or "").strip().lower()
     skill_names = {str(item.get("name") or "").strip().lower() for item in matches}
+    if "council-meeting" in skill_names or _looks_like_meridian_council_query(request):
+        return _build_meridian_council_truth_packet()
     if skill_names & {"ops-snapshot", "founder-update"}:
         return _build_meridian_operator_truth_packet()
     if any(token in lowered for token in {"founder", "update", "status", "snapshot", "ops", "health", "payout", "treasury"}):
@@ -2056,6 +2326,13 @@ def _skill_bundle_for_request(
             if filtered:
                 matches = filtered
                 names = {str(item.get("name") or "").strip().lower() for item in matches}
+        if "council-meeting" in names and len(matches) > 1:
+            filtered = [
+                item for item in matches if str(item.get("name") or "").strip().lower() == "council-meeting"
+            ]
+            if filtered:
+                matches = filtered
+                names = {"council-meeting"}
         if "founder-update" in names and any(term in lowered for term in ("founder", "update", "brief")):
             filtered = [
                 item for item in matches if str(item.get("name") or "").strip().lower() == "founder-update"
@@ -2121,7 +2398,7 @@ def _sanitize_worker_citations(
 ) -> tuple[list[Any], list[str]]:
     normalized = citations if isinstance(citations, list) else []
     warnings: list[str] = []
-    if transport_kind == "direct_provider_http_fallback" and specialist.env_key in {"QUILL", "PULSE"}:
+    if transport_kind == "direct_provider_http_fallback" and specialist.env_key in {"ATLAS", "QUILL", "PULSE"}:
         if normalized:
             warnings.append("direct fallback citations stripped because they were not independently verified")
         return [], warnings
