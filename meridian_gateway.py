@@ -38,6 +38,7 @@ for _path in (WORKSPACE_DIR, COMPANY_DIR, PLATFORM_DIR):
         sys.path.insert(0, str(_path))
 
 from company import mcp_server
+from audit import log_event
 from court import get_restrictions
 from loom_runtime_discovery import preferred_loom_bin, preferred_loom_root, runtime_value
 from session_history import append_session_event
@@ -144,6 +145,44 @@ SKILL_ALIAS_HINTS = {
     "staff-training-loop": {"coach", "failure", "improve", "lesson", "prompt", "training", "worker"},
     "subscribe": {"buy", "customer", "pay", "payment", "plan", "pricing", "subscribe", "subscription", "trial"},
 }
+
+
+def _record_gateway_audit(
+    action: str,
+    *,
+    session_key: str,
+    channel: str,
+    text: str = "",
+    outcome: str = "success",
+    ingress_request_id: str = "",
+    delivery_id: str = "",
+    extra_details: dict[str, Any] | None = None,
+) -> None:
+    details: dict[str, Any] = {
+        "channel": str(channel or "").strip(),
+    }
+    preview = " ".join(str(text or "").split()).strip()
+    if preview:
+        details["text_preview"] = preview[:280]
+    if ingress_request_id:
+        details["ingress_request_id"] = str(ingress_request_id).strip()
+    if delivery_id:
+        details["delivery_id"] = str(delivery_id).strip()
+    if isinstance(extra_details, dict):
+        for key, value in extra_details.items():
+            details[str(key)] = value
+    try:
+        log_event(
+            LOOM_ORG_ID,
+            TEAM_MANAGER_AGENT_ID,
+            action,
+            resource=session_key,
+            outcome=outcome,
+            details=details,
+            session_id=session_key,
+        )
+    except Exception as exc:
+        _log(f"gateway audit warning: {exc}", color=ANSI_YELLOW)
 
 
 def _profile_transport_kind(provider_kind: str) -> str:
@@ -2543,6 +2582,14 @@ class TelegramAdapter(ChannelAdapter):
         ingress_payload = ingress.get("payload") if isinstance(ingress, dict) else {}
         session_key = str((ingress_payload or {}).get("session_key") or f"telegram:{chat_id}").strip()
         ingress_request_id = str((ingress_payload or {}).get("ingress_id") or "").strip()
+        _record_gateway_audit(
+            "manager_request_received",
+            session_key=session_key,
+            channel="telegram",
+            text=text.strip(),
+            ingress_request_id=ingress_request_id,
+            extra_details={"telegram_chat_id": str(chat_id), "reply_to_message_id": message_id or ""},
+        )
         answer, team_meta = _run_team_route(text.strip(), session_key, self.runtime)
         delivery_id = ""
         if answer:
@@ -2559,7 +2606,27 @@ class TelegramAdapter(ChannelAdapter):
                 )
             except Exception as exc:
                 _loom_channel_update(delivery_id, "failed", detail=f"{exc.__class__.__name__}: {exc}")
+                _record_gateway_audit(
+                    "manager_response_delivery_failed",
+                    session_key=session_key,
+                    channel="telegram",
+                    text=answer,
+                    outcome="failed",
+                    ingress_request_id=ingress_request_id,
+                    delivery_id=delivery_id,
+                    extra_details={"error": f"{exc.__class__.__name__}: {exc}"},
+                )
                 raise
+            else:
+                _record_gateway_audit(
+                    "manager_response_delivered",
+                    session_key=session_key,
+                    channel="telegram",
+                    text=answer,
+                    ingress_request_id=ingress_request_id,
+                    delivery_id=delivery_id,
+                    extra_details={"telegram_chat_id": str(chat_id)},
+                )
         _loom_session_route(
             session_key,
             agent_id=TEAM_MANAGER_AGENT_ID,
@@ -2763,6 +2830,13 @@ class WebAPIAdapter(ChannelAdapter):
                 ingress_payload = ingress.get("payload") if isinstance(ingress, dict) else {}
                 session_key = str((ingress_payload or {}).get("session_key") or f"web_api:{LOOM_ORG_ID}").strip()
                 ingress_request_id = str((ingress_payload or {}).get("ingress_id") or "").strip()
+                _record_gateway_audit(
+                    "manager_request_received",
+                    session_key=session_key,
+                    channel="web_api",
+                    text=goal.strip(),
+                    ingress_request_id=ingress_request_id,
+                )
                 answer, team_meta = _run_team_route(goal.strip(), session_key, adapter.runtime)
                 delivery_id = ""
                 if answer:
@@ -2780,6 +2854,15 @@ class WebAPIAdapter(ChannelAdapter):
                 self._send_json(200, {"status": "success", "output": answer})
                 if delivery_id:
                     _loom_channel_update(delivery_id, "delivered", external_ref="http_response", detail="")
+                _record_gateway_audit(
+                    "manager_response_delivered",
+                    session_key=session_key,
+                    channel="web_api",
+                    text=answer,
+                    ingress_request_id=ingress_request_id,
+                    delivery_id=delivery_id,
+                    extra_details={"response_channel": "http_response"},
+                )
 
             def log_message(self, format: str, *args: object) -> None:  # noqa: A003
                 return
