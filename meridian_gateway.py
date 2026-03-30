@@ -872,6 +872,13 @@ def _run_specialist_step(agent_key: str, request: str, session_key: str, plan: d
         warnings = [*warnings, host_note]
     transport_kind = "direct_provider_http_fallback" if fallback_warning else "loom_capability"
     result_text = str((payload or {}).get("result") or output_text or loom_result.get("error") or "").strip()
+    citations, citation_warnings = _sanitize_worker_citations(
+        specialist,
+        (payload or {}).get("citations"),
+        transport_kind=transport_kind,
+    )
+    if citation_warnings:
+        warnings = [*warnings, *citation_warnings]
     receipt = {
         "agent_id": specialist.registry_id,
         "role": specialist.role,
@@ -883,7 +890,7 @@ def _run_specialist_step(agent_key: str, request: str, session_key: str, plan: d
         "transport_kind": transport_kind,
         "result": result_text,
         "confidence": str((payload or {}).get("confidence") or "").strip(),
-        "citations": (payload or {}).get("citations") if isinstance((payload or {}).get("citations"), list) else [],
+        "citations": citations,
         "warnings": warnings,
         "status": "ok" if result_text else "error",
         "raw": {
@@ -1172,6 +1179,21 @@ def _extract_json_value(text: str) -> Any:
 def _extract_json(text: str) -> dict[str, Any] | None:
     parsed = _extract_json_value(text)
     return parsed if isinstance(parsed, dict) else None
+
+
+def _sanitize_worker_citations(
+    specialist: TeamSpecialist,
+    citations: Any,
+    *,
+    transport_kind: str,
+) -> tuple[list[Any], list[str]]:
+    normalized = citations if isinstance(citations, list) else []
+    warnings: list[str] = []
+    if transport_kind == "direct_provider_http_fallback" and specialist.env_key in {"QUILL", "PULSE"}:
+        if normalized:
+            warnings.append("direct fallback citations stripped because they were not independently verified")
+        return [], warnings
+    return normalized, warnings
 
 
 def _extract_title(html: str) -> str:

@@ -34,6 +34,20 @@ class LoomRuntimeContext:
         return env
 
 
+def _job_record_path(context: LoomRuntimeContext, job_id: str) -> str:
+    return os.path.join(context.loom_root, 'state', 'runtime', 'jobs', job_id, 'job.json')
+
+
+def _load_job_record(context: LoomRuntimeContext, job_id: str) -> dict:
+    path = _job_record_path(context, job_id)
+    try:
+        with open(path, 'r', encoding='utf-8') as handle:
+            payload = json.load(handle)
+    except Exception:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
 def capability_preflight(
     context: LoomRuntimeContext,
     capability_name: str,
@@ -297,7 +311,7 @@ def run_capability(
                         'snapshot': last_snapshot,
                         'worker_result': worker_result,
                     }
-                if status in {'failed', 'denied', 'cancelled'}:
+                if status in {'failed', 'denied', 'cancelled', 'hard_deny'}:
                     return {
                         'ok': False,
                         'runtime': 'loom',
@@ -309,12 +323,29 @@ def run_capability(
                     }
         sleeper(1)
 
+    job_record = _load_job_record(context, job_id)
+    job_status = str(job_record.get('job_status') or '').strip().lower()
+    if job_status in {'failed', 'denied', 'cancelled', 'hard_deny'}:
+        note = str(job_record.get('budget_reservation_reason') or job_record.get('note') or '').strip()
+        message = f'Loom job ended with status={job_status}'
+        if note:
+            message = f'{message}: {note}'
+        return {
+            'ok': False,
+            'runtime': 'loom',
+            'capability_name': capability_name,
+            'job_id': job_id,
+            'submit': submit_payload,
+            'snapshot': last_snapshot or job_record,
+            'error': message,
+        }
+
     return {
         'ok': False,
         'runtime': 'loom',
         'capability_name': capability_name,
         'job_id': job_id,
         'submit': submit_payload,
-        'snapshot': last_snapshot,
+        'snapshot': last_snapshot or job_record,
         'error': f'Loom job timed out ({timeout}s limit)',
     }
