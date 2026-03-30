@@ -177,6 +177,17 @@ def _run_loom_json(command: list[str], *, timeout: int = REQUEST_TIMEOUT_SECONDS
     return result
 
 
+def _load_runtime_job_result(job_id: str) -> dict[str, Any]:
+    if not job_id:
+        return {}
+    path = Path(LOOM_ROOT) / "state" / "runtime" / "jobs" / job_id / "result.json"
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
 def _loom_channel_ingest(channel_id: str, peer_id: str, text: str, *, thread_id: str = "") -> dict[str, Any]:
     command = [
         LOOM_BIN,
@@ -967,6 +978,8 @@ def _run_specialist_step(agent_key: str, request: str, session_key: str, plan: d
     )
     output_text = ""
     worker_result = loom_result.get("worker_result") or {}
+    if not isinstance(worker_result, dict) or not worker_result:
+        worker_result = _load_runtime_job_result(str(loom_result.get("job_id") or ""))
     host_response = worker_result.get("host_response_json")
     if isinstance(host_response, dict):
         output_text = str(host_response.get("output_text") or "").strip()

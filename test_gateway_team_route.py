@@ -83,6 +83,26 @@ class GatewayTeamRouteTests(unittest.TestCase):
         self.assertIn('AEGIS', plan['workers'])
         self.assertIn('QUILL', plan['workers'])
 
+    def test_forge_receipt_backfills_from_runtime_result_when_worker_result_missing(self):
+        plan = {
+            'manager_brief': 'Draft the operational remediation sequence.',
+            'topic': 'operator crisis',
+            'criteria': 'consistency',
+        }
+        loom_result = {'ok': True, 'job_id': 'job-forge', 'worker_result': {}}
+        backfill = {
+            'host_response_json': {
+                'output_text': '```json\n{"result":"forge sequence","confidence":0.8,"citations":[],"warnings":["host warning"]}\n```'
+            }
+        }
+        with mock.patch.object(meridian_gateway, 'append_session_event'):
+            with mock.patch.object(meridian_gateway.mcp_server, '_shared_run_loom_capability', return_value=loom_result):
+                with mock.patch.object(meridian_gateway, '_load_runtime_job_result', return_value=backfill):
+                    receipt = meridian_gateway._run_specialist_step('FORGE', 'Need remediation plan', 'telegram:5322393870', plan)
+        self.assertEqual(receipt['status'], 'ok')
+        self.assertEqual(receipt['result'], 'forge sequence')
+        self.assertEqual(receipt['warnings'], ['host warning'])
+
 
 if __name__ == '__main__':
     unittest.main()
