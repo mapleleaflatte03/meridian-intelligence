@@ -250,6 +250,7 @@ Use when the user asks for:
             self.assertIsNone(second['created_skill'])
             self.assertIsNone(second['refined_skill'])
             self.assertTrue(second['matches'])
+            self.assertEqual(len(second['matches']), 1)
             self.assertEqual(second['matches'][0]['name'], first['created_skill']['name'])
 
     def test_research_customer_prompt_creates_specific_skill_instead_of_refining_follow_up_skill(self):
