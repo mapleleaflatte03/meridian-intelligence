@@ -79,6 +79,11 @@ class LiveWorkspaceContextTests(unittest.TestCase):
                 'metering': {'total_cost_usd': 0.0},
             },
             'slo': {'status': 'not_formalized'},
+            'alert_queue': {
+                'queue_count': 0,
+                'pending_delivery_count': 0,
+                'delivered_count': 0,
+            },
         }
 
     def tearDown(self):
@@ -546,6 +551,10 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.assertFalse(status['runtime_core']['federation']['enabled'])
         self.assertEqual(status['runtime_proof']['route'], '/api/runtime-proof')
         self.assertEqual(status['runtime_proof']['runtime_id'], 'loom_native')
+        self.assertEqual(status['slo']['status'], 'not_formalized')
+        self.assertEqual(status['queue_count'], 0)
+        self.assertEqual(status['pending_delivery_count'], 0)
+        self.assertEqual(status['delivered_count'], 0)
         self.assertEqual(status['constitutional_model']['kernel']['count'], 5)
         self.assertEqual(status['constitutional_model']['platform']['count'], 6)
         self.assertEqual(status['constitutional_model']['runtime']['runtime_id'], 'loom_native')

@@ -3804,8 +3804,16 @@ def api_status(context_source='founding_default', institution_context=None):
         if d.get('expires_at', '') > _now() and d.get('org_id') in (None, '', org_id)
     ]
 
+    observability = status_surface.observability_snapshot(org_id)
+    alert_queue = observability.get('alert_queue', {}) if isinstance(observability, dict) else {}
+    slo = observability.get('slo', {}) if isinstance(observability, dict) else {}
+
     result = {
         'runtime_id': 'loom_native',
+        'slo': slo,
+        'queue_count': int(alert_queue.get('queue_count', 0) or 0),
+        'pending_delivery_count': int(alert_queue.get('pending_delivery_count', 0) or 0),
+        'delivered_count': int(alert_queue.get('delivered_count', 0) or 0),
         'proof_mode': 'live_host_runtime_probe',
         'constitutional_model': constitutional_model(),
         'context': {
@@ -3874,7 +3882,7 @@ def api_status(context_source='founding_default', institution_context=None):
             'pilot_intake': service_state.pilot_intake_snapshot(org_id),
         },
         'persistence': status_surface.persistence_snapshot(org_id),
-        'observability': status_surface.observability_snapshot(org_id),
+        'observability': observability,
         'runtime_proof': {
             'route': '/api/runtime-proof',
             'contract_route': '/api/runtime-proof-contract',
