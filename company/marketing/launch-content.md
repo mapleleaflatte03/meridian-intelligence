@@ -32,6 +32,7 @@ The wedge that proves this today:
 ## Canonical Links
 
 - Home: https://app.welliam.codes/
+- Why: https://app.welliam.codes/why.html
 - Compare: https://app.welliam.codes/compare.html
 - Demo: https://app.welliam.codes/demo.html
 - Pilot: https://app.welliam.codes/pilot.html
@@ -51,52 +52,39 @@ The wedge that proves this today:
 ### Post
 
 ```text
-I built Meridian because most open agent stacks are getting better at execution, but not at governance.
-
-Meridian adds five kernel primitives — Institution, Agent, Authority, Treasury, and Court — then composes Commitment above them and runs the work through Loom as the live runtime.
+Most open agent projects optimize for execution.
+Meridian is aimed at governed paid work instead: authority, treasury, court, audit trails, sanctions, and a truthful commercial boundary.
 
 The first commercial wedge is competitor intelligence for AI product teams.
-That part is deliberate: I wanted a workflow that is useful now, but hard enough to prove the runtime honestly.
 
-Current honest boundary:
-- live host
-- public proof routes
+Live today:
+- public host
+- proof routes
 - paid founder pilot with verified Base USDC capture
-- bounded public delivery
 
-Not claiming:
+Not claimed:
 - universal hosted automation
-- every deployment mode
-- every architecture idea already being customer-live
+- every deployment mode already being live
 
-What I think is different from most agent projects:
-- work can be approved, budgeted, audited, sanctioned, and scored
-- user-facing output affects REP/AUTH instead of only logs
-- the public site says exactly what is live and what is still bounded
-
-If you already know OpenClaw, OpenFang, or TEMM1E, I wrote a comparison page instead of pretending Meridian already wins everything:
+If you already know OpenClaw, OpenFang, or TEMM1E, I wrote the comparison directly instead of pretending Meridian already wins every category:
 https://app.welliam.codes/compare.html
+
+Why Meridian exists:
+https://app.welliam.codes/why.html
 
 Main site:
 https://app.welliam.codes/
 
-Demo:
-https://app.welliam.codes/demo.html
-
 Boundary note:
 https://app.welliam.codes/OPEN_SOURCE_BOUNDARY.html
 
-I'd especially like critique on one question:
-is governed paid agent work actually a distinct category, or am I just overbuilding around ordinary automation?
+The real question I want critique on:
+does governed paid agent work deserve to be its own category?
 ```
 
 ---
 
-## Reddit
-
-### Recommended subreddit
-
-Start with `r/LLMDevs` or `r/LocalLLaMA`, not a generic hype subreddit.
+## Reddit — r/LLMDevs
 
 ### Title
 
@@ -107,10 +95,9 @@ Start with `r/LLMDevs` or `r/LocalLLaMA`, not a generic hype subreddit.
 ```text
 I've been building something called Meridian.
 
-The core idea is simple:
-most open agent stacks optimize for execution, memory, channels, or UX.
-Meridian is aimed at the harder question:
-what happens when the work has to be approved, budgeted, audited, and sanctioned?
+Most open agent stacks optimize for execution, memory, channels, or UX.
+Meridian is aimed at a narrower problem:
+what if the work has to be approved, budgeted, audited, and sanctioned?
 
 So the stack is built around:
 - Institution
@@ -121,39 +108,85 @@ So the stack is built around:
 
 Then the platform adds Commitment, and Loom is the live runtime on the host.
 
-The first commercial wedge on top is competitor intelligence for AI product teams.
-That was intentional. I wanted a workflow that is narrow enough to sell honestly and hard enough to prove whether the governed runtime matters.
+The first commercial wedge is competitor intelligence for AI product teams.
+That was deliberate. I wanted a workflow that was useful now, but hard enough to test whether the governance layer actually matters.
 
 Current honest state:
-- public site is live
+- public host is live
 - proof routes are public
-- competitor-intelligence wedge is real
 - current customer path is a paid founder pilot
 
-What I'm not claiming:
-- every future deployment mode is already live
+Not claiming:
+- every deployment mode is already live
 - universal hosted automation
-- that Meridian already beats OpenClaw, OpenFang, or TEMM1E on everything
+- that Meridian beats OpenClaw, OpenFang, or TEMM1E on everything
 
 Where I think Meridian is sharper:
 - authority gates
 - treasury constraints
 - court / sanctions
 - proof routes
-- a truthful commercial boundary
+- user-facing scoring instead of log-only scoring
 
-If you want the sharp comparison instead of vague positioning, I wrote it out here:
+Why Meridian exists:
+https://app.welliam.codes/why.html
+
+Comparison page:
 https://app.welliam.codes/compare.html
 
-Main page:
-https://app.welliam.codes/
-
-Demo:
-https://app.welliam.codes/demo.html
-
-I'm posting this because I want technical criticism, not applause.
+I'm posting this for technical criticism, not applause.
 If the governance layer looks real, tell me why.
 If it looks overengineered, tell me that too.
+```
+
+---
+
+## Reddit — r/LocalLLaMA
+
+### Title
+
+`Meridian: open-source governed agent runtime, with competitor intelligence as the first wedge`
+
+### Post
+
+```text
+I've been building Meridian, an open-source stack aimed at a slightly different problem than most agent projects.
+
+Instead of starting from "how do I make the assistant broader?", it starts from:
+how do I make agent work governable enough to trust?
+
+Core pieces:
+- Institution
+- Agent
+- Authority
+- Treasury
+- Court
+- Commitment on top
+- Loom as the runtime
+
+The first live wedge is competitor intelligence for AI product teams.
+That gives me a real workflow to test against instead of a synthetic demo.
+
+What is live:
+- public host
+- installable Loom runtime
+- public proof routes
+- paid founder pilot
+
+What is not claimed:
+- universal hosted automation
+- that Meridian already beats OpenClaw, OpenFang, or TEMM1E at memory, channel breadth, or packaging
+
+Why Meridian exists:
+https://app.welliam.codes/why.html
+
+Comparison page:
+https://app.welliam.codes/compare.html
+
+Main site:
+https://app.welliam.codes/
+
+If you care about agent governance more than generic assistant breadth, I'd like the sharpest criticism you have.
 ```
 
 ---
@@ -210,6 +243,16 @@ What I do think Meridian is unusually strong at:
 
 If you're technical and skeptical, the comparison page is probably the fastest way to understand the claim:
 https://app.welliam.codes/compare.html
+```
+
+---
+
+## GitHub Discussion Prompt
+
+If you open a pinned discussion instead of posting a plain announcement, use this one-sentence prompt at the top:
+
+```text
+Meridian is trying to answer a narrower question than most agent projects: not just "can the agent act?" but "can the work be governed well enough to trust when budgets, approvals, and sanctions matter?"
 ```
 
 ---

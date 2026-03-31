@@ -17,6 +17,7 @@
 
 <p align="center">
   <a href="https://app.welliam.codes/">Home</a> ·
+  <a href="https://app.welliam.codes/why.html">Why</a> ·
   <a href="https://app.welliam.codes/compare.html">Compare</a> ·
   <a href="https://app.welliam.codes/demo.html">Demo</a> ·
   <a href="https://app.welliam.codes/pilot.html">Pilot</a> ·
