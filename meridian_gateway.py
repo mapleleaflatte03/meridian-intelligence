@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import base64
+import ast
 import hashlib
 import json
 import os
@@ -270,7 +271,7 @@ AUTONOMY_CATEGORY_KEYWORDS = {
     "research": {"analyze", "compare", "competitor", "customer", "find", "icp", "jtbd", "khach", "khách", "latest", "persona", "research", "scan", "search"},
     "verification": {"audit", "check", "qa", "review", "validate", "verify"},
     "subscription": {"bao gia", "buy", "checkout", "customer", "pay", "payment", "price", "pricing", "proposal", "quote", "subscribe", "trial"},
-    "planning": {"book", "build", "demo", "plan", "prepare", "schedule", "ship", "scope", "sprint"},
+    "planning": {"book", "build", "demo", "plan", "playbook", "prepare", "protocol", "schedule", "ship", "scope", "sprint"},
 }
 AUTONOMY_WORKER_PROFILES = {
     "communication": ["QUILL", "AEGIS"],
@@ -2804,6 +2805,8 @@ class SkillRegistry:
 
     @staticmethod
     def _autonomy_category(text: str) -> str:
+        if _request_wants_protocol_artifact(text):
+            return "planning"
         lowered = str(text or "").lower()
         for category, keywords in AUTONOMY_CATEGORY_KEYWORDS.items():
             if any(keyword in lowered for keyword in keywords):
@@ -2818,6 +2821,10 @@ class SkillRegistry:
             if token and token not in SKILL_STOPWORDS and len(token) > 1
         ]
         preferred: list[str] = []
+        if _request_wants_protocol_artifact(text):
+            for candidate in ("protocol", "playbook", "deal", "revive", "hoi", "sinh"):
+                if candidate in tokens and candidate not in preferred:
+                    preferred.append(candidate)
         for candidate in (
             "follow",
             "followup",
@@ -3966,6 +3973,54 @@ def _request_wants_protocol_artifact(request: str) -> bool:
     )
 
 
+def _salvage_protocol_artifact(request: str) -> str:
+    if _request_prefers_vietnamese(request):
+        return textwrap.dedent(
+            """
+            **Protocol xử lý nhanh**
+
+            **2-3 giả thuyết**
+            1. Vấn đề không nằm ở nhu cầu, mà nằm ở ưu tiên hoặc timing.
+            2. Vấn đề không nằm ở giá, mà nằm ở rủi ro quyết định chưa được bóc tách.
+            3. Vấn đề không nằm ở sản phẩm, mà nằm ở người quyết định hoặc ngưỡng cam kết nội bộ.
+
+            **Câu hỏi bóc tách**
+            1. Điều gì đang chặn quyết định thật sự lúc này?
+            2. Nếu không làm bây giờ, ưu tiên nào đang đứng trước?
+            3. Ai là người còn chưa đồng thuận?
+            4. Điều gì cần đúng thì deal mới quay lại bàn?
+
+            **Tin nhắn follow-up**
+            Chào anh/chị, để tránh follow-up vô hạn, cho em xin một câu trả lời thẳng: hiện điều gì đang chặn quyết định nhất để bên em xử lý đúng điểm nghẽn?
+
+            **Tiêu chí dừng**
+            Nếu không có owner rõ, mốc thời gian rõ, hoặc điều kiện mở lại rõ, thì dừng theo đuổi thay vì kéo dài thêm.
+            """
+        ).strip()
+    return textwrap.dedent(
+        """
+        **Rapid Recovery Protocol**
+
+        **2-3 hypotheses**
+        1. The deal is blocked by priority or timing, not by lack of need.
+        2. The deal is blocked by unresolved decision risk, not by price alone.
+        3. The deal is blocked by ownership or internal commitment, not by product fit alone.
+
+        **Debiasing questions**
+        1. What is the real blocker right now?
+        2. What is taking priority over this deal?
+        3. Who still needs to agree?
+        4. What would need to be true for this deal to restart?
+
+        **Follow-up message**
+        Hello, to avoid endless follow-up, could you tell me the single biggest blocker on your side so we can address the right issue directly?
+
+        **Stop rule**
+        If there is no clear owner, timeline, or reactivation condition, stop pursuing the deal instead of stretching the cycle.
+        """
+    ).strip()
+
+
 def _artifact_matches_protocol_request_shape(text: str, request: str) -> bool:
     if not _request_wants_protocol_artifact(request):
         return False
@@ -4014,6 +4069,8 @@ def _artifact_matches_skill_shape(text: str, request: str, skill_names: list[str
         return "thank you" in lowered or "cảm ơn" in lowered
     if _request_is_customer_research(request, list(skill_names or [])):
         return all(section in lowered for section in ("status", "likely buyer", "what must be validated", "next move"))
+    if _request_wants_protocol_artifact(request):
+        return False
     return True
 
 
@@ -4023,11 +4080,11 @@ def _repair_manager_answer(
     steps: list[dict[str, Any]],
     skill_names: list[str] | None = None,
 ) -> tuple[str, list[str]]:
-    artifact = str(answer or "").strip()
+    artifact = _coerce_request_specific_artifact(answer, request)
     if _artifact_matches_skill_shape(artifact, request, skill_names):
         return artifact, []
 
-    latest_step_artifact = _latest_usable_step_artifact(steps)
+    latest_step_artifact = _coerce_request_specific_artifact(_latest_usable_step_artifact(steps), request)
     if latest_step_artifact and _artifact_matches_skill_shape(latest_step_artifact, request, skill_names):
         return latest_step_artifact, ["manager_response_repaired_from_worker_artifact"]
 
@@ -4202,6 +4259,8 @@ def _autonomy_skill_candidate(text: str) -> bool:
         return False
     if _short_prompt_skill_candidate(stripped):
         return True
+    if _request_wants_protocol_artifact(stripped):
+        return True
     if len(words) > 48 or len(tokens) > 24:
         return False
     return _request_is_actionable(stripped)
@@ -4262,6 +4321,8 @@ def _autogenerated_skill_supports_request(request: str, item: dict[str, Any]) ->
 def _request_prefers_specific_skill(request: str, matches: list[dict[str, Any]]) -> bool:
     if not matches:
         return False
+    if _request_wants_protocol_artifact(request):
+        return True
     request_category = TEAM_SKILLS._autonomy_category(request)
     if request_category == "general":
         return False
@@ -4549,7 +4610,10 @@ def _extract_json_value(text: str) -> Any:
         try:
             parsed = json.loads(candidate)
         except json.JSONDecodeError:
-            continue
+            try:
+                parsed = ast.literal_eval(candidate)
+            except Exception:
+                continue
         if isinstance(parsed, (dict, list)):
             return parsed
     return None
@@ -4558,6 +4622,92 @@ def _extract_json_value(text: str) -> Any:
 def _extract_json(text: str) -> dict[str, Any] | None:
     parsed = _extract_json_value(text)
     return parsed if isinstance(parsed, dict) else None
+
+
+def _string_list(value: Any) -> list[str]:
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    if isinstance(value, str) and value.strip():
+        return [value.strip()]
+    return []
+
+
+def _protocol_payload_to_artifact(text: str, request: str) -> str:
+    payload = _extract_json(text)
+    if not isinstance(payload, dict):
+        return ""
+    protocol = payload.get("protocol")
+    if not isinstance(protocol, dict):
+        protocol = payload.get("revive_deal_protocol")
+    if not isinstance(protocol, dict):
+        return ""
+    hypotheses = _string_list(protocol.get("hypotheses") or protocol.get("reverse_hypotheses"))
+    questions = _string_list(
+        protocol.get("debiasing_questions")
+        or protocol.get("questions")
+        or protocol.get("probing_questions")
+    )
+    follow_up = str(
+        protocol.get("follow_up_message")
+        or protocol.get("reengagement_message")
+        or protocol.get("message")
+        or ""
+    ).strip()
+    stop_rule = str(
+        protocol.get("stop_rule")
+        or protocol.get("exit_criteria")
+        or protocol.get("stop_criteria")
+        or protocol.get("stop_condition")
+        or ""
+    ).strip()
+    if not hypotheses and not questions and not follow_up and not stop_rule:
+        return ""
+    if _request_prefers_vietnamese(request):
+        lines = ["**Protocol xử lý**", ""]
+        if hypotheses:
+            lines.append("**Giả thuyết**")
+            lines.extend(f"{idx}. {item}" for idx, item in enumerate(hypotheses, start=1))
+            lines.append("")
+        if questions:
+            lines.append("**Câu hỏi bóc tách**")
+            lines.extend(f"{idx}. {item}" for idx, item in enumerate(questions, start=1))
+            lines.append("")
+        if follow_up:
+            lines.append("**Tin nhắn follow-up**")
+            lines.append(follow_up)
+            lines.append("")
+        if stop_rule:
+            lines.append("**Tiêu chí dừng**")
+            lines.append(stop_rule)
+        return "\n".join(line for line in lines if line is not None).strip()
+    lines = ["**Protocol**", ""]
+    if hypotheses:
+        lines.append("**Hypotheses**")
+        lines.extend(f"{idx}. {item}" for idx, item in enumerate(hypotheses, start=1))
+        lines.append("")
+    if questions:
+        lines.append("**Questions**")
+        lines.extend(f"{idx}. {item}" for idx, item in enumerate(questions, start=1))
+        lines.append("")
+    if follow_up:
+        lines.append("**Follow-up message**")
+        lines.append(follow_up)
+        lines.append("")
+    if stop_rule:
+        lines.append("**Stop rule**")
+        lines.append(stop_rule)
+    return "\n".join(line for line in lines if line is not None).strip()
+
+
+def _coerce_request_specific_artifact(text: str, request: str) -> str:
+    artifact = str(text or "").strip()
+    if not artifact:
+        return ""
+    if _request_wants_protocol_artifact(request):
+        normalized = _protocol_payload_to_artifact(artifact, request)
+        if normalized:
+            return normalized
+    return artifact
 
 
 def _sanitize_worker_citations(
@@ -4895,6 +5045,8 @@ def _request_is_customer_research(request: str, skills_used: list[str] | None = 
     lowered = str(request or "").strip().lower()
     tokens = set(_request_tokens(request))
     lowered_skills = {str(item or "").strip().lower() for item in list(skills_used or [])}
+    if _request_wants_protocol_artifact(request):
+        return False
     if "book-meeting" in lowered_skills or "mail-gui" in lowered_skills or any("follow" in name for name in lowered_skills):
         return False
     if any(token in lowered for token in ("book meeting", "đặt lịch", "dat lich", "meeting", "gửi mail", "gui mail", "email")):
@@ -4972,6 +5124,8 @@ def _salvage_customer_research_artifact(request: str) -> str:
 
 def _salvage_user_artifact(request: str, skills_used: list[str]) -> str:
     lowered_skills = {str(item or "").strip().lower() for item in skills_used}
+    if _request_wants_protocol_artifact(request):
+        return _salvage_protocol_artifact(request)
     if "mail-gui" in lowered_skills:
         return _salvage_mail_artifact(request)
     if any("follow" in name for name in lowered_skills):
@@ -4991,6 +5145,11 @@ def _manager_response_shape(goal: str, plan: dict[str, Any] | None = None) -> st
         for item in list((plan or {}).get("skills") or [])
         if isinstance(item, dict) and str(item.get("name") or "").strip()
     }
+    if _request_wants_protocol_artifact(goal):
+        return (
+            "Do not write council minutes, internal analysis, or generic advice. "
+            "Return the structured protocol the user asked for directly, with explicit sections for hypotheses, questions, follow-up message, and stop rule."
+        )
     if "safe-web-research" in skill_names:
         return (
             "Do not write council minutes, governance review language, or product planning. "
@@ -5015,6 +5174,14 @@ def _skill_specific_execution_addendum(request: str, matched_skills: list[dict[s
     names = {str(item.get("name") or "").strip().lower() for item in matched_skills}
     lowered = str(request or "").strip().lower()
     lines: list[str] = []
+    if _request_wants_protocol_artifact(request):
+        lines.extend(
+            [
+                "The expected artifact is a structured recovery protocol, not internal minutes and not a single email draft.",
+                "Return explicit sections for hypotheses, debiasing questions, one follow-up message, and a clear stop rule.",
+                "Do not collapse the answer into a council memo, product strategy note, or communication-only template.",
+            ]
+        )
     if any("follow" in name for name in names) or any(token in lowered for token in ("follow up", "followup", "sau demo", "follow-up")):
         lines.extend(
             [

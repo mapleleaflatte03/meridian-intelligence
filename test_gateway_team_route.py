@@ -158,6 +158,51 @@ class GatewayTeamRouteTests(unittest.TestCase):
             self.assertTrue(created_name.startswith('follow-') or 'follow' in created_name)
             self.assertTrue(any(item['name'] == created_name for item in bundle['matches']))
 
+    def test_protocol_request_materializes_new_skill_instead_of_reusing_council_skill(self):
+        prompt = (
+            'hãy tạo cho tôi một protocol hồi sinh deal nguội trong 9 phút: gồm 2 giả thuyết đảo ngược, '
+            '4 câu hỏi loại bỏ ngụy biện, 1 tin nhắn kéo khách quay lại bàn đàm phán, và 1 tiêu chí dừng rõ ràng.'
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            council_dir = root / 'council-meeting'
+            council_dir.mkdir(parents=True, exist_ok=True)
+            (council_dir / 'SKILL.md').write_text(
+                """---
+name: council-meeting
+description: "Use when Meridian needs a board-style council discussion about customer readiness, open-source intent, strategic clarity, or whether the current product is truly buyable."
+category: "strategy"
+---
+
+# Council Meeting
+
+Use when the user asks for:
+- council meeting
+- board review
+- why would a customer buy this
+""",
+                encoding='utf-8',
+            )
+            original_registry = meridian_gateway.TEAM_SKILLS
+            registry = meridian_gateway.SkillRegistry(root)
+            registry.load()
+            meridian_gateway.TEAM_SKILLS = registry
+            try:
+                bundle = meridian_gateway._skill_bundle_for_request(
+                    prompt,
+                    'telegram:5322393870',
+                    manager_brief=prompt,
+                    allow_create=True,
+                )
+            finally:
+                meridian_gateway.TEAM_SKILLS = original_registry
+            self.assertIsNotNone(bundle['created_skill'])
+            self.assertNotEqual(bundle['created_skill']['name'], 'council-meeting')
+            self.assertIn('protocol', bundle['created_skill']['name'])
+            self.assertIn('QUILL', bundle['workers'])
+            self.assertIn('FORGE', bundle['workers'])
+            self.assertTrue(any(item['name'] == bundle['created_skill']['name'] for item in bundle['matches']))
+
     def test_research_customer_prompt_creates_specific_skill_instead_of_refining_follow_up_skill(self):
         prompt = 'research khách hàng cho sản phẩm competitor intelligence'
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -607,6 +652,40 @@ Use this skill when the user gives a short prompt such as:
         )
         self.assertEqual(repaired, manager_answer)
         self.assertEqual(warnings, [])
+
+    def test_protocol_request_salvage_prefers_protocol_template_over_mail_template(self):
+        request = (
+            'hãy tạo cho tôi một protocol cứu deal chết trong 7 phút: gồm 3 giả thuyết, '
+            '5 câu hỏi bóc tách, 1 tin nhắn follow-up gửi khách, và 1 tiêu chí dừng rõ ràng.'
+        )
+        salvaged = meridian_gateway._salvage_user_artifact(request, ['follow-demo-soan', 'mail-gui'])
+        self.assertIn('giả thuyết', salvaged.lower())
+        self.assertIn('tiêu chí dừng', salvaged.lower())
+        self.assertNotIn('**tiêu đề:**', salvaged.lower())
+
+    def test_protocol_request_repairs_from_worker_payload_dict(self):
+        request = (
+            'hãy tạo cho tôi một protocol kéo deal im lặng quay lại trong 11 phút: gồm 3 giả thuyết, '
+            '4 câu hỏi phá ngụy biện, 1 tin nhắn follow-up kéo khách trả lời, và 1 tiêu chí dừng rõ ràng.'
+        )
+        steps = [
+            {
+                'status': 'ok',
+                'task_kind': 'write',
+                'result': "{'protocol': {'hypotheses': ['H1', 'H2'], 'debiasing_questions': ['Q1', 'Q2'], 'follow_up_message': 'Ping khách ngay.', 'stop_rule': 'Dừng nếu không có owner.'}}",
+                'warnings': [],
+            }
+        ]
+        repaired, warnings = meridian_gateway._repair_manager_answer(
+            request,
+            'LLM endpoint returned HTTP 400:',
+            steps,
+            ['protocol-deal-hoi'],
+        )
+        self.assertIn('giả thuyết', repaired.lower())
+        self.assertIn('câu hỏi', repaired.lower())
+        self.assertIn('tiêu chí dừng', repaired.lower())
+        self.assertIn('manager_response_repaired_from_worker_artifact', warnings)
 
 
 if __name__ == '__main__':
