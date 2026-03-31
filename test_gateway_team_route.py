@@ -117,6 +117,24 @@ class GatewayTeamRouteTests(unittest.TestCase):
             content = (Path(tmpdir) / refined['name'] / 'SKILL.md').read_text(encoding='utf-8')
             self.assertIn('## Learned Variations', content)
 
+    def test_skill_registry_reuses_autonomous_skill_for_exact_same_request(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            registry = meridian_gateway.SkillRegistry(Path(tmpdir))
+            created = registry.create_autonomous_skill(
+                'protocol hồi sinh deal nguội',
+                session_key='telegram:proof',
+                manager_brief='protocol hồi sinh deal nguội',
+            )
+            self.assertIsNotNone(created)
+            reused = registry.create_autonomous_skill(
+                'protocol hồi sinh deal nguội',
+                session_key='telegram:proof',
+                manager_brief='protocol hồi sinh deal nguội',
+            )
+            self.assertIsNotNone(reused)
+            self.assertEqual(reused.get('name'), created.get('name'))
+            self.assertEqual(reused.get('autonomy_status'), 'reused')
+
     def test_actionable_end_user_request_creates_skill_routed_team_plan(self):
         prompt = 'bạn có thể gửi mail cho tôi về trạng thái cập nhật mới nhất của Meridian thông qua mail của chính tôi là nguyensimon186@gmail.com.'
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -202,6 +220,37 @@ Use when the user asks for:
             self.assertIn('QUILL', bundle['workers'])
             self.assertIn('FORGE', bundle['workers'])
             self.assertTrue(any(item['name'] == bundle['created_skill']['name'] for item in bundle['matches']))
+
+    def test_protocol_request_reuses_existing_autonomous_protocol_skill(self):
+        prompt = (
+            'hãy tạo cho tôi một protocol hồi sinh deal nguội trong 9 phút: gồm 2 giả thuyết đảo ngược, '
+            '4 câu hỏi loại bỏ ngụy biện, 1 tin nhắn kéo khách quay lại bàn đàm phán, và 1 tiêu chí dừng rõ ràng.'
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            original_registry = meridian_gateway.TEAM_SKILLS
+            registry = meridian_gateway.SkillRegistry(Path(tmpdir))
+            registry.load()
+            meridian_gateway.TEAM_SKILLS = registry
+            try:
+                first = meridian_gateway._skill_bundle_for_request(
+                    prompt,
+                    'telegram:5322393870',
+                    manager_brief=prompt,
+                    allow_create=True,
+                )
+                second = meridian_gateway._skill_bundle_for_request(
+                    prompt,
+                    'telegram:5322393870',
+                    manager_brief=prompt,
+                    allow_create=True,
+                )
+            finally:
+                meridian_gateway.TEAM_SKILLS = original_registry
+            self.assertIsNotNone(first['created_skill'])
+            self.assertIsNone(second['created_skill'])
+            self.assertIsNone(second['refined_skill'])
+            self.assertTrue(second['matches'])
+            self.assertEqual(second['matches'][0]['name'], first['created_skill']['name'])
 
     def test_research_customer_prompt_creates_specific_skill_instead_of_refining_follow_up_skill(self):
         prompt = 'research khách hàng cho sản phẩm competitor intelligence'

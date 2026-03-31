@@ -63,6 +63,7 @@ USER_SESSION_SCORE_STATE_PATH = Path(os.path.realpath(capsule_ledger_path())).wi
 TELEGRAM_DEDUP_STATE_PATH = Path(LOOM_ROOT) / "state" / "gateway" / "telegram_dedup.json"
 TELEGRAM_INBOUND_DEDUP_WINDOW_SECONDS = int(os.environ.get("MERIDIAN_TELEGRAM_INBOUND_DEDUP_WINDOW_SECONDS", "120"))
 TELEGRAM_OUTBOUND_DEDUP_WINDOW_SECONDS = int(os.environ.get("MERIDIAN_TELEGRAM_OUTBOUND_DEDUP_WINDOW_SECONDS", "900"))
+SKILL_AUTONOMY_LOCK = threading.RLock()
 LOOM_ORG_ID = (
     os.environ.get("MERIDIAN_LOOM_ORG_ID")
     or os.environ.get("MERIDIAN_WORKSPACE_ORG_ID")
@@ -2889,59 +2890,64 @@ class SkillRegistry:
         session_key: str,
         manager_brief: str = "",
     ) -> bool:
-        path = Path(str(item.get("path") or "").strip())
-        if not path.exists():
-            return False
-        content = path.read_text(encoding="utf-8")
-        if "created_by: meridian_skill_autonomy" not in content:
-            return False
-        category_match = re.search(r'^\s*category:\s*"([^"]+)"\s*$', content, re.MULTILINE)
-        category = (
-            str(category_match.group(1)).strip().lower()
-            if category_match
-            else self._autonomy_category(f"{request} {manager_brief}")
-        )
-        request_category = self._autonomy_category(f"{request} {manager_brief}")
-        if category and request_category not in {"", "general"} and category != request_category:
-            return False
-        request_tokens = self._tokenize(f"{request} {manager_brief}")
-        if len(request_tokens & (self._tokenize(str(item.get("name") or "")) | self._tokenize(str(item.get("description") or "")) | self._tokenize(content))) < 2:
-            return False
-        workers = self._autonomy_workers(category)
-        content = re.sub(
-            r"(^2\. Route the work through these preferred specialists: ).*$",
-            rf"\1{', '.join(workers)}.",
-            content,
-            flags=re.MULTILINE,
-        )
-        content = re.sub(
-            r"(## Reachable Capability Hints\s*\n\s*)(.*?)(\n## Guardrails)",
-            lambda match: f"{match.group(1)}\n{self._capability_hint_block(category).strip()}\n{match.group(3)}",
-            content,
-            flags=re.DOTALL,
-        )
-        line = self._skill_example_line(request or manager_brief)
-        if line in content:
-            path.write_text(content.rstrip() + "\n", encoding="utf-8")
+        with SKILL_AUTONOMY_LOCK:
+            path = Path(str(item.get("path") or "").strip())
+            if not path.exists():
+                return False
+            content = path.read_text(encoding="utf-8")
+            if "created_by: meridian_skill_autonomy" not in content:
+                return False
+            original_content = content
+            category_match = re.search(r'^\s*category:\s*"([^"]+)"\s*$', content, re.MULTILINE)
+            category = (
+                str(category_match.group(1)).strip().lower()
+                if category_match
+                else self._autonomy_category(f"{request} {manager_brief}")
+            )
+            request_category = self._autonomy_category(f"{request} {manager_brief}")
+            if category and request_category not in {"", "general"} and category != request_category:
+                return False
+            request_tokens = self._tokenize(f"{request} {manager_brief}")
+            if len(request_tokens & (self._tokenize(str(item.get("name") or "")) | self._tokenize(str(item.get("description") or "")) | self._tokenize(content))) < 2:
+                return False
+            workers = self._autonomy_workers(category)
+            content = re.sub(
+                r"(^2\. Route the work through these preferred specialists: ).*$",
+                rf"\1{', '.join(workers)}.",
+                content,
+                flags=re.MULTILINE,
+            )
+            content = re.sub(
+                r"(## Reachable Capability Hints\s*\n\s*)(.*?)(\n## Guardrails)",
+                lambda match: (
+                    f"{match.group(1)}{self._capability_hint_block(category).strip()}\n\n"
+                    f"{match.group(3).lstrip()}"
+                ),
+                content,
+                flags=re.DOTALL,
+            )
+            line = self._skill_example_line(request or manager_brief)
+            if line not in content:
+                marker = "## Learned Variations\n"
+                if marker in content:
+                    content = content.replace(marker, f"{marker}{line}\n", 1)
+                else:
+                    content = content.rstrip() + textwrap.dedent(
+                        f"""
+
+                        ## Learned Variations
+                        {line}
+
+                        ## Refinement Notes
+                        - Last refined automatically from session `{session_key}`.
+                        """
+                    )
+            normalized_content = content.rstrip() + "\n"
+            if normalized_content == original_content.rstrip() + "\n":
+                return False
+            path.write_text(normalized_content, encoding="utf-8")
             self.load()
             return True
-        marker = "## Learned Variations\n"
-        if marker in content:
-            content = content.replace(marker, f"{marker}{line}\n", 1)
-        else:
-            content = content.rstrip() + textwrap.dedent(
-                f"""
-
-                ## Learned Variations
-                {line}
-
-                ## Refinement Notes
-                - Last refined automatically from session `{session_key}`.
-                """
-            )
-        path.write_text(content.rstrip() + "\n", encoding="utf-8")
-        self.load()
-        return True
 
     def create_autonomous_skill(
         self,
@@ -2950,115 +2956,116 @@ class SkillRegistry:
         session_key: str,
         manager_brief: str = "",
     ) -> dict[str, Any] | None:
-        raw_request = (request or manager_brief).strip()
-        category = self._autonomy_category(f"{request} {manager_brief}")
-        workers = self._autonomy_workers(category)
-        slug = self._autonomy_slug(raw_request, category=category)
-        tokens = list(self._tokenize(raw_request))
-        if not tokens:
-            return None
-        skill_dir = self.root / slug
-        if skill_dir.exists():
-            self.load()
-            existing = next((dict(item) for item in self.items if str(item.get("name") or "") == slug), None)
-            if existing and self._refine_autonomous_skill_file(
-                existing,
-                request=request,
-                session_key=session_key,
-                manager_brief=manager_brief,
-            ):
+        with SKILL_AUTONOMY_LOCK:
+            raw_request = (request or manager_brief).strip()
+            category = self._autonomy_category(f"{request} {manager_brief}")
+            workers = self._autonomy_workers(category)
+            slug = self._autonomy_slug(raw_request, category=category)
+            tokens = list(self._tokenize(raw_request))
+            if not tokens:
+                return None
+            skill_dir = self.root / slug
+            if skill_dir.exists():
+                self.load()
+                existing = next((dict(item) for item in self.items if str(item.get("name") or "") == slug), None)
+                if existing and self._refine_autonomous_skill_file(
+                    existing,
+                    request=request,
+                    session_key=session_key,
+                    manager_brief=manager_brief,
+                ):
+                    self.load()
+                    existing = next((dict(item) for item in self.items if str(item.get("name") or "") == slug), None)
+                    if existing:
+                        existing["workers"] = [value for value in str(existing.get("workers") or "").split(",") if value]
+                        existing["autogenerated"] = True
+                        existing["autonomy_status"] = "refined"
+                        return existing
                 self.load()
                 existing = next((dict(item) for item in self.items if str(item.get("name") or "") == slug), None)
                 if existing:
                     existing["workers"] = [value for value in str(existing.get("workers") or "").split(",") if value]
-                    existing["autogenerated"] = True
-                    existing["autonomy_status"] = "refined"
-                    return existing
-            self.load()
-            existing = next((dict(item) for item in self.items if str(item.get("name") or "") == slug), None)
-            if existing:
-                existing["workers"] = [value for value in str(existing.get("workers") or "").split(",") if value]
-                existing["autogenerated"] = bool(existing.get("autogenerated"))
-                existing["autonomy_status"] = "reused"
-            return existing
+                    existing["autogenerated"] = bool(existing.get("autogenerated"))
+                    existing["autonomy_status"] = "reused"
+                return existing
 
-        safe_request = raw_request.replace('"', "'")
-        description = (
-            f"Use when a request like '{safe_request[:80]}' needs a reusable Meridian workflow instead of an ad hoc reply."
-        )
-        title = " ".join(part.capitalize() for part in slug.split("-")) or "Autonomous Skill"
-        capability_hint_block = self._capability_hint_block(category).strip()
-        content = "\n".join(
-            [
-                "---",
-                f"name: {slug}",
-                f'description: "{description}"',
-                "metadata:",
-                "  created_by: meridian_skill_autonomy",
-                f'  session_key: "{session_key}"',
-                f'  category: "{category}"',
-                "---",
-                "",
-                f"# {title}",
-                "",
-                "Use this skill when the user gives a short prompt such as:",
-                f"- {safe_request}",
-                "",
-                "## Workflow",
-                "",
-                "1. Expand the request into a concrete Meridian task using session continuity and live host facts.",
-                "2. Prioritize the user-facing artifact they asked for, not a broader product or system design deliverable.",
-                f"3. Route the work through these preferred specialists: {', '.join(workers)}.",
-                "4. Search for the closest executable Meridian capability path before giving up.",
-                "5. If required details are missing, return a draft or next-step artifact with explicit placeholders instead of inventing specifics.",
-                "6. If the exact requested transport or external action is unavailable, complete the nearest executable artifact instead of stopping at a refusal.",
-                "7. Keep outputs bounded, operator-usable, and grounded in verified Meridian state.",
-                "8. Return only confirmed facts, explicit unknowns, and the next operational move.",
-                "",
-                "## Reachable Capability Hints",
-                "",
-                capability_hint_block,
-                "",
-                "## Guardrails",
-                "",
-                "- Do not invent missing facts, timelines, or citations.",
-                "- Do not invent recipients, participants, dates, exact times, locations, or confirmation state that the user did not provide.",
-                "- Prefer live Meridian host facts over generic web knowledge.",
-                "- Escalate uncertainty instead of pretending the request is fully specified.",
-                "- If an external transport is unavailable, say that plainly but still finish the best executable part of the job.",
-                "",
-                "## Learned Variations",
-                "",
-                self._skill_example_line(raw_request),
-                "",
-                "## Why Created",
-                "",
-                "- Created automatically because a user request exposed a missing reusable playbook.",
-                f"- Session: {session_key}",
-                "",
-            ]
-        )
-        skill_dir.mkdir(parents=True, exist_ok=True)
-        skill_path = skill_dir / "SKILL.md"
-        skill_path.write_text(content, encoding="utf-8")
-        if SKILL_VALIDATOR.exists():
-            completed = subprocess.run(
-                ["python3", str(SKILL_VALIDATOR), str(skill_dir)],
-                capture_output=True,
-                text=True,
-                check=False,
+            safe_request = raw_request.replace('"', "'")
+            description = (
+                f"Use when a request like '{safe_request[:80]}' needs a reusable Meridian workflow instead of an ad hoc reply."
             )
-            if completed.returncode != 0:
-                shutil.rmtree(skill_dir, ignore_errors=True)
+            title = " ".join(part.capitalize() for part in slug.split("-")) or "Autonomous Skill"
+            capability_hint_block = self._capability_hint_block(category).strip()
+            content = "\n".join(
+                [
+                    "---",
+                    f"name: {slug}",
+                    f'description: "{description}"',
+                    "metadata:",
+                    "  created_by: meridian_skill_autonomy",
+                    f'  session_key: "{session_key}"',
+                    f'  category: "{category}"',
+                    "---",
+                    "",
+                    f"# {title}",
+                    "",
+                    "Use this skill when the user gives a short prompt such as:",
+                    f"- {safe_request}",
+                    "",
+                    "## Workflow",
+                    "",
+                    "1. Expand the request into a concrete Meridian task using session continuity and live host facts.",
+                    "2. Prioritize the user-facing artifact they asked for, not a broader product or system design deliverable.",
+                    f"3. Route the work through these preferred specialists: {', '.join(workers)}.",
+                    "4. Search for the closest executable Meridian capability path before giving up.",
+                    "5. If required details are missing, return a draft or next-step artifact with explicit placeholders instead of inventing specifics.",
+                    "6. If the exact requested transport or external action is unavailable, complete the nearest executable artifact instead of stopping at a refusal.",
+                    "7. Keep outputs bounded, operator-usable, and grounded in verified Meridian state.",
+                    "8. Return only confirmed facts, explicit unknowns, and the next operational move.",
+                    "",
+                    "## Reachable Capability Hints",
+                    "",
+                    capability_hint_block,
+                    "",
+                    "## Guardrails",
+                    "",
+                    "- Do not invent missing facts, timelines, or citations.",
+                    "- Do not invent recipients, participants, dates, exact times, locations, or confirmation state that the user did not provide.",
+                    "- Prefer live Meridian host facts over generic web knowledge.",
+                    "- Escalate uncertainty instead of pretending the request is fully specified.",
+                    "- If an external transport is unavailable, say that plainly but still finish the best executable part of the job.",
+                    "",
+                    "## Learned Variations",
+                    "",
+                    self._skill_example_line(raw_request),
+                    "",
+                    "## Why Created",
+                    "",
+                    "- Created automatically because a user request exposed a missing reusable playbook.",
+                    f"- Session: {session_key}",
+                    "",
+                ]
+            )
+            skill_dir.mkdir(parents=True, exist_ok=True)
+            skill_path = skill_dir / "SKILL.md"
+            skill_path.write_text(content, encoding="utf-8")
+            if SKILL_VALIDATOR.exists():
+                completed = subprocess.run(
+                    ["python3", str(SKILL_VALIDATOR), str(skill_dir)],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                if completed.returncode != 0:
+                    shutil.rmtree(skill_dir, ignore_errors=True)
+                    return None
+            self.load()
+            created = next((dict(item) for item in self.items if str(item.get("name") or "") == slug), None)
+            if created is None:
                 return None
-        self.load()
-        created = next((dict(item) for item in self.items if str(item.get("name") or "") == slug), None)
-        if created is None:
-            return None
-        created["workers"] = workers
-        created["autogenerated"] = True
-        created["autonomy_status"] = "created"
-        return created
+            created["workers"] = workers
+            created["autogenerated"] = True
+            created["autonomy_status"] = "created"
+            return created
 
     def prompt_block(self) -> str:
         if not self.items:
@@ -4321,15 +4328,16 @@ def _autogenerated_skill_supports_request(request: str, item: dict[str, Any]) ->
 def _request_prefers_specific_skill(request: str, matches: list[dict[str, Any]]) -> bool:
     if not matches:
         return False
+    has_supporting_autogenerated_match = any(
+        bool(item.get("autogenerated")) and _autogenerated_skill_supports_request(request, item)
+        for item in matches
+    )
     if _request_wants_protocol_artifact(request):
-        return True
+        return not has_supporting_autogenerated_match
     request_category = TEAM_SKILLS._autonomy_category(request)
     if request_category == "general":
         return False
-    if any(
-        bool(item.get("autogenerated")) and _autogenerated_skill_supports_request(request, item)
-        for item in matches
-    ):
+    if has_supporting_autogenerated_match:
         return False
     names = {str(item.get("name") or "").strip().lower() for item in matches}
     if _request_prefers_safe_web_research(request) and "safe-web-research" in names:
