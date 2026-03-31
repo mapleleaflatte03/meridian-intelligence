@@ -34,6 +34,7 @@ import functools
 import datetime
 import fcntl
 import glob
+import hashlib
 import json
 import logging
 import os
@@ -61,6 +62,8 @@ PLATFORM_DIR = os.path.join(COMPANY_DIR, 'meridian_platform')
 WALLET_FILE = os.path.join(MERIDIAN_HOME, 'credentials', 'base_wallet.json')
 MCP_SETTLEMENT_LOG = os.path.join(COMPANY_DIR, 'mcp_settlements.jsonl')
 MCP_SETTLEMENT_LOCK = os.path.join(COMPANY_DIR, '.mcp_settlement.lock')
+RESEARCH_CACHE_FILE = os.path.join(MERIDIAN_HOME, 'state', 'mcp', 'research_cache.json')
+RESEARCH_CACHE_TTL_SECONDS = int(os.environ.get('MERIDIAN_RESEARCH_CACHE_TTL_SECONDS', '900'))
 
 # Platform integration — audit, metering, authority, treasury
 sys.path.insert(0, PLATFORM_DIR)
@@ -142,6 +145,81 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(name)s] %(message
 logger = logging.getLogger('meridian.mcp')
 TEAM_RUNTIME_ENV = load_runtime_env()
 TEAM_TOPOLOGY = load_team_topology()
+
+
+def _research_cache_key(topic: str, depth: str, agent_id: str, capability_name: str = '') -> str:
+    raw = json.dumps(
+        {
+            'topic': str(topic or '').strip().lower(),
+            'depth': str(depth or '').strip().lower(),
+            'agent_id': str(agent_id or '').strip().lower(),
+            'capability_name': str(capability_name or '').strip().lower(),
+        },
+        sort_keys=True,
+        ensure_ascii=False,
+    )
+    return hashlib.sha256(raw.encode('utf-8')).hexdigest()
+
+
+def _load_research_cache() -> dict[str, dict]:
+    if not os.path.exists(RESEARCH_CACHE_FILE):
+        return {}
+    try:
+        with open(RESEARCH_CACHE_FILE, encoding='utf-8') as handle:
+            payload = json.load(handle)
+    except Exception:
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+    entries = payload.get('entries', payload)
+    return entries if isinstance(entries, dict) else {}
+
+
+def _save_research_cache(entries: dict[str, dict]) -> None:
+    os.makedirs(os.path.dirname(RESEARCH_CACHE_FILE), exist_ok=True)
+    payload = {
+        'updated_at': datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ'),
+        'entries': entries,
+    }
+    tmp_path = f'{RESEARCH_CACHE_FILE}.tmp'
+    with open(tmp_path, 'w', encoding='utf-8') as handle:
+        json.dump(payload, handle, indent=2, ensure_ascii=False)
+    os.replace(tmp_path, RESEARCH_CACHE_FILE)
+
+
+def _research_cache_get(topic: str, depth: str, agent_id: str, capability_name: str = '') -> dict | None:
+    cache_key = _research_cache_key(topic, depth, agent_id, capability_name)
+    entries = _load_research_cache()
+    record = entries.get(cache_key)
+    if not isinstance(record, dict):
+        return None
+    expires_at = float(record.get('expires_at_unix') or 0.0)
+    if expires_at <= time.time():
+        entries.pop(cache_key, None)
+        _save_research_cache(entries)
+        return None
+    result = record.get('result')
+    return dict(result) if isinstance(result, dict) else None
+
+
+def _research_cache_put(topic: str, depth: str, agent_id: str, result: dict, capability_name: str = '') -> None:
+    research_text = str((result or {}).get('research') or '').strip()
+    if not research_text:
+        return
+    if str((result or {}).get('error') or '').strip():
+        return
+    cache_key = _research_cache_key(topic, depth, agent_id, capability_name)
+    entries = _load_research_cache()
+    entries[cache_key] = {
+        'stored_at_unix': time.time(),
+        'expires_at_unix': time.time() + max(60, RESEARCH_CACHE_TTL_SECONDS),
+        'topic': str(topic or '').strip(),
+        'depth': str(depth or '').strip(),
+        'agent_id': str(agent_id or '').strip(),
+        'capability_name': str(capability_name or '').strip(),
+        'result': dict(result or {}),
+    }
+    _save_research_cache(entries)
 
 
 def _team_specialist(agent_id: str):
@@ -293,10 +371,41 @@ def _specialist_llm_result(loom_result: dict, *, preferred_key: str) -> tuple[st
     output_text = str(host_response.get('output_text') or '').strip()
     payload = _extract_json_object(output_text) if output_text else None
     if isinstance(payload, dict):
-        value = str(payload.get(preferred_key) or payload.get('result') or '').strip()
-        if value:
-            return value, output_text
-    return output_text or _extract_loom_content(worker_result, (preferred_key, 'response', 'message', 'text', 'output_text')), output_text
+        fallback_keys = [preferred_key, 'result']
+        if preferred_key == 'result':
+            fallback_keys.extend(['research', 'verification'])
+        elif preferred_key == 'verification':
+            fallback_keys.extend(['result', 'response'])
+        seen = set()
+        for key in fallback_keys:
+            if key in seen:
+                continue
+            seen.add(key)
+            value = str(payload.get(key) or '').strip()
+            if value:
+                return value, output_text
+        results = payload.get('results')
+        if isinstance(results, list):
+            normalized = []
+            for item in results:
+                if not isinstance(item, dict):
+                    continue
+                text = item.get('normalized_text')
+                if isinstance(text, str) and text.strip():
+                    normalized.append(text.strip())
+            if normalized:
+                return '\n\n'.join(normalized), output_text
+    fallback_keys = [preferred_key]
+    if preferred_key == 'result':
+        fallback_keys.extend(['research', 'result'])
+    elif preferred_key == 'verification':
+        fallback_keys.extend(['verification', 'result'])
+    fallback_keys.extend(['response', 'message', 'text', 'output_text'])
+    deduped_keys: list[str] = []
+    for key in fallback_keys:
+        if key not in deduped_keys:
+            deduped_keys.append(key)
+    return output_text or _extract_loom_content(worker_result, tuple(deduped_keys)), output_text
 
 
 def _specialist_llm_json(raw_output: str) -> dict[str, Any]:
@@ -447,11 +556,11 @@ def _intelligence_route_fallback(route: str, default: bool = False) -> bool:
 
 
 def _loom_bin() -> str:
-    return _shared_runtime_value('binary_path', _shared_preferred_loom_bin(os.environ), runtime_env=os.environ)
+    return _shared_preferred_loom_bin(os.environ)
 
 
 def _loom_root() -> str:
-    return _shared_runtime_value('runtime_root', _shared_preferred_loom_root(os.environ), runtime_env=os.environ)
+    return _shared_preferred_loom_root(os.environ)
 
 
 def _loom_agent_id() -> str:
@@ -463,7 +572,11 @@ def _loom_org_id() -> str:
         value = (os.environ.get(key) or '').strip()
         if value:
             return value
-    return _shared_runtime_value('org_id', 'org_48b05c21', runtime_env=os.environ)
+    if MCP_ORG_ID:
+        return MCP_ORG_ID
+    if DEFAULT_ORG_ID:
+        return DEFAULT_ORG_ID
+    return 'org_48b05c21'
 
 
 def _loom_service_token() -> str:
@@ -622,19 +735,36 @@ def _extract_loom_content(worker_result: dict, preferred_keys: tuple[str, ...]) 
             value = payload.get(key)
             if isinstance(value, str) and value.strip():
                 return value
+        for key in ('research', 'verification', 'result'):
+            if key in preferred_keys:
+                continue
+            value = payload.get(key)
+            if isinstance(value, str) and value.strip():
+                return value
+        results = payload.get('results')
+        if isinstance(results, list):
+            normalized = []
+            for item in results:
+                if not isinstance(item, dict):
+                    continue
+                text = item.get('normalized_text')
+                if isinstance(text, str) and text.strip():
+                    normalized.append(text.strip())
+            if normalized:
+                return '\n\n'.join(normalized)
     host_response = worker_result.get('host_response_json')
     if isinstance(host_response, dict):
         for key in preferred_keys:
             value = host_response.get(key)
             if isinstance(value, str) and value.strip():
                 return value
-    summary = worker_result.get('summary')
-    if isinstance(summary, str) and summary.strip():
-        return summary
     if isinstance(host_response, dict):
         output_text = host_response.get('output_text')
         if isinstance(output_text, str) and output_text.strip():
             return output_text
+    summary = worker_result.get('summary')
+    if isinstance(summary, str) and summary.strip():
+        return summary
     return json.dumps(payload if payload is not None else worker_result)
 
 
@@ -1403,6 +1533,8 @@ def _run_loom_on_demand_research(
     session_id: str = '',
     timeout: int = 150,
 ) -> tuple[dict, dict]:
+    max_tokens = 700 if str(depth or '').strip().lower() == 'quick' else 1200
+    capability_name = _loom_research_capability() or 'loom.llm.inference.v1'
     specialist_payload = _specialist_llm_payload(
         agent_id,
         (
@@ -1412,12 +1544,12 @@ def _run_loom_on_demand_research(
             "If verifiable evidence is unavailable in the current execution context, say so explicitly and leave citations empty."
         ),
         prompt,
-        max_tokens=1200,
+        max_tokens=max_tokens,
     )
-    capability_name = 'loom.llm.inference.v1' if specialist_payload else _loom_research_capability()
+    use_specialist_payload = capability_name == 'loom.llm.inference.v1'
     loom_result = _run_loom_capability(
         capability_name,
-        specialist_payload or _loom_research_payload(topic, depth, prompt),
+        specialist_payload if use_specialist_payload and specialist_payload else _loom_research_payload(topic, depth, prompt),
         timeout=timeout,
         agent_id=agent_id,
         session_id=session_id,
@@ -1428,7 +1560,7 @@ def _run_loom_on_demand_research(
         worker_result = loom_result.get('worker_result') or {}
         raw_output = ''
         parsed = {}
-        if specialist_payload:
+        if use_specialist_payload and specialist_payload:
             research_text, raw_output = _specialist_llm_result(loom_result, preferred_key='result')
             parsed = _specialist_llm_json(raw_output)
             host_response = worker_result.get('host_response_json') if isinstance(worker_result, dict) else {}
@@ -1528,7 +1660,20 @@ def do_on_demand_research_route(
             fallback_state=fallback_state,
         )
 
-    loom_preflight = _loom_research_preflight(_loom_research_capability())
+    capability_name = _loom_research_capability() or 'loom.llm.inference.v1'
+    cached = _research_cache_get(topic, depth, agent_id, capability_name)
+    if cached is not None:
+        cached_result = dict(cached)
+        cached_result['cache_state'] = 'hit'
+        cached_result.setdefault('runtime', 'loom')
+        return _with_on_demand_research_cutover(
+            cached_result,
+            requested_runtime,
+            'loom',
+            False,
+        )
+
+    loom_preflight = _loom_research_preflight(capability_name)
     if not loom_preflight.get('ok'):
         fallback_state = {
             'used': False,
@@ -1540,7 +1685,7 @@ def do_on_demand_research_route(
             'topic': topic,
             'depth': depth,
             'runtime': 'loom',
-            'capability_name': _loom_research_capability(),
+            'capability_name': capability_name,
             'error': f"Loom research preflight failed: {fallback_state['reason']}",
         }
         return _with_on_demand_research_cutover(
@@ -1561,6 +1706,7 @@ def do_on_demand_research_route(
         timeout=timeout,
     )
     if not result.get('error'):
+        _research_cache_put(topic, depth, agent_id, result, capability_name)
         return _with_on_demand_research_cutover(
             result,
             requested_runtime,
@@ -1602,14 +1748,16 @@ def do_qa_verify(
 
     requested_runtime = _intelligence_exec_runtime('qa')
     if requested_runtime == 'loom':
+        capability_name = _loom_qa_capability()
         specialist_payload = _specialist_llm_payload(
             agent_id,
             f'You are Meridian specialist {agent_id}. Verify claims for {criteria} quality and return strict JSON with keys verification, confidence, warnings.',
             prompt,
         )
-        loom_payload = specialist_payload or {'text': text, 'criteria': criteria, 'prompt': prompt}
+        use_specialist_payload = capability_name == 'loom.llm.inference.v1'
+        loom_payload = specialist_payload if use_specialist_payload and specialist_payload else {'text': text, 'criteria': criteria, 'prompt': prompt}
         loom_result = _run_loom_capability(
-            _loom_qa_capability(),
+            capability_name,
             loom_payload,
             timeout=90,
             agent_id=agent_id,
@@ -1618,12 +1766,16 @@ def do_qa_verify(
             resource=session_id or '',
         )
         if loom_result.get('ok'):
-            verification, raw_output = _specialist_llm_result(loom_result, preferred_key='verification')
+            if use_specialist_payload and specialist_payload:
+                verification, raw_output = _specialist_llm_result(loom_result, preferred_key='verification')
+            else:
+                verification = _extract_loom_content(loom_result.get('worker_result') or {}, ('verification', 'result', 'response', 'message', 'text', 'output_text'))
+                raw_output = ''
             return {
                 'criteria': criteria,
                 'verification': verification,
                 'runtime': 'loom',
-                'capability_name': loom_result.get('capability_name', ''),
+                'capability_name': loom_result.get('capability_name', capability_name),
                 'job_id': loom_result.get('job_id', ''),
                 'source': 'Meridian QA Pipeline',
                 'provider_profile': (specialist_payload or {}).get('provider_profile', ''),
@@ -1655,6 +1807,7 @@ def do_qa_verify_route(
     """Run QA verification with truthful route preflight and cutover state."""
     requested_runtime = _intelligence_route_runtime('qa_verify', tool='qa')
     fallback_enabled = _intelligence_route_fallback('qa_verify', default=False)
+    capability_name = _loom_qa_capability()
     prompt = (
         f"Verify the following text for {criteria} quality. "
         f"Return PASS or FAIL with specific reasons and confidence score (0-100). "
@@ -1665,9 +1818,10 @@ def do_qa_verify_route(
         f'You are Meridian specialist {agent_id}. Verify claims for {criteria} quality and return strict JSON with keys verification, confidence, warnings.',
         prompt,
     )
+    use_specialist_payload = capability_name == 'loom.llm.inference.v1'
 
     def _direct_fallback_result(reason: str, *, loom_job_id: str = '') -> dict | None:
-        if not specialist_payload:
+        if not specialist_payload or not use_specialist_payload:
             return None
         direct = _specialist_direct_provider_fallback(
             agent_id,
@@ -1715,7 +1869,7 @@ def do_qa_verify_route(
         }
         return _with_qa_verify_cutover(result, requested_runtime, 'blocked', False, fallback_state=fallback_state)
 
-    loom_preflight = _loom_qa_preflight(_loom_qa_capability())
+    loom_preflight = _loom_qa_preflight(capability_name)
     if not loom_preflight.get('ok'):
         fallback_state = {
             'used': False,
@@ -1723,22 +1877,10 @@ def do_qa_verify_route(
             'reason': '; '.join(loom_preflight.get('errors') or ['loom preflight failed']),
             'state': 'preflight_failed',
         }
-        fallback = _direct_fallback_result(
-            f"Loom QA preflight failed: {fallback_state['reason']}",
-        )
-        if fallback is not None:
-            return _with_qa_verify_cutover(
-                fallback,
-                requested_runtime,
-                'loom',
-                False,
-                fallback_state=fallback_state,
-                loom_preflight=loom_preflight,
-            )
         result = {
             'criteria': criteria,
             'runtime': 'loom',
-            'capability_name': _loom_qa_capability(),
+            'capability_name': capability_name,
             'error': f"Loom QA preflight failed: {fallback_state['reason']}",
         }
         return _with_qa_verify_cutover(
@@ -1770,8 +1912,8 @@ def do_qa_verify_route(
             )
 
     loom_result = _run_loom_capability(
-        _loom_qa_capability(),
-        specialist_payload or {'text': text, 'criteria': criteria, 'prompt': prompt},
+        capability_name,
+        specialist_payload if use_specialist_payload and specialist_payload else {'text': text, 'criteria': criteria, 'prompt': prompt},
         timeout=timeout,
         agent_id=agent_id,
         session_id=session_id,
@@ -1779,7 +1921,11 @@ def do_qa_verify_route(
         resource=session_id or '',
     )
     if loom_result.get('ok'):
-        verification, raw_output = _specialist_llm_result(loom_result, preferred_key='verification')
+        if use_specialist_payload and specialist_payload:
+            verification, raw_output = _specialist_llm_result(loom_result, preferred_key='verification')
+        else:
+            verification = _extract_loom_content(loom_result.get('worker_result') or {}, ('verification', 'result', 'response', 'message', 'text', 'output_text'))
+            raw_output = ''
         host_note = _specialist_host_response_note(loom_result)
         if (not verification or verification.lstrip().startswith('{"status":')) and host_note:
             fallback = _direct_fallback_result(

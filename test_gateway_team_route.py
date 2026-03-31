@@ -70,10 +70,11 @@ class GatewayTeamRouteTests(unittest.TestCase):
 
     def test_planner_fallback_adds_quill_for_writer_request(self):
         with mock.patch.object(meridian_gateway, '_run_codex_exec', return_value={'ok': False, 'output_text': ''}):
-            plan = meridian_gateway._team_route_plan(
-                'Write a short Meridian founder answer explaining why users should talk to Leviathann instead of direct specialists.',
-                'web_api:org_48b05c21',
-            )
+            with mock.patch.object(meridian_gateway, '_skill_bundle_for_request', return_value={'matches': []}):
+                plan = meridian_gateway._team_route_plan(
+                    'Write a short Meridian founder answer explaining why users should talk to Leviathann instead of direct specialists.',
+                    'web_api:org_48b05c21',
+                )
         self.assertEqual(plan['mode'], 'team')
         self.assertEqual(plan['workers'], ['QUILL', 'AEGIS'])
 
@@ -134,6 +135,66 @@ class GatewayTeamRouteTests(unittest.TestCase):
             self.assertIsNotNone(reused)
             self.assertEqual(reused.get('name'), created.get('name'))
             self.assertEqual(reused.get('autonomy_status'), 'reused')
+
+    def test_governed_skill_autonomy_begin_reserves_budget_and_warrant(self):
+        budget = {
+            'allowed': True,
+            'reason': 'ok',
+            'reservation': {'reservation_id': 'bud_demo'},
+        }
+        warrant = {'warrant_id': 'war_demo'}
+        with mock.patch.object(meridian_gateway, 'treasury_reserve_runtime_budget', return_value=budget) as reserve_mock:
+            with mock.patch.object(meridian_gateway, 'warrants_issue_warrant', return_value=warrant) as issue_mock:
+                with mock.patch.object(meridian_gateway, 'warrants_review_warrant', return_value={'warrant_id': 'war_demo', 'court_review_state': 'approved'}) as review_mock:
+                    with mock.patch.object(meridian_gateway, 'warrants_validate_warrant_for_execution', return_value={'warrant_id': 'war_demo'}):
+                        result = meridian_gateway._governed_skill_autonomy_begin(
+                            request='protocol hồi sinh deal nguội',
+                            session_key='telegram:123',
+                            manager_brief='protocol hồi sinh deal nguội',
+                            phase='create',
+                            skill_name='protocol-deal-hoi',
+                        )
+        self.assertTrue(result['allowed'])
+        self.assertEqual(result['reservation']['reservation_id'], 'bud_demo')
+        self.assertEqual(result['warrant']['warrant_id'], 'war_demo')
+        reserve_mock.assert_called_once()
+        issue_mock.assert_called_once()
+        review_mock.assert_called_once()
+
+    def test_build_memory_packet_prefers_matching_section(self):
+        state = {
+            'entries': {
+                'section/founder': {
+                    'key': 'section/founder',
+                    'heading': 'Founder',
+                    'content': '- Founder-led positioning.\n- Buyer trust matters.',
+                    'tokens': ['founder', 'buyer', 'trust'],
+                    'accepted_count': 3,
+                    'failure_count': 0,
+                    'memory_value_score': 3,
+                },
+                'section/mission': {
+                    'key': 'section/mission',
+                    'heading': 'Mission',
+                    'content': '- Governed operator.',
+                    'tokens': ['mission', 'governed', 'operator'],
+                    'accepted_count': 1,
+                    'failure_count': 0,
+                    'memory_value_score': 1,
+                },
+            },
+            'session_packets': {},
+        }
+        with mock.patch.object(meridian_gateway, '_sync_memory_retrieval_index', return_value=state):
+            with mock.patch.object(meridian_gateway, '_save_memory_recall_state'):
+                packet = meridian_gateway._build_memory_packet(
+                    'viết founder positioning cho buyer enterprise',
+                    'telegram:123',
+                    ['research-khach-hang'],
+                )
+        self.assertTrue(packet['entries'])
+        self.assertEqual(packet['entries'][0]['key'], 'section/founder')
+        self.assertIn('Founder', packet['context'])
 
     def test_actionable_end_user_request_creates_skill_routed_team_plan(self):
         prompt = 'bạn có thể gửi mail cho tôi về trạng thái cập nhật mới nhất của Meridian thông qua mail của chính tôi là nguyensimon186@gmail.com.'
@@ -533,7 +594,7 @@ Use this skill when the user gives a short prompt such as:
             [{'name': 'research-khach-hang'}],
             ['ATLAS', 'QUILL', 'AEGIS'],
         )
-        self.assertEqual(workers, ['ATLAS', 'AEGIS'])
+        self.assertEqual(workers, ['ATLAS'])
 
     def test_customer_research_brief_keeps_quill_when_writer_cue_present(self):
         workers = meridian_gateway._refine_skill_routed_workers(
@@ -905,6 +966,32 @@ Use this skill when the user gives a short prompt such as:
             answer = meridian_gateway._manager_synthesis(
                 'research khách hàng trả tiền cho Meridian',
                 'web_api:test-fastpath-research',
+                steps,
+                {'skills': [{'name': 'research-khach-hang'}]},
+            )
+        self.assertIn('Likely buyer', answer)
+        self.assertIn('What must be validated', answer)
+
+    def test_manager_synthesis_fastpaths_customer_research_starter_without_qa_step(self):
+        steps = [
+            {
+                'agent_id': 'agent_atlas',
+                'status': 'ok',
+                'task_kind': 'research',
+                'result': (
+                    '**Status**\n\nĐây là research starter dạng giả thuyết cần kiểm chứng.\n\n'
+                    '**Likely buyer**\n- PMM\n\n'
+                    '**What must be validated**\n- Pain\n\n'
+                    '**Next move**\n- Phỏng vấn khách'
+                ),
+                'warnings': [],
+                'citations': [],
+            },
+        ]
+        with mock.patch.object(meridian_gateway, '_run_codex_exec', side_effect=AssertionError('should not call codex')):
+            answer = meridian_gateway._manager_synthesis(
+                'research khách hàng trả tiền cho Meridian',
+                'web_api:test-fastpath-research-no-qa',
                 steps,
                 {'skills': [{'name': 'research-khach-hang'}]},
             )

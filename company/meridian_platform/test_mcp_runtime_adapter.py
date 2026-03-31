@@ -3,6 +3,7 @@ import importlib.util
 import json
 import os
 import sys
+import tempfile
 import types
 import unittest
 from unittest import mock
@@ -51,6 +52,14 @@ mcp_server = _load_module(os.path.join(COMPANY_DIR, 'mcp_server.py'), 'company_m
 
 
 class McpRuntimeAdapterTests(unittest.TestCase):
+    def setUp(self):
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmpdir.cleanup)
+        cache_file = os.path.join(self._tmpdir.name, 'research_cache.json')
+        cache_patch = mock.patch.object(mcp_server, 'RESEARCH_CACHE_FILE', cache_file)
+        cache_patch.start()
+        self.addCleanup(cache_patch.stop)
+
     def test_company_info_payload_exposes_live_host_truth(self):
         context = {
             'org_id': 'org_48b05c21',
@@ -302,6 +311,33 @@ class McpRuntimeAdapterTests(unittest.TestCase):
         self.assertIn('selected=loom', result['route_cutover']['transcript'])
         self.assertEqual(result['route_cutover']['loom']['job_id'], 'job-route')
         self.assertEqual(result['route_cutover']['loom']['result_path_hint'], '/tmp/jobs/job-route/result.json')
+
+    def test_on_demand_research_route_uses_cache_hit_without_loom_calls(self):
+        cached = {
+            'topic': 'OpenAI pricing',
+            'depth': 'quick',
+            'research': 'cached bounded scan',
+            'runtime': 'loom',
+        }
+        env = {
+            'MERIDIAN_INTELLIGENCE_ON_DEMAND_RESEARCH_RUNTIME': 'loom',
+            'MERIDIAN_LOOM_RESEARCH_CAPABILITY': 'clawskill.safe-web-research.v0',
+        }
+        with mock.patch.dict(os.environ, env, clear=False):
+            with mock.patch.object(mcp_server, '_research_cache_get', return_value=cached):
+                with mock.patch.object(mcp_server, '_loom_research_preflight') as preflight_mock:
+                    with mock.patch.object(mcp_server, '_run_loom_on_demand_research') as run_mock:
+                        result = mcp_server.do_on_demand_research_route('OpenAI pricing', 'quick')
+        self.assertEqual(result['research'], 'cached bounded scan')
+        self.assertEqual(result['cache_state'], 'hit')
+        preflight_mock.assert_not_called()
+        run_mock.assert_not_called()
+
+    def test_quick_research_uses_lower_token_budget(self):
+        with mock.patch.object(mcp_server, '_specialist_llm_payload', return_value={'provider_profile': 'atlas', 'model': 'demo'}) as payload_mock:
+            with mock.patch.object(mcp_server, '_run_loom_capability', return_value={'ok': False, 'error': 'boom'}):
+                mcp_server._run_loom_on_demand_research('OpenAI pricing', 'quick', 'prompt')
+        self.assertEqual(payload_mock.call_args.kwargs['max_tokens'], 700)
 
     def test_on_demand_research_route_loom_preflight_failure_fails_closed(self):
         service_status = mock.Mock(

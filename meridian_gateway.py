@@ -6,6 +6,7 @@ from __future__ import annotations
 import base64
 import ast
 import hashlib
+import importlib.util
 import json
 import os
 import queue
@@ -44,12 +45,69 @@ from accounting import append_tx as accounting_append_tx, load_ledger as account
 from audit import log_event
 from capsule import ensure_treasury_aliases, ledger_path as capsule_ledger_path
 from court import file_violation as court_file_violation, get_restrictions as court_get_restrictions
+from warrants import (
+    issue_warrant as warrants_issue_warrant,
+    mark_warrant_executed as warrants_mark_warrant_executed,
+    review_warrant as warrants_review_warrant,
+    validate_warrant_for_execution as warrants_validate_warrant_for_execution,
+)
 from loom_runtime_client import estimate_capability_cost_usd, format_estimated_cost_usd
 from loom_runtime_discovery import preferred_loom_bin, preferred_loom_root, runtime_value
 from session_history import append_session_event, load_session_events
 from subscription_service import public_checkout_offer, subscription_summary
 from team_topology import SPECIALIST_KEYS, load_team_topology, sync_loom_team_profiles
 from telegram_history import imported_history_context
+
+KERNEL_DIR = Path("/opt/meridian-kernel/kernel")
+_KERNEL_IMPORT_CONFLICTS = (
+    "agent_registry",
+    "capsule",
+    "organizations",
+    "runtime_adapter",
+)
+
+
+def _call_isolated_kernel_treasury(method_name: str, *args: Any, **kwargs: Any) -> Any:
+    kernel_dir = str(KERNEL_DIR)
+    inserted = False
+    saved_modules: dict[str, Any] = {}
+    try:
+        if kernel_dir not in sys.path:
+            sys.path.insert(0, kernel_dir)
+            inserted = True
+        for module_name in _KERNEL_IMPORT_CONFLICTS:
+            if module_name in sys.modules:
+                saved_modules[module_name] = sys.modules.pop(module_name)
+        spec = importlib.util.spec_from_file_location(
+            f"meridian_kernel_treasury_gateway_{method_name}",
+            KERNEL_DIR / "treasury.py",
+        )
+        module = importlib.util.module_from_spec(spec)
+        assert spec.loader is not None
+        spec.loader.exec_module(module)
+        return getattr(module, method_name)(*args, **kwargs)
+    finally:
+        for module_name in _KERNEL_IMPORT_CONFLICTS:
+            sys.modules.pop(module_name, None)
+        for module_name, module in saved_modules.items():
+            sys.modules[module_name] = module
+        if inserted:
+            try:
+                sys.path.remove(kernel_dir)
+            except ValueError:
+                pass
+
+
+def treasury_reserve_runtime_budget(*args: Any, **kwargs: Any) -> Any:
+    return _call_isolated_kernel_treasury("reserve_runtime_budget", *args, **kwargs)
+
+
+def treasury_commit_runtime_budget(*args: Any, **kwargs: Any) -> Any:
+    return _call_isolated_kernel_treasury("commit_runtime_budget", *args, **kwargs)
+
+
+def treasury_release_runtime_budget(*args: Any, **kwargs: Any) -> Any:
+    return _call_isolated_kernel_treasury("release_runtime_budget", *args, **kwargs)
 
 SOUL_PATH = WORKSPACE_DIR / "SOUL.md"
 MEMORY_PATH = WORKSPACE_DIR / "MEMORY.md"
@@ -61,6 +119,7 @@ LOOM_ROOT = runtime_value('runtime_root', preferred_loom_root())
 SKILL_QUALITY_STATE_PATH = Path(LOOM_ROOT) / "state" / "skill-quality" / "quality.json"
 USER_SESSION_SCORE_STATE_PATH = Path(os.path.realpath(capsule_ledger_path())).with_name("user_session_scores.json")
 TELEGRAM_DEDUP_STATE_PATH = Path(LOOM_ROOT) / "state" / "gateway" / "telegram_dedup.json"
+MEMORY_RECALL_STATE_PATH = Path(LOOM_ROOT) / "state" / "gateway" / "memory_recall.json"
 TELEGRAM_INBOUND_DEDUP_WINDOW_SECONDS = int(os.environ.get("MERIDIAN_TELEGRAM_INBOUND_DEDUP_WINDOW_SECONDS", "120"))
 TELEGRAM_OUTBOUND_DEDUP_WINDOW_SECONDS = int(os.environ.get("MERIDIAN_TELEGRAM_OUTBOUND_DEDUP_WINDOW_SECONDS", "900"))
 SKILL_AUTONOMY_LOCK = threading.RLock()
@@ -100,7 +159,15 @@ LLM_API_KEY = ""
 TEAM_TOPOLOGY = load_team_topology()
 sync_loom_team_profiles(TEAM_TOPOLOGY, loom_root=LOOM_ROOT)
 TEAM_MANAGER_AGENT_ID = TEAM_TOPOLOGY.manager.registry_id
+MEMORY_RECALL_AGENT_ID = os.environ.get("MERIDIAN_MEMORY_AGENT_ID", TEAM_MANAGER_AGENT_ID)
 SKILL_VALIDATOR = Path("/home/ubuntu/.codex/skills/.system/skill-creator/scripts/quick_validate.py")
+GOVERNED_SKILL_SYNTHESIS_POLICY_REF = "governed_dynamic_skill_synthesis_v1"
+GOVERNED_SKILL_BOUNDARY_NAME = "skill_autonomy"
+GOVERNED_MEMORY_POLICY_REF = "governed_memory_retrieval_v1"
+SKILL_SYNTHESIS_CREATE_COST_USD = 0.03
+SKILL_SYNTHESIS_REFINE_COST_USD = 0.015
+MEMORY_RECALL_LIMIT = int(os.environ.get("MERIDIAN_MEMORY_RECALL_LIMIT", "4"))
+MEMORY_RECALL_SOURCE = "gateway_markdown_memory_sync"
 SKILL_STOPWORDS = {
     "a",
     "an",
@@ -1625,7 +1692,7 @@ def _refine_skill_routed_workers(request: str, matched_skills: list[dict[str, An
         return _normalize_worker_selection(["ATLAS", "AEGIS"], request)
     if _request_is_customer_research(request, list(lowered_skills)):
         if not _request_wants_research_writer(request):
-            return _normalize_worker_selection(["ATLAS", "AEGIS"], request)
+            return _normalize_worker_selection(["ATLAS"], request)
         return _normalize_worker_selection(["ATLAS", "QUILL", "AEGIS"], request)
     return selected
 
@@ -1874,7 +1941,7 @@ def _team_route_plan(text: str, session_key: str) -> dict[str, Any]:
     }
 
 
-def _manager_direct_response(goal: str, session_key: str) -> str:
+def _manager_direct_response(goal: str, session_key: str, plan: dict[str, Any] | None = None) -> str:
     if _looks_like_meridian_internal_query(goal):
         answer = _render_meridian_internal_answer(goal)
         append_session_event(session_key, {
@@ -1892,13 +1959,16 @@ def _manager_direct_response(goal: str, session_key: str) -> str:
         return answer
     manager = _loom_manager_defaults()
     history_context = imported_history_context(session_key, loom_root=LOOM_ROOT, limit=24)
+    memory_context = _memory_context_block(dict(plan or {}).get("memory_packet"))
     result = _run_codex_exec(
         system_prompt=(
             "You are Leviathann, Meridian's manager. "
             "Answer the user directly. Use conversation continuity when relevant. "
-            "Do not mention internal specialist routing unless asked."
+            "Do not mention internal specialist routing unless asked. "
+            "Use governed memory recall only as bounded context, never as a substitute for verified live facts."
         ),
         user_prompt=(
+            f"Governed memory recall:\n{memory_context or '(none)'}\n\n"
             f"Imported conversation continuity:\n{history_context or '(none)'}\n\n"
             f"User request:\n{goal.strip()}"
         ),
@@ -1947,6 +2017,7 @@ def _run_specialist_step(agent_key: str, request: str, session_key: str, plan: d
     skill_guidance_block = TEAM_SKILLS.guidance_block(matched_skills)
     skill_execution_addendum = _skill_specific_execution_addendum(request, matched_skills)
     skills_used = [str(item.get("name") or "").strip() for item in matched_skills if str(item.get("name") or "").strip()]
+    memory_context_block = _memory_context_block(dict(plan or {}).get("memory_packet"))
     council_context_block = _load_council_context() if str(plan.get("reason") or "").strip() == "meridian_council_meeting" else ""
     council_role_block = _council_role_instruction(agent_key) if council_context_block else ""
     if _verified_fact_mode_enabled(request, skills_used, verified_facts) and agent_key != "ATLAS":
@@ -2035,7 +2106,17 @@ def _run_specialist_step(agent_key: str, request: str, session_key: str, plan: d
                 if skill_guidance_block
                 else str(plan.get("topic") or request)
             ),
-            "quick" if "scan-doi-thu" in lowered_skill_names else str(plan.get("depth") or "standard"),
+            (
+                "quick"
+                if (
+                    "scan-doi-thu" in lowered_skill_names
+                    or (
+                        _request_is_customer_research(request, skills_used)
+                        and not _request_wants_research_writer(request)
+                    )
+                )
+                else str(plan.get("depth") or "standard")
+            ),
             agent_id=specialist.registry_id,
             session_id=session_key,
             timeout=atlas_timeout,
@@ -2199,6 +2280,8 @@ def _run_specialist_step(agent_key: str, request: str, session_key: str, plan: d
         {skill_execution_addendum or '(none)'}
         Conversation continuity:
         {context_block or '(none)'}
+        Governed memory recall:
+        {memory_context_block or '(none)'}
 
         User request:
         {request.strip()}
@@ -2402,16 +2485,16 @@ def _manager_fastpath_artifact(
     skill_names: list[str],
 ) -> tuple[str, str]:
     lowered_skill_names = {str(item or "").strip().lower() for item in skill_names}
-    if not _qa_gate_allows_manager_fastpath(steps):
-        return "", ""
     best_worker_artifact = _best_usable_step_artifact(steps, goal, skill_names)
-    if ("scan-doi-thu" in lowered_skill_names or "safe-web-research" in lowered_skill_names) and best_worker_artifact:
-        if _artifact_matches_skill_shape(best_worker_artifact, goal, skill_names):
-            return best_worker_artifact, "manager_synthesis_fastpathed_to_best_worker_artifact"
     if _request_is_customer_research(goal, skill_names) and not _request_wants_research_writer(goal):
         if best_worker_artifact and _artifact_matches_skill_shape(best_worker_artifact, goal, skill_names):
             return best_worker_artifact, "manager_synthesis_fastpathed_to_best_worker_artifact"
         return _salvage_customer_research_artifact(goal), "manager_synthesis_fastpathed_to_customer_research_starter"
+    if not _qa_gate_allows_manager_fastpath(steps):
+        return "", ""
+    if ("scan-doi-thu" in lowered_skill_names or "safe-web-research" in lowered_skill_names) and best_worker_artifact:
+        if _artifact_matches_skill_shape(best_worker_artifact, goal, skill_names):
+            return best_worker_artifact, "manager_synthesis_fastpathed_to_best_worker_artifact"
     return "", ""
 
 
@@ -2446,6 +2529,7 @@ def _manager_synthesis(goal: str, session_key: str, steps: list[dict[str, Any]],
         verified_facts = dict(plan.get("verified_facts") or {})
     council_context_block = _load_council_context() if isinstance(plan, dict) and str(plan.get("reason") or "").strip() == "meridian_council_meeting" else ""
     response_shape = _manager_response_shape(goal, plan)
+    memory_context = _memory_context_block(dict(plan or {}).get("memory_packet"))
     result = _run_codex_exec(
         system_prompt=(
             "You are Leviathann, Meridian's manager. "
@@ -2453,6 +2537,7 @@ def _manager_synthesis(goal: str, session_key: str, steps: list[dict[str, Any]],
             "Resolve conflicts, call out uncertainty, and keep the answer concise but complete. "
             "Treat worker warnings and empty citations as first-class truth. "
             "Verified Meridian host facts are the source of truth over worker claims. "
+            "Governed memory recall is useful bounded context, but it never outranks live verified facts or explicit worker warnings. "
             "Do not elevate unsupported marketing claims above the warnings. "
             "If and only if this is an explicit council-style review, write it like real board minutes with explicit disagreement, consensus, unresolved questions, and decisions. "
             "Otherwise, do not use council, board, minutes, consensus, or dissent framing."
@@ -2461,6 +2546,7 @@ def _manager_synthesis(goal: str, session_key: str, steps: list[dict[str, Any]],
             f"Original user request:\n{goal.strip()}\n\n"
             f"Required response shape:\n{response_shape}\n\n"
             f"Verified Meridian host facts:\n{json.dumps(verified_facts, indent=2, ensure_ascii=False) or '{}'}\n\n"
+            f"Governed memory recall:\n{memory_context or '(none)'}\n\n"
             f"Shared council context pack:\n{council_context_block or '(none)'}\n\n"
             f"Imported conversation continuity:\n{history_context or '(none)'}\n\n"
             f"Specialist outputs:\n{json.dumps(cleaned_steps, indent=2, ensure_ascii=False)}"
@@ -2549,6 +2635,12 @@ def _run_team_route(text: str, session_key: str, runtime: AgentRuntime) -> tuple
         return _telegram_help_text(), {"mode": "help", "steps": []}
     request = arg or text.strip()
     plan = _team_route_plan(request, session_key)
+    skill_names = [
+        str(item.get("name") or "").strip()
+        for item in list(plan.get("skills") or [])
+        if isinstance(item, dict) and str(item.get("name") or "").strip()
+    ]
+    plan["memory_packet"] = _build_memory_packet(request, session_key, skill_names)
     append_session_event(session_key, {
         "history_type": "manager_plan",
         "status": "planned",
@@ -2564,10 +2656,38 @@ def _run_team_route(text: str, session_key: str, runtime: AgentRuntime) -> tuple
         "transport_kind": "codex_session",
         "auth_mode": "codex_auth_json",
         "execution_owner": "meridian",
-        "skills_used": [str(item.get("name") or "").strip() for item in list(plan.get("skills") or []) if str(item.get("name") or "").strip()],
+        "skills_used": skill_names,
+        "memory_keys": _memory_packet_keys(plan.get("memory_packet")),
     }, loom_root=LOOM_ROOT)
     if plan.get("mode") == "direct":
-        return _manager_direct_response(request, session_key), {"mode": "direct", "steps": [], "plan": plan}
+        answer = _manager_direct_response(request, session_key, plan=plan)
+        memory_outcome = _record_memory_recall_outcome(
+            session_key,
+            "success" if str(answer or "").strip() else "failure",
+            _build_delivery_fingerprint(
+                request,
+                answer,
+                session_key=session_key,
+                skill_names=skill_names,
+                artifact_source="manager_response",
+            ),
+            memory_packet=plan.get("memory_packet"),
+        )
+        if memory_outcome:
+            append_session_event(
+                session_key,
+                {
+                    "history_type": "memory_recall_update",
+                    "status": memory_outcome.get("quality_status"),
+                    "agent_id": TEAM_MANAGER_AGENT_ID,
+                    "speaker": "manager",
+                    "text": "Updated governed memory recall outcomes for this direct session.",
+                    "memory_entries": memory_outcome.get("entries"),
+                    "source_label": "governed_memory_retrieval",
+                },
+                loom_root=LOOM_ROOT,
+            )
+        return answer, {"mode": "direct", "steps": [], "plan": plan}
     if plan.get("mode") == "internal_status":
         answer = _render_meridian_internal_answer(request)
         return answer, {"mode": "internal_status", "steps": [], "plan": plan}
@@ -2630,6 +2750,27 @@ def _run_team_route(text: str, session_key: str, runtime: AgentRuntime) -> tuple
         },
         loom_root=LOOM_ROOT,
     )
+    memory_outcome = _record_memory_recall_outcome(
+        session_key,
+        quality_status,
+        delivery_fingerprint,
+        memory_packet=plan.get("memory_packet"),
+    )
+    if memory_outcome:
+        append_session_event(
+            session_key,
+            {
+                "history_type": "memory_recall_update",
+                "status": memory_outcome.get("quality_status"),
+                "agent_id": TEAM_MANAGER_AGENT_ID,
+                "speaker": "manager",
+                "text": "Updated governed memory recall outcomes for this managed session.",
+                "memory_entries": memory_outcome.get("entries"),
+                "retrieval_mode": memory_outcome.get("retrieval_mode"),
+                "source_label": "governed_memory_retrieval",
+            },
+            loom_root=LOOM_ROOT,
+        )
     if skill_names:
         _record_skill_quality(
             skill_names,
@@ -3387,6 +3528,468 @@ def _load_user_session_score_state() -> dict[str, Any]:
 def _save_user_session_score_state(state: dict[str, Any]) -> None:
     USER_SESSION_SCORE_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
     USER_SESSION_SCORE_STATE_PATH.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
+
+
+def _load_memory_recall_state() -> dict[str, Any]:
+    path = MEMORY_RECALL_STATE_PATH
+    if not path.exists():
+        return {"version": 1, "entries": {}, "session_packets": {}}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return {"version": 1, "entries": {}, "session_packets": {}}
+    if not isinstance(payload, dict):
+        return {"version": 1, "entries": {}, "session_packets": {}}
+    payload.setdefault("version", 1)
+    payload.setdefault("entries", {})
+    payload.setdefault("session_packets", {})
+    if not isinstance(payload.get("entries"), dict):
+        payload["entries"] = {}
+    if not isinstance(payload.get("session_packets"), dict):
+        payload["session_packets"] = {}
+    return payload
+
+
+def _save_memory_recall_state(state: dict[str, Any]) -> None:
+    MEMORY_RECALL_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    MEMORY_RECALL_STATE_PATH.write_text(
+        json.dumps(state, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+
+
+def _memory_heading_slug(text: str) -> str:
+    folded = _ascii_fold(text).lower()
+    slug = re.sub(r"[^a-z0-9]+", "-", folded).strip("-")
+    return slug or "general"
+
+
+def _parse_markdown_memory_sections(markdown: str) -> list[dict[str, Any]]:
+    lines = str(markdown or "").splitlines()
+    sections: list[dict[str, Any]] = []
+    current_heading = ""
+    current_lines: list[str] = []
+    for raw_line in lines:
+        line = str(raw_line or "")
+        heading_match = re.match(r"^\s*##\s+(.+?)\s*$", line)
+        if heading_match:
+            if current_heading or any(item.strip() for item in current_lines):
+                content = "\n".join(item.rstrip() for item in current_lines).strip()
+                if content:
+                    sections.append(
+                        {
+                            "heading": current_heading or "General",
+                            "key": f"section/{_memory_heading_slug(current_heading or 'general')}",
+                            "category": "markdown_section",
+                            "content": content,
+                            "tokens": _request_tokens(f"{current_heading}\n{content}"),
+                        }
+                    )
+            current_heading = heading_match.group(1).strip()
+            current_lines = []
+            continue
+        if current_heading:
+            current_lines.append(line)
+    if current_heading or any(item.strip() for item in current_lines):
+        content = "\n".join(item.rstrip() for item in current_lines).strip()
+        if content:
+            sections.append(
+                {
+                    "heading": current_heading or "General",
+                    "key": f"section/{_memory_heading_slug(current_heading or 'general')}",
+                    "category": "markdown_section",
+                    "content": content,
+                    "tokens": _request_tokens(f"{current_heading}\n{content}"),
+                }
+            )
+    return sections
+
+
+def _run_loom_memory_command(args: list[str]) -> dict[str, Any]:
+    command = _loom_cli_prefix() + [
+        LOOM_BIN,
+        "memory",
+        *args,
+        "--root",
+        LOOM_ROOT,
+        "--format",
+        "json",
+    ]
+    try:
+        completed = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+    except Exception as exc:
+        return {"ok": False, "error": f"{exc.__class__.__name__}: {exc}"}
+    if completed.returncode != 0:
+        detail = (completed.stderr or completed.stdout or "loom memory command failed").strip()
+        return {"ok": False, "error": detail}
+    parsed = _extract_json_value((completed.stdout or "").strip())
+    return {"ok": True, "payload": parsed}
+
+
+def _sync_memory_retrieval_index() -> dict[str, Any]:
+    markdown = MEMORY_PATH.read_text(encoding="utf-8").strip()
+    source_mtime_ns = MEMORY_PATH.stat().st_mtime_ns if MEMORY_PATH.exists() else 0
+    sections = _parse_markdown_memory_sections(markdown)
+    state = _load_memory_recall_state()
+    entries_state = state.setdefault("entries", {})
+    retained_keys: set[str] = set()
+    changed_keys: list[str] = []
+    for section in sections:
+        key = str(section.get("key") or "").strip()
+        heading = str(section.get("heading") or "").strip() or "General"
+        content = str(section.get("content") or "").strip()
+        content_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
+        retained_keys.add(key)
+        record = dict(entries_state.get(key) or {})
+        if not isinstance(record, dict):
+            record = {}
+        previous_hash = str(record.get("content_hash") or "").strip()
+        record.setdefault("recall_count", 0)
+        record.setdefault("accepted_count", 0)
+        record.setdefault("failure_count", 0)
+        record["key"] = key
+        record["heading"] = heading
+        record["category"] = str(section.get("category") or "markdown_section").strip()
+        record["content"] = content
+        record["tokens"] = list(section.get("tokens") or [])
+        record["content_hash"] = content_hash
+        record["source"] = MEMORY_RECALL_SOURCE
+        record["updated_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        record["memory_value_score"] = int(record.get("accepted_count") or 0) - int(record.get("failure_count") or 0)
+        entries_state[key] = record
+        if content_hash != previous_hash:
+            changed_keys.append(key)
+    stale_keys = [key for key in list(entries_state) if key not in retained_keys]
+    for key in stale_keys:
+        stale_record = dict(entries_state.get(key) or {})
+        _run_loom_memory_command(
+            [
+                "remove",
+                "--agent-id",
+                MEMORY_RECALL_AGENT_ID,
+                "--category",
+                str(stale_record.get("category") or "markdown_section"),
+                "--key",
+                key,
+            ]
+        )
+        entries_state.pop(key, None)
+    if int(state.get("source_mtime_ns") or 0) != int(source_mtime_ns) or changed_keys:
+        for key in changed_keys:
+            record = dict(entries_state.get(key) or {})
+            _run_loom_memory_command(
+                [
+                    "write",
+                    "--agent-id",
+                    MEMORY_RECALL_AGENT_ID,
+                    "--category",
+                    str(record.get("category") or "markdown_section"),
+                    "--key",
+                    str(record.get("key") or "").strip(),
+                    "--content",
+                    str(record.get("content") or ""),
+                    "--source",
+                    MEMORY_RECALL_SOURCE,
+                ]
+            )
+    state["source_mtime_ns"] = int(source_mtime_ns)
+    state["updated_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    _save_memory_recall_state(state)
+    return state
+
+
+def _memory_entry_score(
+    entry: dict[str, Any],
+    request: str,
+    skill_names: list[str] | None = None,
+) -> int:
+    request_tokens = set(_request_tokens(request))
+    entry_tokens = {str(item).strip().lower() for item in list(entry.get("tokens") or []) if str(item).strip()}
+    overlap = request_tokens & entry_tokens
+    heading = str(entry.get("heading") or "").strip().lower()
+    lowered_skills = {str(item or "").strip().lower() for item in list(skill_names or []) if str(item or "").strip()}
+    score = len(overlap) * 8
+    if any(token in heading for token in ("founder", "mission")):
+        score += 3
+    if lowered_skills.intersection({"protocol-deal-hoi", "research-khach-hang", "scan-doi-thu"}):
+        if any(token in heading for token in ("founder", "mission")):
+            score += 5
+    if lowered_skills.intersection({"mail-gui", "follow-demo-soan", "book-meeting"}):
+        if "founder" in heading:
+            score += 2
+    score += min(int(entry.get("accepted_count") or 0), 6)
+    score -= min(int(entry.get("failure_count") or 0), 4)
+    return score
+
+
+def _build_memory_packet(
+    request: str,
+    session_key: str,
+    skill_names: list[str] | None = None,
+    *,
+    limit: int = MEMORY_RECALL_LIMIT,
+) -> dict[str, Any]:
+    state = _sync_memory_retrieval_index()
+    entries = [
+        dict(item)
+        for item in list((state.get("entries") or {}).values())
+        if isinstance(item, dict) and str(item.get("content") or "").strip()
+    ]
+    if not entries:
+        return {"entries": [], "context": ""}
+    ranked = sorted(
+        (
+            {
+                **entry,
+                "fit_score": _memory_entry_score(entry, request, skill_names),
+            }
+            for entry in entries
+        ),
+        key=lambda item: (
+            int(item.get("fit_score") or 0),
+            int(item.get("accepted_count") or 0),
+            str(item.get("heading") or ""),
+        ),
+        reverse=True,
+    )
+    selected = [item for item in ranked if int(item.get("fit_score") or 0) > 0][: max(1, int(limit or 0))]
+    if not selected:
+        selected = ranked[: min(2, len(ranked))]
+    packet_entries = [
+        {
+            "key": str(item.get("key") or "").strip(),
+            "heading": str(item.get("heading") or "").strip(),
+            "fit_score": int(item.get("fit_score") or 0),
+            "memory_value_score": int(item.get("memory_value_score") or 0),
+            "accepted_count": int(item.get("accepted_count") or 0),
+            "failure_count": int(item.get("failure_count") or 0),
+            "content": str(item.get("content") or "").strip(),
+        }
+        for item in selected
+    ]
+    context = "\n\n".join(
+        f"[{item['heading']}]\n{item['content']}"
+        for item in packet_entries
+        if str(item.get("content") or "").strip()
+    ).strip()
+    state.setdefault("session_packets", {})[session_key] = {
+        "keys": [str(item.get("key") or "").strip() for item in packet_entries],
+        "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "request_hash": hashlib.sha256(str(request or "").encode("utf-8")).hexdigest(),
+    }
+    _save_memory_recall_state(state)
+    return {
+        "entries": packet_entries,
+        "context": context,
+        "retrieval_mode": "scored_markdown_section_recall",
+    }
+
+
+def _record_memory_recall_outcome(
+    session_key: str,
+    quality_status: str,
+    delivery_fingerprint: str,
+    *,
+    memory_packet: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    packet = dict(memory_packet or {})
+    keys = [str(item.get("key") or "").strip() for item in list(packet.get("entries") or []) if str(item.get("key") or "").strip()]
+    state = _load_memory_recall_state()
+    session_packets = state.setdefault("session_packets", {})
+    remembered = dict(session_packets.get(session_key) or {})
+    if not keys:
+        keys = [str(item).strip() for item in list(remembered.get("keys") or []) if str(item).strip()]
+    if not keys:
+        return None
+    normalized_quality = str(quality_status or "partial").strip().lower()
+    if normalized_quality not in {"success", "partial", "failure"}:
+        normalized_quality = "partial"
+    accepted = normalized_quality in {"success", "partial"}
+    entries_state = state.setdefault("entries", {})
+    updated: list[dict[str, Any]] = []
+    for key in keys:
+        record = dict(entries_state.get(key) or {})
+        if not record:
+            continue
+        record["recall_count"] = int(record.get("recall_count") or 0) + 1
+        if accepted:
+            record["accepted_count"] = int(record.get("accepted_count") or 0) + 1
+        elif normalized_quality == "failure":
+            record["failure_count"] = int(record.get("failure_count") or 0) + 1
+        record["last_recalled_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        record["last_quality_status"] = normalized_quality
+        record["last_delivery_fingerprint"] = delivery_fingerprint
+        record["memory_value_score"] = int(record.get("accepted_count") or 0) - int(record.get("failure_count") or 0)
+        entries_state[key] = record
+        updated.append(
+            {
+                "key": key,
+                "heading": str(record.get("heading") or "").strip(),
+                "memory_value_score": int(record.get("memory_value_score") or 0),
+                "recall_count": int(record.get("recall_count") or 0),
+            }
+        )
+    session_packets.pop(session_key, None)
+    _save_memory_recall_state(state)
+    if not updated:
+        return None
+    return {
+        "quality_status": normalized_quality,
+        "entries": updated,
+        "retrieval_mode": str(packet.get("retrieval_mode") or "scored_markdown_section_recall"),
+    }
+
+
+def _memory_context_block(memory_packet: dict[str, Any] | None) -> str:
+    packet = dict(memory_packet or {})
+    context = str(packet.get("context") or "").strip()
+    if not context:
+        return "(none)"
+    return context
+
+
+def _memory_packet_keys(memory_packet: dict[str, Any] | None) -> list[str]:
+    return [
+        str(item.get("key") or "").strip()
+        for item in list(dict(memory_packet or {}).get("entries") or [])
+        if isinstance(item, dict) and str(item.get("key") or "").strip()
+    ]
+
+
+def _live_skill_registry_root() -> bool:
+    try:
+        return Path(TEAM_SKILLS.root).resolve() == SKILLS_DIR.resolve()
+    except Exception:
+        return False
+
+
+def _governed_skill_autonomy_begin(
+    *,
+    request: str,
+    session_key: str,
+    manager_brief: str,
+    phase: str,
+    skill_name: str,
+) -> dict[str, Any]:
+    estimated_cost = SKILL_SYNTHESIS_CREATE_COST_USD if phase == "create" else SKILL_SYNTHESIS_REFINE_COST_USD
+    action = f"governed_skill_synthesis_{phase}"
+    payload = {
+        "request": str(request or "").strip(),
+        "manager_brief": str(manager_brief or "").strip(),
+        "phase": phase,
+        "skill_name": skill_name,
+        "session_key": session_key,
+    }
+    budget = treasury_reserve_runtime_budget(
+        TEAM_MANAGER_AGENT_ID,
+        estimated_cost,
+        org_id=LOOM_ORG_ID,
+        action=action,
+        resource=skill_name,
+        context=payload,
+        lease_seconds=300,
+        policy_ref=GOVERNED_SKILL_SYNTHESIS_POLICY_REF,
+    )
+    if not bool(budget.get("allowed")):
+        return {
+            "allowed": False,
+            "phase": phase,
+            "skill_name": skill_name,
+            "estimated_cost_usd": estimated_cost,
+            "budget": budget,
+            "reason": str(budget.get("reason") or "budget reservation denied").strip(),
+        }
+    reservation = dict(budget.get("reservation") or {})
+    warrant = warrants_issue_warrant(
+        LOOM_ORG_ID,
+        "budget_spend",
+        GOVERNED_SKILL_BOUNDARY_NAME,
+        TEAM_MANAGER_AGENT_ID,
+        session_id=session_key,
+        request_payload=payload,
+        risk_class="moderate" if phase == "create" else "low",
+        evidence_refs=[f"session:{session_key}", f"skill:{skill_name}"],
+        policy_refs=[GOVERNED_SKILL_SYNTHESIS_POLICY_REF],
+        note=f"Governed dynamic skill synthesis ({phase}) for {skill_name}",
+    )
+    approved = warrants_review_warrant(
+        str(warrant.get("warrant_id") or "").strip(),
+        "approve",
+        "system:leviathann-governor",
+        org_id=LOOM_ORG_ID,
+        note="Bounded internal skill synthesis approved under governed autonomy policy.",
+    )
+    validated = warrants_validate_warrant_for_execution(
+        str(warrant.get("warrant_id") or "").strip(),
+        org_id=LOOM_ORG_ID,
+        action_class="budget_spend",
+        boundary_name=GOVERNED_SKILL_BOUNDARY_NAME,
+        actor_id=TEAM_MANAGER_AGENT_ID,
+        session_id=session_key,
+        request_payload=payload,
+    )
+    return {
+        "allowed": True,
+        "phase": phase,
+        "skill_name": skill_name,
+        "estimated_cost_usd": estimated_cost,
+        "budget": budget,
+        "reservation": reservation,
+        "warrant": dict(warrant or {}),
+        "approved_warrant": dict(approved or {}),
+        "validated_warrant": dict(validated or {}),
+        "reason": "ok",
+    }
+
+
+def _governed_skill_autonomy_finish(
+    governance: dict[str, Any] | None,
+    *,
+    executed: bool,
+    note: str = "",
+    extra_refs: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    state = dict(governance or {})
+    if not bool(state.get("allowed")):
+        return state
+    reservation = dict(state.get("reservation") or {})
+    reservation_id = str(reservation.get("reservation_id") or "").strip()
+    warrant_id = str(dict(state.get("warrant") or {}).get("warrant_id") or "").strip()
+    if not reservation_id:
+        return state
+    if executed:
+        commit = treasury_commit_runtime_budget(
+            reservation_id,
+            actual_cost_usd=float(state.get("estimated_cost_usd") or 0.0),
+            org_id=LOOM_ORG_ID,
+            note=note or "governed skill synthesis executed",
+        )
+        if warrant_id:
+            warrants_mark_warrant_executed(
+                warrant_id,
+                org_id=LOOM_ORG_ID,
+                execution_refs={
+                    "reservation_id": reservation_id,
+                    "skill_name": str(state.get("skill_name") or "").strip(),
+                    "phase": str(state.get("phase") or "").strip(),
+                    **dict(extra_refs or {}),
+                },
+            )
+        state["commit"] = commit
+    else:
+        release = treasury_release_runtime_budget(
+            reservation_id,
+            org_id=LOOM_ORG_ID,
+            reason=note or "governed skill synthesis not executed",
+        )
+        state["release"] = release
+    return state
 
 
 def _eligible_user_session_for_economy(session_key: str, skill_names: list[str] | None = None) -> bool:
@@ -4798,11 +5401,78 @@ def _skill_bundle_for_request(
     created_skill = None
     refined_skill = None
     if not matches and allow_create and _autonomy_skill_candidate(request):
-        created_skill = TEAM_SKILLS.create_autonomous_skill(
-            request,
-            session_key=session_key,
-            manager_brief=manager_brief,
+        governance = None
+        target_skill_name = TEAM_SKILLS._autonomy_slug(  # type: ignore[attr-defined]
+            (request or manager_brief).strip(),
+            category=TEAM_SKILLS._autonomy_category(f"{request} {manager_brief}"),  # type: ignore[attr-defined]
         )
+        if _live_skill_registry_root():
+            governance = _governed_skill_autonomy_begin(
+                request=request,
+                session_key=session_key,
+                manager_brief=manager_brief,
+                phase="create",
+                skill_name=target_skill_name,
+            )
+        if governance is None or bool(governance.get("allowed")):
+            try:
+                created_skill = TEAM_SKILLS.create_autonomous_skill(
+                    request,
+                    session_key=session_key,
+                    manager_brief=manager_brief,
+                )
+            except Exception:
+                if governance is not None:
+                    _governed_skill_autonomy_finish(
+                        governance,
+                        executed=False,
+                        note="skill materialization raised an exception",
+                    )
+                raise
+            else:
+                if governance is not None:
+                    _governed_skill_autonomy_finish(
+                        governance,
+                        executed=bool(created_skill),
+                        note=(
+                            "governed skill materialization committed"
+                            if created_skill
+                            else "no skill was materialized from this request"
+                        ),
+                        extra_refs={"created_skill_name": str((created_skill or {}).get("name") or "").strip()},
+                    )
+                if governance is not None:
+                    append_session_event(
+                        session_key,
+                        {
+                            "history_type": "skill_governance",
+                            "status": "committed" if created_skill else "released",
+                            "agent_id": TEAM_MANAGER_AGENT_ID,
+                            "speaker": "manager",
+                            "text": (
+                                f"Governed skill synthesis {('created' if created_skill else 'released')} for {target_skill_name}."
+                            ),
+                            "skill_name": target_skill_name,
+                            "source_label": "governed_dynamic_skill_synthesis",
+                            "reservation_id": str(dict(governance.get('reservation') or {}).get("reservation_id") or "").strip(),
+                            "warrant_id": str(dict(governance.get('warrant') or {}).get("warrant_id") or "").strip(),
+                        },
+                        loom_root=LOOM_ROOT,
+                    )
+        else:
+            append_session_event(
+                session_key,
+                {
+                    "history_type": "skill_governance",
+                    "status": "blocked",
+                    "agent_id": TEAM_MANAGER_AGENT_ID,
+                    "speaker": "manager",
+                    "text": f"Governed skill synthesis blocked for {target_skill_name}: {str(governance.get('reason') or '').strip()}",
+                    "skill_name": target_skill_name,
+                    "source_label": "governed_dynamic_skill_synthesis",
+                },
+                loom_root=LOOM_ROOT,
+            )
         if created_skill:
             matches = [created_skill]
             append_session_event(
@@ -4828,32 +5498,90 @@ def _skill_bundle_for_request(
             ),
             None,
         )
-        if autogenerated_match and TEAM_SKILLS._refine_autonomous_skill_file(  # type: ignore[attr-defined]
-            autogenerated_match,
-            request=request,
-            session_key=session_key,
-            manager_brief=manager_brief,
-        ):
-            TEAM_SKILLS.load()
-            refreshed = TEAM_SKILLS.search(request, limit=2)
-            if refreshed:
-                matches = refreshed
-                refined_skill = next((dict(item) for item in matches if bool(item.get("autogenerated"))), None)
-                if refined_skill:
+        if autogenerated_match:
+            governance = None
+            if _live_skill_registry_root():
+                governance = _governed_skill_autonomy_begin(
+                    request=request,
+                    session_key=session_key,
+                    manager_brief=manager_brief,
+                    phase="refine",
+                    skill_name=str(autogenerated_match.get("name") or "").strip(),
+                )
+            refined = False
+            if governance is None or bool(governance.get("allowed")):
+                refined = TEAM_SKILLS._refine_autonomous_skill_file(  # type: ignore[attr-defined]
+                    autogenerated_match,
+                    request=request,
+                    session_key=session_key,
+                    manager_brief=manager_brief,
+                )
+                if governance is not None:
+                    _governed_skill_autonomy_finish(
+                        governance,
+                        executed=bool(refined),
+                        note=(
+                            "governed skill refinement committed"
+                            if refined
+                            else "autonomous skill refinement made no changes"
+                        ),
+                        extra_refs={"refined_skill_name": str(autogenerated_match.get("name") or "").strip()},
+                    )
                     append_session_event(
                         session_key,
                         {
-                            "history_type": "skill_refinement",
-                            "status": "updated",
+                            "history_type": "skill_governance",
+                            "status": "committed" if refined else "released",
                             "agent_id": TEAM_MANAGER_AGENT_ID,
                             "speaker": "manager",
-                            "text": f"Refined internal skill {refined_skill['name']} with a new learned variation.",
-                            "skill_name": refined_skill["name"],
-                            "source_label": "live_skill_autonomy",
-                            "workers": list(refined_skill.get("workers") or []),
+                            "text": (
+                                f"Governed skill refinement {('updated' if refined else 'released')} for {str(autogenerated_match.get('name') or '').strip()}."
+                            ),
+                            "skill_name": str(autogenerated_match.get("name") or "").strip(),
+                            "source_label": "governed_dynamic_skill_synthesis",
+                            "reservation_id": str(dict(governance.get('reservation') or {}).get("reservation_id") or "").strip(),
+                            "warrant_id": str(dict(governance.get('warrant') or {}).get("warrant_id") or "").strip(),
                         },
                         loom_root=LOOM_ROOT,
                     )
+            elif governance is not None:
+                append_session_event(
+                    session_key,
+                    {
+                        "history_type": "skill_governance",
+                        "status": "blocked",
+                        "agent_id": TEAM_MANAGER_AGENT_ID,
+                        "speaker": "manager",
+                        "text": (
+                            f"Governed skill refinement blocked for {str(autogenerated_match.get('name') or '').strip()}: "
+                            f"{str(governance.get('reason') or '').strip()}"
+                        ),
+                        "skill_name": str(autogenerated_match.get("name") or "").strip(),
+                        "source_label": "governed_dynamic_skill_synthesis",
+                    },
+                    loom_root=LOOM_ROOT,
+                )
+            if refined:
+                TEAM_SKILLS.load()
+                refreshed = TEAM_SKILLS.search(request, limit=2)
+                if refreshed:
+                    matches = refreshed
+                    refined_skill = next((dict(item) for item in matches if bool(item.get("autogenerated"))), None)
+                    if refined_skill:
+                        append_session_event(
+                            session_key,
+                            {
+                                "history_type": "skill_refinement",
+                                "status": "updated",
+                                "agent_id": TEAM_MANAGER_AGENT_ID,
+                                "speaker": "manager",
+                                "text": f"Refined internal skill {refined_skill['name']} with a new learned variation.",
+                                "skill_name": refined_skill["name"],
+                                "source_label": "live_skill_autonomy",
+                                "workers": list(refined_skill.get("workers") or []),
+                            },
+                            loom_root=LOOM_ROOT,
+                        )
     lowered = (request or "").strip().lower()
     if matches:
         names = {str(item.get("name") or "").strip().lower() for item in matches}
