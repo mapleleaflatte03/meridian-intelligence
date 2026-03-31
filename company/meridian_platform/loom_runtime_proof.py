@@ -31,6 +31,10 @@ from loom_runtime_discovery import preferred_loom_bin, preferred_loom_root  # no
 
 
 AGENT_HANDLE_FIELDS = ('economy_key', 'name', 'id')
+HEALTH_PROBE_TIMEOUT_SECONDS = 5
+SERVICE_PROBE_TIMEOUT_SECONDS = 5
+MEMORY_PROBE_TIMEOUT_SECONDS = 5
+CONTEXT_PROBE_TIMEOUT_SECONDS = 5
 _HEALTH_AGENT_RE = re.compile(r'^Agents:\s*(?P<agents>.+)$')
 _HEALTH_HEARTBEAT_RE = re.compile(r'^Heartbeat interval:\s*(?P<interval>.+?)(?:\s+\((?P<primary>[^)]+)\))?$')
 _HEALTH_SESSION_RE = re.compile(r'^Session store \((?P<agent>[^)]+)\):\s*(?P<path>.+?)\s+\((?P<count>\d+)\s+entries?\)$')
@@ -375,7 +379,10 @@ def collect_loom_runtime_proof(
 ) -> Dict[str, Any]:
     health_probe = None
     if health_output is None:
-        health_probe = _run_command(health_command or _health_command(), timeout=20)
+        health_probe = _run_command(
+            health_command or _health_command(),
+            timeout=HEALTH_PROBE_TIMEOUT_SECONDS,
+        )
         health_output = health_probe['stdout']
 
     health = parse_loom_health(health_output)
@@ -404,7 +411,10 @@ def collect_loom_runtime_proof(
         'context': {},
     }
     if include_service_probe:
-        probe = _run_command(service_probe_command or _service_probe_command(), timeout=20)
+        probe = _run_command(
+            service_probe_command or _service_probe_command(),
+            timeout=SERVICE_PROBE_TIMEOUT_SECONDS,
+        )
         try:
             parsed = _parse_service_probe(probe['stdout']) if probe['ok'] else {
                 'ok': False,
@@ -425,8 +435,8 @@ def collect_loom_runtime_proof(
             'health': parsed.get('health', ''),
             'transport': parsed.get('transport', ''),
         }
-        memory_probe = _run_command(_memory_command(), timeout=20)
-        context_probe = _run_command(_context_command(), timeout=20)
+        memory_probe = _run_command(_memory_command(), timeout=MEMORY_PROBE_TIMEOUT_SECONDS)
+        context_probe = _run_command(_context_command(), timeout=CONTEXT_PROBE_TIMEOUT_SECONDS)
         if memory_probe.get('ok'):
             try:
                 memory_payload = json.loads(memory_probe['stdout']) if memory_probe['stdout'] else {}
@@ -485,9 +495,17 @@ def public_loom_runtime_receipt(
     governed_agents = list(proof.get('governed_agents') or [])
     service_probe = dict(proof.get('service_probe') or {})
     memory_context = dict(proof.get('memory_context') or {})
+    effective_health_status = (
+        health.get('status')
+        or service_probe.get('health')
+        or service_probe.get('service_status')
+        or 'unknown'
+    )
+    if effective_health_status == 'unknown' and service_probe.get('ok'):
+        effective_health_status = service_probe.get('health') or service_probe.get('service_status') or 'healthy'
     runtime_health = {
-        'status': health.get('status', 'unknown'),
-        'health_ok': bool(health.get('health_ok')),
+        'status': effective_health_status,
+        'health_ok': bool(health.get('health_ok') or service_probe.get('ok')),
         'service_probe_ok': bool(service_probe.get('ok')),
     }
     return {
@@ -498,8 +516,8 @@ def public_loom_runtime_receipt(
         'constitutional_model': constitutional_model(),
         'deployment_truth': dict(proof.get('deployment_truth') or {}),
         'health': {
-            'status': health.get('status', 'unknown'),
-            'health_ok': bool(health.get('health_ok')),
+            'status': effective_health_status,
+            'health_ok': bool(health.get('health_ok') or service_probe.get('ok')),
             'telegram_ok': bool((health.get('telegram') or {}).get('ok')),
             'agent_count': health.get('agent_count', 0),
             'agent_handles': [agent.get('handle', '') for agent in health.get('agents', []) if agent.get('handle')],

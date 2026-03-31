@@ -247,6 +247,42 @@ class LoomRuntimeProofTests(unittest.TestCase):
         self.assertEqual(receipt['governed_agents'][0]['economy_key'], 'main')
         self.assertEqual(receipt['governed_agents'][0]['loom_handle'], 'leviathann')
 
+    def test_public_receipt_falls_back_to_service_probe_when_health_probe_is_unknown(self):
+        receipt = proof.public_loom_runtime_receipt({
+            'runtime_id': 'loom_native',
+            'proof_type': 'live_single_host_loom_deployment',
+            'checked_at': '2026-03-31T00:00:00Z',
+            'deployment_truth': {'scope': 'single_host', 'generic_runtime_claim': False},
+            'health': {
+                'status': 'unknown',
+                'health_ok': False,
+                'telegram': {'ok': False},
+                'agent_count': 0,
+                'agents': [],
+                'heartbeat': {'interval': None, 'primary_agent': None},
+                'session_total': 0,
+                'session_runtime': {'total_count': 0, 'active_count': 0, 'archived_count': 0},
+                'channel_runtime': {'total_count': 0, 'enabled_count': 0, 'ingress_count': 0, 'active_delivery_count': 0, 'archived_delivery_count': 0},
+            },
+            'service_probe': {
+                'checked': True,
+                'ok': True,
+                'output': 'service running',
+                'service_status': 'running',
+                'health': 'healthy',
+                'transport': 'socket+http',
+            },
+            'memory_context': {'checked': False, 'memory_ok': False, 'context_ok': False},
+            'governed_agents': [],
+            'handle_overlap': [],
+            'handle_gap': [],
+        }, bound_org_id='org_1')
+
+        self.assertEqual(receipt['runtime_health']['status'], 'healthy')
+        self.assertTrue(receipt['runtime_health']['health_ok'])
+        self.assertEqual(receipt['health']['status'], 'healthy')
+        self.assertTrue(receipt['health']['health_ok'])
+
     def test_public_surface_contract_binds_omni_channel_and_memory_claims(self):
         contract = proof.public_loom_surface_contract_receipt({
             'runtime_id': 'loom_native',
