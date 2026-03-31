@@ -4533,7 +4533,14 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
         self.send_header('Content-Type', 'application/json')
         self.send_header('Access-Control-Allow-Origin', '*')
         self.end_headers()
-        self.wfile.write(json.dumps(data).encode())
+        try:
+            self.wfile.write(json.dumps(data).encode())
+        except (BrokenPipeError, ConnectionResetError):
+            return
+        except OSError as exc:
+            if getattr(exc, 'errno', None) in {32, 104}:
+                return
+            raise
 
     def _headers_only(self, status=200, content_type='text/plain; charset=utf-8', *, www_authenticate=None):
         self.send_response(status)

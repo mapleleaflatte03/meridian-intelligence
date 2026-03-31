@@ -312,6 +312,7 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.assertEqual(permissions['/api/federation/peers/refresh']['required_role'], 'owner')
 
     def test_payout_snapshot_surfaces_settlement_adapters(self):
+        founding_org_id = self.workspace.WORKSPACE_ORG_ID or self.workspace._get_founding_org()[0]
         self.workspace.payout_proposal_summary = lambda org_id=None: {'total': 0, 'executed': 0}
         self.workspace.list_payout_proposals = lambda org_id=None: []
         self.workspace.load_payout_proposals = lambda org_id=None: {'state_machine': {'states': []}}
@@ -324,7 +325,7 @@ class LiveWorkspaceContextTests(unittest.TestCase):
             'host_supported_adapters': list(host_supported_adapters or []),
         }
         snapshot = self.workspace._payout_snapshot(
-            'org_founding',
+            founding_org_id,
             host_supported_adapters=['internal_ledger'],
         )
         self.assertEqual(snapshot['settlement_adapter_summary']['default_payout_adapter'], 'internal_ledger')
@@ -664,7 +665,7 @@ class LiveWorkspaceContextTests(unittest.TestCase):
 
     def test_public_pilot_intake_post_records_request_without_auth_gate(self):
         calls = []
-        self.workspace._resolve_workspace_context = lambda: types.SimpleNamespace(org_id='org_founding', org={}, context_source='configured_org')
+        self.workspace._resolve_workspace_context = lambda **_: types.SimpleNamespace(org_id='org_founding', org={}, context_source='configured_org')
 
         class FakeHandler:
             def __init__(self):
@@ -717,7 +718,7 @@ class LiveWorkspaceContextTests(unittest.TestCase):
 
     def test_subscription_draft_from_preview_route_creates_status_surface(self):
         calls = []
-        self.workspace._resolve_workspace_context = lambda: types.SimpleNamespace(org_id='org_founding', org={}, context_source='configured_org')
+        self.workspace._resolve_workspace_context = lambda **_: types.SimpleNamespace(org_id='org_founding', org={}, context_source='configured_org')
 
         class PostHandler:
             def __init__(self):
@@ -788,7 +789,7 @@ class LiveWorkspaceContextTests(unittest.TestCase):
 
     def test_subscription_activate_from_preview_route_queues_loom_delivery(self):
         calls = []
-        self.workspace._resolve_workspace_context = lambda: types.SimpleNamespace(org_id='org_founding', org={}, context_source='configured_org')
+        self.workspace._resolve_workspace_context = lambda **_: types.SimpleNamespace(org_id='org_founding', org={}, context_source='configured_org')
 
         class PostHandler:
             def __init__(self):
@@ -892,7 +893,7 @@ class LiveWorkspaceContextTests(unittest.TestCase):
 
     def test_subscription_loom_delivery_run_route_advances_jobs(self):
         calls = []
-        self.workspace._resolve_workspace_context = lambda: types.SimpleNamespace(org_id='org_founding', org={}, context_source='configured_org')
+        self.workspace._resolve_workspace_context = lambda **_: types.SimpleNamespace(org_id='org_founding', org={}, context_source='configured_org')
 
         class PostHandler:
             def __init__(self):
@@ -946,7 +947,7 @@ class LiveWorkspaceContextTests(unittest.TestCase):
 
     def test_public_subscription_checkout_capture_route_uses_explicit_payment_evidence(self):
         calls = []
-        self.workspace._resolve_workspace_context = lambda: types.SimpleNamespace(org_id='org_founding', org={}, context_source='configured_org')
+        self.workspace._resolve_workspace_context = lambda **_: types.SimpleNamespace(org_id='org_founding', org={}, context_source='configured_org')
 
         class PostHandler:
             def __init__(self):
@@ -1067,7 +1068,7 @@ class LiveWorkspaceContextTests(unittest.TestCase):
 
     def test_public_subscription_checkout_capture_route_only_marks_preview_delivered_after_dispatch(self):
         calls = []
-        self.workspace._resolve_workspace_context = lambda: types.SimpleNamespace(org_id='org_founding', org={}, context_source='configured_org')
+        self.workspace._resolve_workspace_context = lambda **_: types.SimpleNamespace(org_id='org_founding', org={}, context_source='configured_org')
 
         class PostHandler:
             def __init__(self):
@@ -1193,7 +1194,7 @@ class LiveWorkspaceContextTests(unittest.TestCase):
 
     def test_operator_pilot_intake_routes_expose_review_only_flow(self):
         calls = []
-        self.workspace._resolve_workspace_context = lambda: types.SimpleNamespace(org_id='org_founding', org={}, context_source='configured_org')
+        self.workspace._resolve_workspace_context = lambda **_: types.SimpleNamespace(org_id='org_founding', org={}, context_source='configured_org')
 
         class GetHandler:
             def __init__(self):
