@@ -5420,15 +5420,35 @@ def _score_user_session_delivery(session_key: str, delivery_event_id: str) -> di
         origin_is_current_contributor = origin_agent in contributor_agent_keys
 
         if quality_status == "success" and fit_score >= 18:
-            rep_delta = 2 if same_skill else 1
-            auth_delta = 1 if same_skill or fit_score >= 28 else 0
-            if value_score >= 4:
-                rep_delta += 1
-            if source_quality_status == "success" and fit_score >= 34:
-                auth_delta += 1
-            if origin_is_current_contributor:
-                rep_delta = max(1, rep_delta - 1)
-            add_delta(origin_agent, rep_delta, auth_delta, "memory_recall_supported_delivery")
+            support_tier = "weak"
+            if same_skill and fit_score >= 64 and source_quality_status == "success":
+                support_tier = "primary"
+            elif (same_skill and fit_score >= 34) or (fit_score >= 48 and value_score >= 3):
+                support_tier = "supporting"
+
+            if support_tier == "primary":
+                rep_delta = 4
+                auth_delta = 3
+                if value_score >= 4:
+                    rep_delta += 1
+                if origin_is_current_contributor:
+                    auth_delta = max(2, auth_delta - 1)
+            elif support_tier == "supporting":
+                rep_delta = 2 if same_skill else 1
+                auth_delta = 1
+                if value_score >= 4:
+                    rep_delta += 1
+                if source_quality_status == "success" and fit_score >= 40:
+                    auth_delta += 1
+                if origin_is_current_contributor:
+                    rep_delta = max(1, rep_delta - 1)
+            else:
+                rep_delta = 1
+                auth_delta = 0
+                if origin_is_current_contributor:
+                    rep_delta = 0
+            if rep_delta or auth_delta:
+                add_delta(origin_agent, rep_delta, auth_delta, f"memory_recall_supported_delivery_{support_tier}")
         elif quality_status == "partial" and fit_score >= 18 and value_score < 0:
             add_delta(origin_agent, -1, -1, "memory_recall_low_value_drag")
         elif quality_status == "failure" and fit_score >= 18:

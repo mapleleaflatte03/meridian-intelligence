@@ -1617,8 +1617,96 @@ Use this skill when the user gives a short prompt such as:
                                     )
         self.assertIsNotNone(summary)
         self.assertIn('atlas', summary['agents'])
-        self.assertGreater(summary['agents']['atlas']['rep_delta'], 0)
-        self.assertGreater(summary['agents']['atlas']['auth_delta'], 0)
+        self.assertGreaterEqual(summary['agents']['atlas']['rep_delta'], 3)
+        self.assertGreaterEqual(summary['agents']['atlas']['auth_delta'], 2)
+        self.assertIn('memory_recall_supported_delivery_supporting', summary['agents']['atlas']['reasons'])
+
+    def test_score_user_session_delivery_rewards_primary_memory_recall_more_strongly(self):
+        delivery_event = {
+            'event_id': 'evt-memory-primary-score',
+            'status': 'success',
+            'artifact_source': 'manager_response',
+            'request_text': 'research khách hàng trả tiền cho Meridian thêm lần nữa để tái dùng pattern',
+            'text': '**Status**\n\nĐây là research starter dạng giả thuyết cần kiểm chứng.',
+            'skills_used': ['research-khach-hang'],
+            'memory_entries': [
+                {
+                    'key': 'delivery/udf_primary_research',
+                    'heading': 'Successful output: research-khach-hang',
+                    'category': 'successful_output',
+                    'fit_score': 122,
+                    'memory_value_score': 5,
+                    'origin_agent': 'atlas',
+                    'source_skill_names': ['research-khach-hang'],
+                    'source_quality_status': 'success',
+                }
+            ],
+            'contributors': [
+                {
+                    'economy_key': 'main',
+                    'task_kind': 'manage',
+                    'status': 'ok',
+                    'usable_artifact': True,
+                    'qa_pass': False,
+                    'qa_fail': False,
+                    'drift_rewritten': False,
+                    'warnings': [],
+                    'artifact_fit_score': 44,
+                    'artifact_matches_shape': True,
+                    'matches_final_artifact': True,
+                    'citation_count': 0,
+                    'confidence_bonus': 0,
+                    'hard_blocker_count': 0,
+                    'runtime_failure_count': 0,
+                    'recoverable_gap_count': 0,
+                    'informational_warning_count': 0,
+                    'best_fit_contributor': True,
+                },
+                {
+                    'economy_key': 'atlas',
+                    'task_kind': 'research',
+                    'status': 'ok',
+                    'usable_artifact': True,
+                    'qa_pass': False,
+                    'qa_fail': False,
+                    'drift_rewritten': False,
+                    'warnings': [],
+                    'artifact_fit_score': 25,
+                    'artifact_matches_shape': False,
+                    'matches_final_artifact': False,
+                    'citation_count': 0,
+                    'confidence_bonus': 0,
+                    'hard_blocker_count': 0,
+                    'runtime_failure_count': 0,
+                    'recoverable_gap_count': 0,
+                    'informational_warning_count': 0,
+                    'best_fit_contributor': True,
+                }
+            ],
+        }
+        ledger = {
+            'agents': {
+                'main': {'reputation_units': 90, 'authority_units': 90},
+                'atlas': {'reputation_units': 90, 'authority_units': 90},
+            }
+        }
+        state = {'scored_events': {}, 'scored_fingerprints': {}, 'agent_outcomes': {}, 'court_actions': {}}
+        with mock.patch.object(meridian_gateway, 'load_session_events', return_value={'events': [delivery_event]}):
+            with mock.patch.object(meridian_gateway, 'accounting_load_ledger', return_value=ledger):
+                with mock.patch.object(meridian_gateway, 'accounting_save_ledger'):
+                    with mock.patch.object(meridian_gateway, 'accounting_append_tx'):
+                        with mock.patch.object(meridian_gateway, '_load_user_session_score_state', return_value=state):
+                            with mock.patch.object(meridian_gateway, '_save_user_session_score_state'):
+                                with mock.patch.object(meridian_gateway, '_apply_user_session_court_actions', return_value=[]):
+                                    summary = meridian_gateway._score_user_session_delivery(
+                                        'web_api:memory-primary-score',
+                                        'evt-memory-primary-score',
+                                    )
+        self.assertIsNotNone(summary)
+        self.assertIn('atlas', summary['agents'])
+        self.assertGreaterEqual(summary['agents']['atlas']['rep_delta'], 5)
+        self.assertGreaterEqual(summary['agents']['atlas']['auth_delta'], 3)
+        self.assertIn('memory_recall_supported_delivery_primary', summary['agents']['atlas']['reasons'])
 
 
 if __name__ == '__main__':
