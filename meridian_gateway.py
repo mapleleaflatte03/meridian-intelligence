@@ -1590,6 +1590,8 @@ def _request_has_meeting_execution_details(text: str) -> bool:
 def _refine_skill_routed_workers(request: str, matched_skills: list[dict[str, Any]], workers: list[str]) -> list[str]:
     lowered_skills = {str(item.get("name") or "").strip().lower() for item in matched_skills}
     selected = _normalize_worker_selection(workers, request)
+    if _request_wants_protocol_artifact(request) or any("protocol" in name for name in lowered_skills):
+        return _normalize_worker_selection(["QUILL", "AEGIS"], request)
     if "book-meeting" in lowered_skills and not _request_has_meeting_execution_details(request):
         return _normalize_worker_selection(["QUILL", "AEGIS"], request)
     if "safe-web-research" in lowered_skills or _request_prefers_safe_web_research(request):
@@ -1607,6 +1609,16 @@ def _specialist_timeout_for_request(agent_key: str, request: str, skills_used: l
         return 30
     if agent_key == "SENTINEL":
         return 10
+    if agent_key == "QUILL" and (
+        _request_wants_protocol_artifact(request)
+        or any("protocol" in name for name in lowered_skills)
+    ):
+        return 22
+    if agent_key == "AEGIS" and (
+        _request_wants_protocol_artifact(request)
+        or any("protocol" in name for name in lowered_skills)
+    ):
+        return 18
     if agent_key == "QUILL" and (
         lowered_skills.intersection({"mail-gui", "book-meeting"})
         or any("follow" in name for name in lowered_skills)
@@ -1626,18 +1638,41 @@ def _specialist_timeout_for_request(agent_key: str, request: str, skills_used: l
     return 120
 
 
-def _prefer_direct_provider_first(agent_key: str, skills_used: list[str]) -> bool:
+def _prefer_direct_provider_first(agent_key: str, request: str, skills_used: list[str]) -> bool:
     lowered_skills = {str(item or "").strip().lower() for item in skills_used}
-    fast_lane_skills = {"mail-gui", "book-meeting"}
+    fast_lane_skills = {"mail-gui", "book-meeting", "safe-web-research"}
+    protocol_lane = _request_wants_protocol_artifact(request) or any("protocol" in name for name in lowered_skills)
+    customer_research_lane = any(
+        "research" in name and any(token in name for token in ("khach", "customer", "persona", "jtbd", "icp"))
+        for name in lowered_skills
+    )
     return agent_key in {"QUILL", "AEGIS"} and (
         bool(lowered_skills.intersection(fast_lane_skills))
-        or "safe-web-research" in lowered_skills
         or any("follow" in name for name in lowered_skills)
-        or any(
-            "research" in name and any(token in name for token in ("khach", "customer", "persona", "jtbd", "icp"))
-            for name in lowered_skills
-        )
+        or customer_research_lane
+        or protocol_lane
     )
+
+
+def _direct_provider_timeout_for_request(
+    agent_key: str,
+    request: str,
+    skills_used: list[str],
+    specialist_timeout: int,
+) -> int:
+    if not _prefer_direct_provider_first(agent_key, request, skills_used):
+        return max(6, min(specialist_timeout, 15))
+    lowered_skills = {str(item or "").strip().lower() for item in skills_used}
+    if _request_wants_protocol_artifact(request) or any("protocol" in name for name in lowered_skills):
+        return min(12 if agent_key == "QUILL" else 10, max(8, specialist_timeout // 2))
+    if (
+        lowered_skills.intersection({"mail-gui", "book-meeting"})
+        or any("follow" in name for name in lowered_skills)
+    ):
+        return min(12, max(8, specialist_timeout // 2))
+    if "safe-web-research" in lowered_skills or _request_is_customer_research(request, skills_used):
+        return min(14, max(10, specialist_timeout // 2))
+    return min(15, max(8, specialist_timeout // 2))
 
 
 def _team_route_plan(text: str, session_key: str) -> dict[str, Any]:
@@ -2153,13 +2188,19 @@ def _run_specialist_step(agent_key: str, request: str, session_key: str, plan: d
         specialist_max_tokens = 420
     direct_fallback = None
     fallback_warning = ""
-    if _prefer_direct_provider_first(specialist.env_key, skills_used):
+    if _prefer_direct_provider_first(specialist.env_key, request, skills_used):
+        direct_provider_timeout = _direct_provider_timeout_for_request(
+            specialist.env_key,
+            request,
+            skills_used,
+            specialist_timeout,
+        )
         direct_fallback = mcp_server._specialist_direct_provider_fallback(  # type: ignore[attr-defined]
             specialist.registry_id,
             system_prompt=f"You are {specialist.name}. {specialist.purpose}",
             user_prompt=prompt,
             max_tokens=specialist_max_tokens,
-            timeout=specialist_timeout,
+            timeout=direct_provider_timeout,
         )
         if direct_fallback.get("ok") and str(direct_fallback.get("output_text") or "").strip():
             loom_result = {
@@ -2170,6 +2211,7 @@ def _run_specialist_step(agent_key: str, request: str, session_key: str, plan: d
             fallback_warning = "Fast direct provider lane used for low-latency communication skill."
         else:
             direct_fallback = None
+            loom_timeout = max(8, specialist_timeout - min(direct_provider_timeout, max(specialist_timeout - 6, 0)))
             loom_result = mcp_server._shared_run_loom_capability(  # type: ignore[attr-defined]
                 mcp_server._loom_runtime_context(),  # type: ignore[attr-defined]
                 "loom.llm.inference.v1",
@@ -2180,7 +2222,7 @@ def _run_specialist_step(agent_key: str, request: str, session_key: str, plan: d
                     "user_prompt": prompt,
                     "max_tokens": specialist_max_tokens,
                 },
-                timeout=specialist_timeout,
+                timeout=loom_timeout,
                 agent_id=specialist.registry_id,
                 session_id=session_key,
                 action_type=specialist.task_kind,
@@ -2217,12 +2259,13 @@ def _run_specialist_step(agent_key: str, request: str, session_key: str, plan: d
         host_note = str(direct_fallback.get("note") or host_note)
     payload = _extract_json(output_text) if output_text else None
     if specialist.env_key in {"ATLAS", "QUILL", "PULSE"} and (not output_text or host_decision == "denied" or not loom_result.get("ok")):
+        recovery_timeout = min(12, max(6, specialist_timeout // 3))
         direct_fallback = mcp_server._specialist_direct_provider_fallback(  # type: ignore[attr-defined]
             specialist.registry_id,
             system_prompt=f"You are {specialist.name}. {specialist.purpose}",
             user_prompt=prompt,
             max_tokens=specialist_max_tokens,
-            timeout=specialist_timeout,
+            timeout=recovery_timeout,
         )
         if direct_fallback.get("ok") and str(direct_fallback.get("output_text") or "").strip():
             output_text = str(direct_fallback.get("output_text") or "").strip()
@@ -2490,7 +2533,12 @@ def _run_team_route(text: str, session_key: str, runtime: AgentRuntime) -> tuple
             "request_text": request,
             "delivery_fingerprint": delivery_fingerprint,
             "final_artifact_usable": _final_artifact_is_usable(answer, skill_names),
-            "contributors": _delivery_contributors_snapshot(steps),
+            "contributors": _delivery_contributors_snapshot(
+                steps,
+                request_text=request,
+                skill_names=skill_names,
+                final_artifact=answer,
+            ),
             "provider_profile": TEAM_TOPOLOGY.manager.profile_name,
             "model": TEAM_TOPOLOGY.manager.model,
             "transport_kind": "codex_session",
@@ -3283,6 +3331,8 @@ def _apply_user_session_delta(agent: dict[str, Any], rep_delta: int, auth_delta:
 
 def _artifact_source_from_repairs(repair_warnings: list[str]) -> str:
     lowered = {str(item or "").strip().lower() for item in list(repair_warnings or [])}
+    if "manager_response_repaired_from_best_worker_artifact" in lowered:
+        return "worker_artifact"
     if "manager_response_repaired_from_worker_artifact" in lowered:
         return "worker_artifact"
     if "manager_response_repaired_from_salvage_template" in lowered:
@@ -3321,10 +3371,37 @@ def _build_delivery_fingerprint(
     return f"udf_{hashlib.sha1(raw.encode('utf-8')).hexdigest()[:20]}"
 
 
-def _delivery_contributors_snapshot(steps: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _delivery_contributors_snapshot(
+    steps: list[dict[str, Any]],
+    request_text: str = "",
+    skill_names: list[str] | None = None,
+    final_artifact: str = "",
+) -> list[dict[str, Any]]:
     contributors: list[dict[str, Any]] = []
+    normalized_final_artifact = ""
+    if final_artifact:
+        coerced_final_artifact = (
+            _coerce_request_specific_artifact(final_artifact, request_text)
+            if request_text
+            else str(final_artifact or "").strip()
+        )
+        normalized_final_artifact = _normalize_delivery_fingerprint_text(coerced_final_artifact)
     for step in list(steps or []):
         agent_id = str(step.get("agent_id") or "").strip()
+        warnings = _step_warning_texts(step)[:6]
+        raw_result = _step_result_text(step)
+        coerced_artifact = (
+            _coerce_request_specific_artifact(raw_result, request_text)
+            if request_text
+            else raw_result
+        )
+        normalized_step_artifact = _normalize_delivery_fingerprint_text(coerced_artifact) if coerced_artifact else ""
+        citations = step.get("citations") if isinstance(step.get("citations"), list) else []
+        fit_score = (
+            _step_artifact_fit_score(step, request_text, list(skill_names or []))
+            if request_text
+            else (12 if _step_has_usable_artifact(step) else -100)
+        )
         contributors.append(
             {
                 "agent_id": agent_id,
@@ -3339,12 +3416,67 @@ def _delivery_contributors_snapshot(steps: list[dict[str, Any]]) -> list[dict[st
                 and "fail" in _step_result_text(step).lower(),
                 "drift_rewritten": any(
                     "quill_output_drift_rewritten_to_user_artifact" in str(item or "").strip().lower()
-                    for item in list(step.get("warnings") or [])
+                    for item in warnings
                 ),
-                "warnings": _step_warning_texts(step)[:6],
+                "warnings": warnings,
+                "artifact_fit_score": fit_score,
+                "artifact_matches_shape": bool(
+                    request_text
+                    and coerced_artifact
+                    and _artifact_matches_skill_shape(coerced_artifact, request_text, list(skill_names or []))
+                ),
+                "matches_final_artifact": bool(
+                    normalized_final_artifact
+                    and normalized_step_artifact
+                    and normalized_step_artifact == normalized_final_artifact
+                ),
+                "citation_count": len(citations),
+                "confidence_bonus": _confidence_fit_bonus(step.get("confidence")),
+                "hard_blocker_count": sum(1 for item in warnings if _warning_is_hard_blocker(item)),
+                "runtime_failure_count": sum(1 for item in warnings if _warning_is_runtime_failure(item)),
+                "recoverable_gap_count": sum(1 for item in warnings if _warning_is_recoverable_gap(item)),
+                "informational_warning_count": sum(1 for item in warnings if _warning_is_informational(item)),
             }
         )
+    best_fit_score = max(
+        (
+            int(item.get("artifact_fit_score") or -100)
+            for item in contributors
+            if str(item.get("status") or "").strip().lower() == "ok"
+        ),
+        default=-100,
+    )
+    for item in contributors:
+        item["best_fit_contributor"] = best_fit_score > 0 and int(item.get("artifact_fit_score") or -100) == best_fit_score
     return contributors
+
+
+def _contributor_support_level(contributor: dict[str, Any]) -> str:
+    fit_score = int(contributor.get("artifact_fit_score") or -100)
+    if bool(contributor.get("matches_final_artifact")):
+        return "primary"
+    if bool(contributor.get("best_fit_contributor")) and fit_score >= 36:
+        return "primary"
+    if bool(contributor.get("artifact_matches_shape")) or fit_score >= 28:
+        return "supporting"
+    if bool(contributor.get("usable_artifact")):
+        return "weak"
+    return "none"
+
+
+def _contributors_show_writer_issue(contributors: list[dict[str, Any]]) -> bool:
+    for contributor in list(contributors or []):
+        if str(contributor.get("task_kind") or "").strip().lower() != "write":
+            continue
+        if not bool(contributor.get("usable_artifact")):
+            return True
+        if bool(contributor.get("drift_rewritten")):
+            return True
+        if int(contributor.get("artifact_fit_score") or -100) < 18:
+            return True
+        if int(contributor.get("hard_blocker_count") or 0) > 0:
+            return True
+    return False
 
 
 def _delivery_warning_texts(event: dict[str, Any]) -> list[str]:
@@ -3462,11 +3594,20 @@ def _build_user_session_court_candidates(
         status = str(contributor.get("status") or "").strip().lower()
         usable = bool(contributor.get("usable_artifact"))
         drift_rewritten = bool(contributor.get("drift_rewritten"))
+        fit_score = int(contributor.get("artifact_fit_score") or -100)
+        matches_shape = bool(contributor.get("artifact_matches_shape"))
+        matches_final_artifact = bool(contributor.get("matches_final_artifact"))
+        hard_blocker_count = int(contributor.get("hard_blocker_count") or 0)
         warnings = [str(item).strip() for item in list(contributor.get("warnings") or []) if str(item).strip()]
         restrictions = court_get_restrictions(agent_key, org_id=LOOM_ORG_ID) or []
 
         candidate: dict[str, Any] | None = None
-        if task_kind == "write" and (drift_rewritten or (quality_status == "failure" and not usable)):
+        if task_kind == "write" and (
+            drift_rewritten
+            or (quality_status == "failure" and not usable)
+            or (fit_score < 18 and (matches_final_artifact or usable))
+            or hard_blocker_count > 0
+        ):
             severity = 4 if quality_status == "failure" else 3
             agent_outcomes = _remember_user_session_agent_outcome(
                 state,
@@ -3478,13 +3619,17 @@ def _build_user_session_court_candidates(
             )
             if _recent_bad_outcome_count(agent_outcomes) >= 3:
                 severity = min(5, severity + 1)
+            if fit_score < 12 or hard_blocker_count > 0:
+                severity = min(5, severity + 1)
             candidate = {
                 "agent_key": agent_key,
                 "violation_type": "rework",
                 "severity": _severity_with_existing_restrictions(severity, restrictions),
                 "evidence": (
                     f"Writer contribution on {delivery_fingerprint} required manager repair or remained unusable. "
-                    f"status={status}, drift_rewritten={drift_rewritten}, usable={usable}."
+                    f"status={status}, drift_rewritten={drift_rewritten}, usable={usable}, "
+                    f"fit_score={fit_score}, matches_shape={matches_shape}, matches_final_artifact={matches_final_artifact}, "
+                    f"hard_blockers={hard_blocker_count}."
                 ),
             }
         elif task_kind == "execute" and status in {"error", "timeout"} and quality_status == "failure":
@@ -3654,6 +3799,7 @@ def _score_user_session_delivery(session_key: str, delivery_event_id: str) -> di
     ledger = accounting_load_ledger()
     agents = ledger.get("agents") or {}
     deltas: dict[str, dict[str, Any]] = {}
+    writer_issue_detected = _contributors_show_writer_issue(contributors)
 
     def add_delta(agent_key: str, rep_delta: int, auth_delta: int, reason: str) -> None:
         normalized = str(agent_key or "").strip().lower()
@@ -3679,32 +3825,95 @@ def _score_user_session_delivery(session_key: str, delivery_event_id: str) -> di
         qa_pass = bool(contributor.get("qa_pass"))
         qa_fail = bool(contributor.get("qa_fail"))
         drift_rewritten = bool(contributor.get("drift_rewritten"))
+        fit_score = int(contributor.get("artifact_fit_score") or -100)
+        matches_shape = bool(contributor.get("artifact_matches_shape"))
+        matches_final_artifact = bool(contributor.get("matches_final_artifact"))
+        citation_count = int(contributor.get("citation_count") or 0)
+        hard_blocker_count = int(contributor.get("hard_blocker_count") or 0)
+        runtime_failure_count = int(contributor.get("runtime_failure_count") or 0)
+        support_level = _contributor_support_level(contributor)
 
         if task_kind == "research" and research_skill_active and status == "ok" and quality_status in {"success", "partial"}:
-            add_delta(agent_key, 2 if quality_status == "success" else 1, 1, "research_input_usable")
+            rep_delta = 0
+            auth_delta = 0
+            if support_level == "primary":
+                rep_delta = 4 if quality_status == "success" else 2
+                auth_delta = 3 if quality_status == "success" else 2
+            elif support_level == "supporting":
+                rep_delta = 3 if quality_status == "success" else 1
+                auth_delta = 1
+            elif usable:
+                rep_delta = 1
+                if fit_score >= 20:
+                    auth_delta = 1 if quality_status in {"success", "partial"} else 0
+            rep_delta += min(citation_count, 2)
+            if hard_blocker_count:
+                rep_delta -= 1
+                auth_delta -= 1
+            if rep_delta or auth_delta:
+                add_delta(agent_key, rep_delta, auth_delta, f"research_input_{support_level}")
         elif task_kind == "write" and status == "ok":
             if artifact_source == "worker_artifact" and usable:
-                add_delta(agent_key, 6 if quality_status == "success" else 3, 5 if quality_status == "success" else 2, "writer_artifact_shipped")
+                if support_level == "primary":
+                    add_delta(
+                        agent_key,
+                        7 if quality_status == "success" else 4,
+                        6 if quality_status == "success" else 3,
+                        "writer_primary_artifact_shipped",
+                    )
+                elif support_level == "supporting":
+                    add_delta(
+                        agent_key,
+                        4 if quality_status == "success" else 2,
+                        3 if quality_status == "success" else 1,
+                        "writer_supporting_artifact_shipped",
+                    )
+                elif fit_score < 18 or hard_blocker_count:
+                    add_delta(agent_key, 0, -1 if quality_status != "success" else 0, "writer_low_fit_artifact_shipped")
             elif artifact_source == "manager_response":
-                if drift_rewritten:
-                    add_delta(agent_key, 1 if quality_status == "success" else 0, 0, "writer_draft_needed_manager_repair")
-                elif usable:
-                    add_delta(agent_key, 3 if quality_status == "success" else 1, 2 if quality_status == "success" else 1, "writer_supported_manager_answer")
+                if matches_final_artifact or support_level == "primary":
+                    add_delta(
+                        agent_key,
+                        5 if quality_status == "success" else 2,
+                        4 if quality_status == "success" else 1,
+                        "writer_best_fit_supported_manager_answer",
+                    )
+                elif drift_rewritten or fit_score < 18 or hard_blocker_count:
+                    add_delta(
+                        agent_key,
+                        1 if quality_status == "success" else 0,
+                        -1 if quality_status in {"partial", "failure"} else 0,
+                        "writer_draft_needed_manager_repair",
+                    )
+                elif usable or matches_shape:
+                    add_delta(
+                        agent_key,
+                        3 if quality_status == "success" else 1,
+                        2 if quality_status == "success" else 1,
+                        "writer_supported_manager_answer",
+                    )
             elif artifact_source == "salvage_template":
-                if drift_rewritten:
+                if drift_rewritten or fit_score < 18 or hard_blocker_count:
                     add_delta(agent_key, 0, -1 if quality_status == "failure" else 0, "writer_drift_forced_salvage")
-                elif usable:
+                elif usable or support_level == "supporting":
                     add_delta(agent_key, 1, 0, "writer_partial_input_salvaged")
         elif task_kind == "qa_gate":
             if qa_pass and quality_status in {"success", "partial"}:
                 add_delta(agent_key, 2 if quality_status == "success" else 1, 2 if quality_status == "success" else 1, "qa_gate_confirmed")
+            elif qa_fail and writer_issue_detected:
+                add_delta(
+                    agent_key,
+                    2 if quality_status == "failure" else 1,
+                    1 if quality_status in {"partial", "failure"} else 0,
+                    "qa_gate_caught_low_fit_artifact",
+                )
             elif qa_fail and quality_status == "failure":
                 add_delta(agent_key, -1, -2, "qa_gate_blocked_delivery")
         elif task_kind == "execute":
             if status == "ok" and quality_status == "success":
                 add_delta(agent_key, 2, 2, "execution_supported_delivery")
             elif status in {"error", "timeout"}:
-                add_delta(agent_key, 0, -1, "execution_lane_failed")
+                add_delta(agent_key, -1 if runtime_failure_count else 0, -1, "execution_lane_failed")
         elif task_kind == "compress" and status == "ok" and quality_status == "success":
             add_delta(agent_key, 1, 1, "compression_supported_delivery")
         elif task_kind == "verify" and qa_pass and quality_status == "success":
@@ -3882,6 +4091,7 @@ def _warning_is_informational(text: str) -> bool:
             "quill_output_drift_rewritten_to_user_artifact",
             "bounded_competitor_scan_salvaged_after_research_failure",
             "customer_research_starter_salvaged_after_unverified_research",
+            "manager_response_repaired_from_best_worker_artifact",
             "manager_response_repaired_from_worker_artifact",
             "manager_response_repaired_from_salvage_template",
             "artifact explicitly frames claims as unverified hypotheses",

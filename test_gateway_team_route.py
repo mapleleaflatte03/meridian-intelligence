@@ -519,6 +519,14 @@ Use this skill when the user gives a short prompt such as:
         )
         self.assertEqual(workers, ['QUILL', 'FORGE', 'AEGIS'])
 
+    def test_protocol_skill_route_downshifts_forge_for_protocol_artifact(self):
+        workers = meridian_gateway._refine_skill_routed_workers(
+            'hãy tạo cho tôi một protocol kéo deal quay lại bàn đàm phán',
+            [{'name': 'protocol-deal-hoi'}],
+            ['QUILL', 'FORGE', 'AEGIS'],
+        )
+        self.assertEqual(workers, ['QUILL', 'AEGIS'])
+
     def test_communication_skills_use_fast_specialist_timeouts(self):
         self.assertEqual(
             meridian_gateway._specialist_timeout_for_request('AEGIS', 'gửi mail cho khách', ['mail-gui']),
@@ -530,11 +538,33 @@ Use this skill when the user gives a short prompt such as:
         )
 
     def test_communication_skills_prefer_direct_provider_first(self):
-        self.assertTrue(meridian_gateway._prefer_direct_provider_first('QUILL', ['mail-gui']))
-        self.assertTrue(meridian_gateway._prefer_direct_provider_first('AEGIS', ['book-meeting']))
-        self.assertTrue(meridian_gateway._prefer_direct_provider_first('QUILL', ['follow-demo-soan']))
-        self.assertFalse(meridian_gateway._prefer_direct_provider_first('FORGE', ['book-meeting']))
-        self.assertTrue(meridian_gateway._prefer_direct_provider_first('QUILL', ['safe-web-research']))
+        self.assertTrue(meridian_gateway._prefer_direct_provider_first('QUILL', 'gửi mail cho khách', ['mail-gui']))
+        self.assertTrue(meridian_gateway._prefer_direct_provider_first('AEGIS', 'book meeting với khách', ['book-meeting']))
+        self.assertTrue(meridian_gateway._prefer_direct_provider_first('QUILL', 'soạn follow up cho khách sau demo hôm qua', ['follow-demo-soan']))
+        self.assertFalse(meridian_gateway._prefer_direct_provider_first('FORGE', 'book meeting với khách', ['book-meeting']))
+        self.assertTrue(meridian_gateway._prefer_direct_provider_first('QUILL', 'check link này giúp tôi https://example.com', ['safe-web-research']))
+        self.assertTrue(
+            meridian_gateway._prefer_direct_provider_first(
+                'QUILL',
+                'hãy tạo cho tôi một protocol kéo deal quay lại bàn đàm phán',
+                ['protocol-deal-hoi'],
+            )
+        )
+
+    def test_direct_provider_timeout_uses_fail_fast_budget_for_protocol_lane(self):
+        timeout = meridian_gateway._direct_provider_timeout_for_request(
+            'QUILL',
+            'hãy tạo cho tôi một protocol kéo deal quay lại bàn đàm phán',
+            ['protocol-deal-hoi'],
+            22,
+        )
+        self.assertEqual(timeout, 11)
+
+    def test_artifact_source_from_best_worker_repair_maps_to_worker_artifact(self):
+        self.assertEqual(
+            meridian_gateway._artifact_source_from_repairs(['manager_response_repaired_from_best_worker_artifact']),
+            'worker_artifact',
+        )
 
     def test_safe_web_requests_are_detected_from_public_url(self):
         self.assertTrue(
@@ -784,6 +814,321 @@ Use this skill when the user gives a short prompt such as:
         self.assertIn('tiêu chí dừng', repaired.lower())
         self.assertNotIn('likely buyer', repaired.lower())
         self.assertIn('manager_response_repaired_from_best_worker_artifact', warnings)
+
+    def test_delivery_contributors_snapshot_marks_best_fit_and_final_artifact_match(self):
+        request = (
+            'hãy tạo cho tôi một protocol kéo deal im lặng quay lại trong 13 phút: gồm 3 giả thuyết, '
+            '4 câu hỏi bóc ngụy biện, 1 tin nhắn follow-up kéo khách trả lời, và 1 tiêu chí dừng rõ ràng.'
+        )
+        final_artifact = (
+            '**Protocol xử lý**\n\n'
+            '**Giả thuyết**\n1. H1\n2. H2\n\n'
+            '**Câu hỏi bóc tách**\n1. Q1\n2. Q2\n\n'
+            '**Tin nhắn follow-up**\nPing khách ngay.\n\n'
+            '**Tiêu chí dừng**\nDừng nếu không có owner.'
+        )
+        contributors = meridian_gateway._delivery_contributors_snapshot(
+            [
+                {
+                    'agent_id': 'agent_quill',
+                    'role': 'Writer',
+                    'task_kind': 'write',
+                    'status': 'ok',
+                    'result': final_artifact,
+                    'confidence': 'high',
+                    'citations': [],
+                    'warnings': [],
+                },
+                {
+                    'agent_id': 'agent_atlas',
+                    'role': 'Research',
+                    'task_kind': 'research',
+                    'status': 'ok',
+                    'result': (
+                        '**Status**\n\n'
+                        'Đây là research starter dạng giả thuyết cần kiểm chứng.\n\n'
+                        '**Likely buyer**\n- PMM\n\n'
+                        '**What must be validated**\n- Pain\n\n'
+                        '**Next move**\n- Phỏng vấn khách'
+                    ),
+                    'confidence': 'medium',
+                    'citations': [],
+                    'warnings': [],
+                },
+            ],
+            request_text=request,
+            skill_names=['protocol-deal-hoi'],
+            final_artifact=final_artifact,
+        )
+        quill = next(item for item in contributors if item['economy_key'] == 'quill')
+        atlas = next(item for item in contributors if item['economy_key'] == 'atlas')
+        self.assertTrue(quill['best_fit_contributor'])
+        self.assertTrue(quill['matches_final_artifact'])
+        self.assertGreater(quill['artifact_fit_score'], atlas['artifact_fit_score'])
+
+    def test_score_user_session_delivery_rewards_primary_writer_over_generic_support(self):
+        request = (
+            'hãy tạo cho tôi một protocol kéo deal im lặng quay lại trong 13 phút: gồm 3 giả thuyết, '
+            '4 câu hỏi bóc ngụy biện, 1 tin nhắn follow-up kéo khách trả lời, và 1 tiêu chí dừng rõ ràng.'
+        )
+        final_artifact = (
+            '**Protocol xử lý**\n\n'
+            '**Giả thuyết**\n1. H1\n2. H2\n\n'
+            '**Câu hỏi bóc tách**\n1. Q1\n2. Q2\n\n'
+            '**Tin nhắn follow-up**\nPing khách ngay.\n\n'
+            '**Tiêu chí dừng**\nDừng nếu không có owner.'
+        )
+        delivery_event = {
+            'event_id': 'evt-protocol-score',
+            'status': 'success',
+            'artifact_source': 'manager_response',
+            'request_text': request,
+            'text': final_artifact,
+            'skills_used': ['protocol-deal-hoi'],
+            'contributors': [
+                {
+                    'economy_key': 'quill',
+                    'task_kind': 'write',
+                    'status': 'ok',
+                    'usable_artifact': True,
+                    'qa_pass': False,
+                    'qa_fail': False,
+                    'drift_rewritten': False,
+                    'warnings': [],
+                    'artifact_fit_score': 62,
+                    'artifact_matches_shape': True,
+                    'matches_final_artifact': True,
+                    'citation_count': 0,
+                    'confidence_bonus': 4,
+                    'hard_blocker_count': 0,
+                    'runtime_failure_count': 0,
+                    'recoverable_gap_count': 0,
+                    'informational_warning_count': 0,
+                    'best_fit_contributor': True,
+                },
+                {
+                    'economy_key': 'atlas',
+                    'task_kind': 'research',
+                    'status': 'ok',
+                    'usable_artifact': True,
+                    'qa_pass': False,
+                    'qa_fail': False,
+                    'drift_rewritten': False,
+                    'warnings': [],
+                    'artifact_fit_score': 12,
+                    'artifact_matches_shape': False,
+                    'matches_final_artifact': False,
+                    'citation_count': 0,
+                    'confidence_bonus': 2,
+                    'hard_blocker_count': 0,
+                    'runtime_failure_count': 0,
+                    'recoverable_gap_count': 0,
+                    'informational_warning_count': 0,
+                    'best_fit_contributor': False,
+                },
+                {
+                    'economy_key': 'aegis',
+                    'task_kind': 'qa_gate',
+                    'status': 'ok',
+                    'usable_artifact': False,
+                    'qa_pass': True,
+                    'qa_fail': False,
+                    'drift_rewritten': False,
+                    'warnings': [],
+                    'artifact_fit_score': -8,
+                    'artifact_matches_shape': False,
+                    'matches_final_artifact': False,
+                    'citation_count': 0,
+                    'confidence_bonus': 0,
+                    'hard_blocker_count': 0,
+                    'runtime_failure_count': 0,
+                    'recoverable_gap_count': 0,
+                    'informational_warning_count': 0,
+                    'best_fit_contributor': False,
+                },
+            ],
+        }
+        ledger = {
+            'agents': {
+                'main': {'reputation_units': 90, 'authority_units': 90},
+                'quill': {'reputation_units': 90, 'authority_units': 90},
+                'atlas': {'reputation_units': 90, 'authority_units': 90},
+                'aegis': {'reputation_units': 90, 'authority_units': 90},
+            }
+        }
+        txs = []
+        state = {'scored_events': {}, 'scored_fingerprints': {}, 'agent_outcomes': {}, 'court_actions': {}}
+        with mock.patch.object(meridian_gateway, 'load_session_events', return_value={'events': [delivery_event]}):
+            with mock.patch.object(meridian_gateway, 'accounting_load_ledger', return_value=ledger):
+                with mock.patch.object(meridian_gateway, 'accounting_save_ledger'):
+                    with mock.patch.object(meridian_gateway, 'accounting_append_tx', side_effect=lambda item: txs.append(item)):
+                        with mock.patch.object(meridian_gateway, '_load_user_session_score_state', return_value=state):
+                            with mock.patch.object(meridian_gateway, '_save_user_session_score_state'):
+                                with mock.patch.object(meridian_gateway, '_apply_user_session_court_actions', return_value=[]):
+                                    summary = meridian_gateway._score_user_session_delivery(
+                                        'web_api:protocol-score',
+                                        'evt-protocol-score',
+                                    )
+        self.assertIsNotNone(summary)
+        self.assertIn('quill', summary['agents'])
+        self.assertGreater(summary['agents']['quill']['rep_delta'], 0)
+        self.assertGreater(summary['agents']['quill']['auth_delta'], 0)
+        self.assertNotIn('atlas', summary['agents'])
+
+    def test_score_user_session_delivery_rewards_cited_best_fit_researcher(self):
+        final_artifact = (
+            '**Status**\n\n'
+            'Đây là research starter dạng giả thuyết cần kiểm chứng.\n\n'
+            '**Likely buyer**\n- PMM\n\n'
+            '**What must be validated**\n- Pain\n\n'
+            '**Next move**\n- Phỏng vấn khách'
+        )
+        delivery_event = {
+            'event_id': 'evt-research-score',
+            'status': 'success',
+            'artifact_source': 'manager_response',
+            'request_text': 'research khách hàng cho Meridian',
+            'text': final_artifact,
+            'skills_used': ['research-khach-hang'],
+            'contributors': [
+                {
+                    'economy_key': 'atlas',
+                    'task_kind': 'research',
+                    'status': 'ok',
+                    'usable_artifact': True,
+                    'qa_pass': False,
+                    'qa_fail': False,
+                    'drift_rewritten': False,
+                    'warnings': [],
+                    'artifact_fit_score': 58,
+                    'artifact_matches_shape': True,
+                    'matches_final_artifact': True,
+                    'citation_count': 2,
+                    'confidence_bonus': 4,
+                    'hard_blocker_count': 0,
+                    'runtime_failure_count': 0,
+                    'recoverable_gap_count': 0,
+                    'informational_warning_count': 0,
+                    'best_fit_contributor': True,
+                },
+                {
+                    'economy_key': 'quill',
+                    'task_kind': 'write',
+                    'status': 'ok',
+                    'usable_artifact': True,
+                    'qa_pass': False,
+                    'qa_fail': False,
+                    'drift_rewritten': False,
+                    'warnings': [],
+                    'artifact_fit_score': 18,
+                    'artifact_matches_shape': False,
+                    'matches_final_artifact': False,
+                    'citation_count': 0,
+                    'confidence_bonus': 2,
+                    'hard_blocker_count': 0,
+                    'runtime_failure_count': 0,
+                    'recoverable_gap_count': 0,
+                    'informational_warning_count': 0,
+                    'best_fit_contributor': False,
+                },
+            ],
+        }
+        ledger = {
+            'agents': {
+                'main': {'reputation_units': 90, 'authority_units': 90},
+                'quill': {'reputation_units': 90, 'authority_units': 90},
+                'atlas': {'reputation_units': 90, 'authority_units': 90},
+            }
+        }
+        state = {'scored_events': {}, 'scored_fingerprints': {}, 'agent_outcomes': {}, 'court_actions': {}}
+        with mock.patch.object(meridian_gateway, 'load_session_events', return_value={'events': [delivery_event]}):
+            with mock.patch.object(meridian_gateway, 'accounting_load_ledger', return_value=ledger):
+                with mock.patch.object(meridian_gateway, 'accounting_save_ledger'):
+                    with mock.patch.object(meridian_gateway, 'accounting_append_tx'):
+                        with mock.patch.object(meridian_gateway, '_load_user_session_score_state', return_value=state):
+                            with mock.patch.object(meridian_gateway, '_save_user_session_score_state'):
+                                with mock.patch.object(meridian_gateway, '_apply_user_session_court_actions', return_value=[]):
+                                    summary = meridian_gateway._score_user_session_delivery(
+                                        'web_api:research-score',
+                                        'evt-research-score',
+                                    )
+        self.assertIsNotNone(summary)
+        self.assertGreater(summary['agents']['atlas']['rep_delta'], summary['agents']['quill']['rep_delta'])
+        self.assertGreater(summary['agents']['atlas']['auth_delta'], summary['agents']['quill']['auth_delta'])
+
+    def test_score_user_session_delivery_keeps_partial_credit_for_usable_research_input(self):
+        delivery_event = {
+            'event_id': 'evt-research-partial-credit',
+            'status': 'partial',
+            'artifact_source': 'worker_artifact',
+            'request_text': 'research khách hàng cho Meridian',
+            'text': '**Status**\n\nĐây là research starter dạng giả thuyết cần kiểm chứng.',
+            'skills_used': ['research-khach-hang'],
+            'contributors': [
+                {
+                    'economy_key': 'atlas',
+                    'task_kind': 'research',
+                    'status': 'ok',
+                    'usable_artifact': True,
+                    'qa_pass': False,
+                    'qa_fail': False,
+                    'drift_rewritten': False,
+                    'warnings': [],
+                    'artifact_fit_score': 25,
+                    'artifact_matches_shape': False,
+                    'matches_final_artifact': False,
+                    'citation_count': 0,
+                    'confidence_bonus': 0,
+                    'hard_blocker_count': 0,
+                    'runtime_failure_count': 0,
+                    'recoverable_gap_count': 0,
+                    'informational_warning_count': 0,
+                    'best_fit_contributor': False,
+                },
+                {
+                    'economy_key': 'quill',
+                    'task_kind': 'write',
+                    'status': 'ok',
+                    'usable_artifact': True,
+                    'qa_pass': False,
+                    'qa_fail': False,
+                    'drift_rewritten': True,
+                    'warnings': ['quill_output_drift_rewritten_to_user_artifact'],
+                    'artifact_fit_score': 58,
+                    'artifact_matches_shape': True,
+                    'matches_final_artifact': True,
+                    'citation_count': 0,
+                    'confidence_bonus': 0,
+                    'hard_blocker_count': 0,
+                    'runtime_failure_count': 0,
+                    'recoverable_gap_count': 0,
+                    'informational_warning_count': 1,
+                    'best_fit_contributor': True,
+                },
+            ],
+        }
+        ledger = {
+            'agents': {
+                'main': {'reputation_units': 90, 'authority_units': 90},
+                'quill': {'reputation_units': 90, 'authority_units': 90},
+                'atlas': {'reputation_units': 90, 'authority_units': 90},
+            }
+        }
+        state = {'scored_events': {}, 'scored_fingerprints': {}, 'agent_outcomes': {}, 'court_actions': {}}
+        with mock.patch.object(meridian_gateway, 'load_session_events', return_value={'events': [delivery_event]}):
+            with mock.patch.object(meridian_gateway, 'accounting_load_ledger', return_value=ledger):
+                with mock.patch.object(meridian_gateway, 'accounting_save_ledger'):
+                    with mock.patch.object(meridian_gateway, 'accounting_append_tx'):
+                        with mock.patch.object(meridian_gateway, '_load_user_session_score_state', return_value=state):
+                            with mock.patch.object(meridian_gateway, '_save_user_session_score_state'):
+                                with mock.patch.object(meridian_gateway, '_apply_user_session_court_actions', return_value=[]):
+                                    summary = meridian_gateway._score_user_session_delivery(
+                                        'web_api:research-partial-credit',
+                                        'evt-research-partial-credit',
+                                    )
+        self.assertIsNotNone(summary)
+        self.assertIn('atlas', summary['agents'])
+        self.assertGreaterEqual(summary['agents']['atlas']['rep_delta'], 1)
 
 
 if __name__ == '__main__':
