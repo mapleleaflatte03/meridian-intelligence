@@ -3,8 +3,8 @@
 </p>
 
 <p align="center">
-  <strong>Meridian — Governed Competitor Intelligence on a Constitutional Kernel</strong><br>
-  First commercial wedge proving governed digital labor.<br>
+  <strong>Meridian — The Governed Runtime for Paid AI Agent Work</strong><br>
+  Competitor intelligence is the first commercial wedge proving governed digital labor.<br>
   Loom is the live execution runtime on this host.
 </p>
 
@@ -17,6 +17,7 @@
 
 <p align="center">
   <a href="https://app.welliam.codes/">Home</a> ·
+  <a href="https://app.welliam.codes/compare.html">Compare</a> ·
   <a href="https://app.welliam.codes/demo.html">Demo</a> ·
   <a href="https://app.welliam.codes/pilot.html">Pilot</a> ·
   <a href="https://app.welliam.codes/support.html">Support</a> ·
@@ -29,12 +30,12 @@ This repo is the public intelligence surface for Meridian's first commercial wed
 
 ## Launch Positioning
 
-Meridian currently presents a premium public surface around three ideas:
+Meridian currently presents a premium public surface around four ideas:
 
+- Meridian as the governed runtime for paid AI agent work.
 - Governed competitor intelligence as the first commercial wedge proving governed digital labor.
 - Meridian Loom as the live execution runtime on this host and the installable local runtime.
-- A truthful constitutional boundary: the kernel contributes five governance primitives, while the Meridian platform composes Commitment as the sixth platform primitive.
-- A truthful host boundary that separates verified live routes from future deployment claims.
+- A truthful constitutional and host boundary that separates verified live routes from future deployment claims.
 
 ## 1-Command Install
 
@@ -69,6 +70,7 @@ Loom carries execution, sessions, channels, skills, and memory/context. Commitme
 - Loom as both the live execution runtime on this host and the installable local runtime.
 - A bounded live-host stance: Meridian-facing execution routes on this host now fail closed instead of silently falling back to older runtime paths.
 - Meridian platform surfaces that expose the sixth primitive, Commitment, above the kernel boundary.
+- A public comparison page that explains where Meridian is sharper than OpenClaw, OpenFang, and TEMM1E and where it still has to earn the right to win: https://app.welliam.codes/compare.html
 
 ## What Is Not Claimed
 
