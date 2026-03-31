@@ -196,6 +196,101 @@ class GatewayTeamRouteTests(unittest.TestCase):
         self.assertEqual(packet['entries'][0]['key'], 'section/founder')
         self.assertIn('Founder', packet['context'])
 
+    def test_build_memory_packet_ingests_explicit_user_email_fact(self):
+        state = {
+            'entries': {},
+            'session_packets': {},
+        }
+        with mock.patch.object(meridian_gateway, '_sync_memory_retrieval_index', return_value=state):
+            with mock.patch.object(meridian_gateway, '_save_memory_recall_state'):
+                with mock.patch.object(meridian_gateway, '_run_loom_memory_command', return_value={'ok': True}):
+                    packet = meridian_gateway._build_memory_packet(
+                        'gửi mail cho tôi tới nguyensimon186@gmail.com về Meridian',
+                        'telegram:123',
+                        ['mail-gui'],
+                    )
+        keys = [item['key'] for item in packet['entries']]
+        self.assertTrue(any(key.startswith('fact/email/') for key in keys))
+        self.assertIn('nguyensimon186@gmail.com', packet['context'])
+
+    def test_delivery_memory_entry_uses_shape_matched_successful_output_only(self):
+        delivery_event = {
+            'status': 'success',
+            'artifact_source': 'manager_response',
+            'final_artifact_usable': True,
+            'request_text': 'research khách hàng cho Meridian',
+            'text': (
+                '**Status**\n\n'
+                'Đây là research starter dạng giả thuyết cần kiểm chứng.\n\n'
+                '**Likely buyer / user**\n- PMM\n\n'
+                '**What must be validated**\n- Pain\n\n'
+                '**Next move**\n- Phỏng vấn khách'
+            ),
+            'skills_used': ['research-khach-hang'],
+            'session_key': 'web_api:test-memory-delivery',
+            'event_id': 'evt-memory-delivery',
+            'delivery_fingerprint': 'udf_memory_delivery',
+            'recorded_at': '2026-03-31T13:40:00Z',
+            'contributors': [
+                {
+                    'economy_key': 'atlas',
+                    'task_kind': 'research',
+                    'status': 'ok',
+                    'usable_artifact': True,
+                    'artifact_fit_score': 56,
+                    'matches_final_artifact': True,
+                    'best_fit_contributor': True,
+                }
+            ],
+        }
+        entry = meridian_gateway._delivery_memory_entry_from_event(delivery_event)
+        self.assertIsNotNone(entry)
+        self.assertEqual(entry['category'], 'successful_output')
+        self.assertEqual(entry['origin_agent'], 'main')
+        self.assertIn('research-khach-hang', entry['source_skill_names'])
+        self.assertTrue(entry['key'].startswith('delivery/'))
+
+    def test_build_memory_packet_penalizes_cross_skill_successful_output_memory(self):
+        state = {
+            'entries': {
+                'delivery/udf_mail': {
+                    'key': 'delivery/udf_mail',
+                    'heading': 'Successful output: mail-gui',
+                    'category': 'successful_output',
+                    'content': '**Tiêu đề:** Chào khách',
+                    'tokens': ['chao', 'khach', 'meridian', 'mail'],
+                    'source_skill_names': ['mail-gui'],
+                    'source_quality_status': 'success',
+                    'origin_agent': 'quill',
+                    'memory_value_score': 4,
+                    'accepted_count': 2,
+                    'failure_count': 0,
+                    'updated_at': '2026-03-31T19:00:00Z',
+                },
+                'section/mission': {
+                    'key': 'section/mission',
+                    'heading': 'Mission',
+                    'category': 'markdown_section',
+                    'content': '- Governed operator.',
+                    'tokens': ['mission', 'governed', 'operator', 'meridian'],
+                    'accepted_count': 1,
+                    'failure_count': 0,
+                    'memory_value_score': 1,
+                },
+            },
+            'session_packets': {},
+        }
+        with mock.patch.object(meridian_gateway, '_sync_memory_retrieval_index', return_value=state):
+            with mock.patch.object(meridian_gateway, '_save_memory_recall_state'):
+                packet = meridian_gateway._build_memory_packet(
+                    'research khách hàng cho Meridian',
+                    'web_api:test-memory-cross-skill',
+                    ['research-khach-hang'],
+                )
+        keys = [item['key'] for item in packet['entries']]
+        self.assertNotIn('delivery/udf_mail', keys)
+        self.assertIn('section/mission', keys)
+
     def test_actionable_end_user_request_creates_skill_routed_team_plan(self):
         prompt = 'bạn có thể gửi mail cho tôi về trạng thái cập nhật mới nhất của Meridian thông qua mail của chính tôi là nguyensimon186@gmail.com.'
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1312,6 +1407,72 @@ Use this skill when the user gives a short prompt such as:
         self.assertIsNotNone(summary)
         self.assertIn('atlas', summary['agents'])
         self.assertGreaterEqual(summary['agents']['atlas']['rep_delta'], 1)
+
+    def test_score_user_session_delivery_rewards_successful_output_memory_owner(self):
+        delivery_event = {
+            'event_id': 'evt-memory-supported-score',
+            'status': 'success',
+            'artifact_source': 'manager_response',
+            'request_text': 'research khách hàng cho Meridian',
+            'text': '**Status**\n\nĐây là research starter dạng giả thuyết cần kiểm chứng.',
+            'skills_used': ['research-khach-hang'],
+            'memory_entries': [
+                {
+                    'key': 'delivery/udf_old_research',
+                    'heading': 'Successful output: research-khach-hang',
+                    'category': 'successful_output',
+                    'fit_score': 41,
+                    'memory_value_score': 5,
+                    'origin_agent': 'atlas',
+                    'source_skill_names': ['research-khach-hang'],
+                    'source_quality_status': 'success',
+                }
+            ],
+            'contributors': [
+                {
+                    'economy_key': 'main',
+                    'task_kind': 'manage',
+                    'status': 'ok',
+                    'usable_artifact': True,
+                    'qa_pass': False,
+                    'qa_fail': False,
+                    'drift_rewritten': False,
+                    'warnings': [],
+                    'artifact_fit_score': 44,
+                    'artifact_matches_shape': True,
+                    'matches_final_artifact': True,
+                    'citation_count': 0,
+                    'confidence_bonus': 0,
+                    'hard_blocker_count': 0,
+                    'runtime_failure_count': 0,
+                    'recoverable_gap_count': 0,
+                    'informational_warning_count': 0,
+                    'best_fit_contributor': True,
+                }
+            ],
+        }
+        ledger = {
+            'agents': {
+                'main': {'reputation_units': 90, 'authority_units': 90},
+                'atlas': {'reputation_units': 90, 'authority_units': 90},
+            }
+        }
+        state = {'scored_events': {}, 'scored_fingerprints': {}, 'agent_outcomes': {}, 'court_actions': {}}
+        with mock.patch.object(meridian_gateway, 'load_session_events', return_value={'events': [delivery_event]}):
+            with mock.patch.object(meridian_gateway, 'accounting_load_ledger', return_value=ledger):
+                with mock.patch.object(meridian_gateway, 'accounting_save_ledger'):
+                    with mock.patch.object(meridian_gateway, 'accounting_append_tx'):
+                        with mock.patch.object(meridian_gateway, '_load_user_session_score_state', return_value=state):
+                            with mock.patch.object(meridian_gateway, '_save_user_session_score_state'):
+                                with mock.patch.object(meridian_gateway, '_apply_user_session_court_actions', return_value=[]):
+                                    summary = meridian_gateway._score_user_session_delivery(
+                                        'web_api:memory-supported-score',
+                                        'evt-memory-supported-score',
+                                    )
+        self.assertIsNotNone(summary)
+        self.assertIn('atlas', summary['agents'])
+        self.assertGreater(summary['agents']['atlas']['rep_delta'], 0)
+        self.assertGreater(summary['agents']['atlas']['auth_delta'], 0)
 
 
 if __name__ == '__main__':

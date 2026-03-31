@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import base64
 import ast
+import datetime as dt
 import hashlib
 import importlib.util
 import json
@@ -69,12 +70,14 @@ _KERNEL_IMPORT_CONFLICTS = (
 
 def _call_isolated_kernel_treasury(method_name: str, *args: Any, **kwargs: Any) -> Any:
     kernel_dir = str(KERNEL_DIR)
-    inserted = False
+    original_sys_path = list(sys.path)
     saved_modules: dict[str, Any] = {}
     try:
-        if kernel_dir not in sys.path:
-            sys.path.insert(0, kernel_dir)
-            inserted = True
+        conflict_paths = {str(WORKSPACE_DIR), str(COMPANY_DIR), str(PLATFORM_DIR)}
+        sys.path[:] = [kernel_dir] + [
+            entry for entry in original_sys_path
+            if entry != kernel_dir and entry not in conflict_paths
+        ]
         for module_name in _KERNEL_IMPORT_CONFLICTS:
             if module_name in sys.modules:
                 saved_modules[module_name] = sys.modules.pop(module_name)
@@ -91,11 +94,7 @@ def _call_isolated_kernel_treasury(method_name: str, *args: Any, **kwargs: Any) 
             sys.modules.pop(module_name, None)
         for module_name, module in saved_modules.items():
             sys.modules[module_name] = module
-        if inserted:
-            try:
-                sys.path.remove(kernel_dir)
-            except ValueError:
-                pass
+        sys.path[:] = original_sys_path
 
 
 def treasury_reserve_runtime_budget(*args: Any, **kwargs: Any) -> Any:
@@ -168,6 +167,13 @@ SKILL_SYNTHESIS_CREATE_COST_USD = 0.03
 SKILL_SYNTHESIS_REFINE_COST_USD = 0.015
 MEMORY_RECALL_LIMIT = int(os.environ.get("MERIDIAN_MEMORY_RECALL_LIMIT", "4"))
 MEMORY_RECALL_SOURCE = "gateway_markdown_memory_sync"
+MEMORY_FACT_SOURCE = "gateway_user_fact_extract"
+MEMORY_DELIVERY_SOURCE = "gateway_session_artifact_memory"
+MEMORY_HISTORY_SCAN_LIMIT = int(os.environ.get("MERIDIAN_MEMORY_HISTORY_SCAN_LIMIT", "160"))
+MEMORY_SUCCESSFUL_OUTPUT_LIMIT = int(os.environ.get("MERIDIAN_MEMORY_SUCCESSFUL_OUTPUT_LIMIT", "96"))
+MEMORY_USER_FACT_LIMIT = int(os.environ.get("MERIDIAN_MEMORY_USER_FACT_LIMIT", "24"))
+MEMORY_DELIVERY_CONTENT_LIMIT = int(os.environ.get("MERIDIAN_MEMORY_DELIVERY_CONTENT_LIMIT", "1200"))
+MEMORY_FACT_CONTENT_LIMIT = int(os.environ.get("MERIDIAN_MEMORY_FACT_CONTENT_LIMIT", "240"))
 SKILL_STOPWORDS = {
     "a",
     "an",
@@ -2736,6 +2742,8 @@ def _run_team_route(text: str, session_key: str, runtime: AgentRuntime) -> tuple
             "request_text": request,
             "delivery_fingerprint": delivery_fingerprint,
             "final_artifact_usable": _final_artifact_is_usable(answer, skill_names),
+            "memory_entries": _memory_packet_delivery_entries(plan.get("memory_packet")),
+            "memory_retrieval_mode": str(dict(plan.get("memory_packet") or {}).get("retrieval_mode") or "").strip(),
             "contributors": _delivery_contributors_snapshot(
                 steps,
                 request_text=request,
@@ -2750,6 +2758,7 @@ def _run_team_route(text: str, session_key: str, runtime: AgentRuntime) -> tuple
         },
         loom_root=LOOM_ROOT,
     )
+    _remember_successful_delivery_memory(delivery_event)
     memory_outcome = _record_memory_recall_outcome(
         session_key,
         quality_status,
@@ -3558,6 +3567,10 @@ def _save_memory_recall_state(state: dict[str, Any]) -> None:
     )
 
 
+def _memory_now_iso() -> str:
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+
 def _memory_heading_slug(text: str) -> str:
     folded = _ascii_fold(text).lower()
     slug = re.sub(r"[^a-z0-9]+", "-", folded).strip("-")
@@ -3632,6 +3645,394 @@ def _run_loom_memory_command(args: list[str]) -> dict[str, Any]:
     return {"ok": True, "payload": parsed}
 
 
+def _memory_entry_skills(entry: dict[str, Any]) -> list[str]:
+    return [
+        str(item or "").strip().lower()
+        for item in list(entry.get("source_skill_names") or [])
+        if str(item or "").strip()
+    ]
+
+
+def _memory_timestamp_epoch(value: Any) -> int:
+    raw = str(value or "").strip()
+    if not raw:
+        return 0
+    try:
+        parsed = dt.datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return 0
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=dt.timezone.utc)
+    return int(parsed.timestamp())
+
+
+def _memory_entry_recency_bonus(entry: dict[str, Any]) -> int:
+    timestamp = _memory_timestamp_epoch(
+        entry.get("source_recorded_at")
+        or entry.get("updated_at")
+        or entry.get("last_recalled_at")
+    )
+    if timestamp <= 0:
+        return 0
+    age_seconds = max(0, int(time.time()) - int(timestamp))
+    if age_seconds <= 6 * 3600:
+        return 10
+    if age_seconds <= 24 * 3600:
+        return 7
+    if age_seconds <= 72 * 3600:
+        return 4
+    if age_seconds <= 7 * 24 * 3600:
+        return 2
+    return 0
+
+
+def _memory_remove_entry(record: dict[str, Any]) -> None:
+    _run_loom_memory_command(
+        [
+            "remove",
+            "--agent-id",
+            MEMORY_RECALL_AGENT_ID,
+            "--category",
+            str(record.get("category") or "markdown_section"),
+            "--key",
+            str(record.get("key") or "").strip(),
+        ]
+    )
+
+
+def _upsert_memory_entry(state: dict[str, Any], entry: dict[str, Any]) -> tuple[dict[str, Any] | None, bool]:
+    key = str(entry.get("key") or "").strip()
+    content = str(entry.get("content") or "").strip()
+    if not key or not content:
+        return None, False
+    entries_state = state.setdefault("entries", {})
+    record = dict(entries_state.get(key) or {})
+    if not isinstance(record, dict):
+        record = {}
+    previous_hash = str(record.get("content_hash") or "").strip()
+    record.setdefault("recall_count", 0)
+    record.setdefault("accepted_count", 0)
+    record.setdefault("failure_count", 0)
+    record["key"] = key
+    record["heading"] = str(entry.get("heading") or record.get("heading") or "Memory").strip()
+    record["category"] = str(entry.get("category") or record.get("category") or "markdown_section").strip()
+    category = str(entry.get("category") or "").strip()
+    if category == "successful_output":
+        record["content"] = content[:MEMORY_DELIVERY_CONTENT_LIMIT]
+    elif category == "user_fact":
+        record["content"] = content[:MEMORY_FACT_CONTENT_LIMIT]
+    else:
+        record["content"] = content
+    record["tokens"] = list(entry.get("tokens") or [])
+    record["source"] = str(entry.get("source") or record.get("source") or MEMORY_RECALL_SOURCE).strip()
+    record["source_session_key"] = str(entry.get("source_session_key") or record.get("source_session_key") or "").strip()
+    record["source_event_id"] = str(entry.get("source_event_id") or record.get("source_event_id") or "").strip()
+    record["source_quality_status"] = str(entry.get("source_quality_status") or record.get("source_quality_status") or "").strip().lower()
+    record["source_recorded_at"] = str(entry.get("source_recorded_at") or record.get("source_recorded_at") or "").strip()
+    record["artifact_source"] = str(entry.get("artifact_source") or record.get("artifact_source") or "").strip().lower()
+    record["origin_agent"] = str(entry.get("origin_agent") or record.get("origin_agent") or "").strip().lower()
+    record["source_skill_names"] = [
+        str(item or "").strip().lower()
+        for item in list(entry.get("source_skill_names") or record.get("source_skill_names") or [])
+        if str(item or "").strip()
+    ]
+    record["origin_delivery_fingerprint"] = str(
+        entry.get("origin_delivery_fingerprint") or record.get("origin_delivery_fingerprint") or ""
+    ).strip()
+    record["updated_at"] = _memory_now_iso()
+    record["content_hash"] = hashlib.sha256(record["content"].encode("utf-8")).hexdigest()
+    record["memory_value_score"] = int(record.get("accepted_count") or 0) - int(record.get("failure_count") or 0)
+    changed = previous_hash != str(record.get("content_hash") or "").strip()
+    entries_state[key] = record
+    return record, changed
+
+
+def _memory_delivery_origin_agent(delivery_event: dict[str, Any]) -> str:
+    artifact_source = str(delivery_event.get("artifact_source") or "").strip().lower()
+    contributors = [item for item in list(delivery_event.get("contributors") or []) if isinstance(item, dict)]
+    if artifact_source in {"manager_response", "salvage_template"}:
+        return str(TEAM_TOPOLOGY.manager.handle or "").strip().lower()
+    best_agent = ""
+    best_score = -1000
+    for contributor in contributors:
+        agent_key = str(contributor.get("economy_key") or "").strip().lower()
+        if not agent_key:
+            continue
+        score = int(contributor.get("artifact_fit_score") or -100)
+        if bool(contributor.get("matches_final_artifact")):
+            score += 80
+        elif _contributor_support_level(contributor) == "primary":
+            score += 50
+        elif bool(contributor.get("best_fit_contributor")):
+            score += 25
+        task_kind = str(contributor.get("task_kind") or "").strip().lower()
+        if task_kind == "write":
+            score += 8
+        elif task_kind == "research":
+            score += 6
+        elif task_kind == "execute":
+            score += 4
+        if bool(contributor.get("usable_artifact")):
+            score += 4
+        if score > best_score:
+            best_score = score
+            best_agent = agent_key
+    return best_agent
+
+
+def _delivery_memory_entry_from_event(delivery_event: dict[str, Any]) -> dict[str, Any] | None:
+    if str(delivery_event.get("status") or "").strip().lower() != "success":
+        return None
+    if not bool(delivery_event.get("final_artifact_usable")):
+        return None
+    request_text = str(delivery_event.get("request_text") or "").strip()
+    skill_names = [str(item).strip().lower() for item in list(delivery_event.get("skills_used") or []) if str(item).strip()]
+    raw_text = str(delivery_event.get("text") or "").strip()
+    if not raw_text:
+        return None
+    artifact = _coerce_request_specific_artifact(raw_text, request_text) if request_text else raw_text
+    if not artifact:
+        return None
+    if skill_names and request_text and not _artifact_matches_skill_shape(artifact, request_text, skill_names):
+        return None
+    delivery_fingerprint = str(delivery_event.get("delivery_fingerprint") or "").strip()
+    if not delivery_fingerprint:
+        return None
+    heading_label = ", ".join(skill_names[:2]) if skill_names else "general"
+    artifact = artifact[:MEMORY_DELIVERY_CONTENT_LIMIT].strip()
+    return {
+        "key": f"delivery/{delivery_fingerprint}",
+        "heading": f"Successful output: {heading_label}",
+        "category": "successful_output",
+        "content": artifact,
+        "tokens": _request_tokens(f"{request_text}\n{' '.join(skill_names)}\n{artifact}"),
+        "source": MEMORY_DELIVERY_SOURCE,
+        "source_session_key": str(delivery_event.get("session_key") or "").strip(),
+        "source_event_id": str(delivery_event.get("event_id") or "").strip(),
+        "source_quality_status": "success",
+        "source_recorded_at": str(delivery_event.get("recorded_at") or "").strip(),
+        "artifact_source": str(delivery_event.get("artifact_source") or "").strip().lower(),
+        "origin_agent": _memory_delivery_origin_agent(delivery_event),
+        "source_skill_names": skill_names,
+        "origin_delivery_fingerprint": delivery_fingerprint,
+    }
+
+
+def _memory_history_events_dir() -> Path:
+    return Path(LOOM_ROOT) / "state" / "session-history" / "events"
+
+
+def _sync_successful_output_memory(state: dict[str, Any]) -> None:
+    events_dir = _memory_history_events_dir()
+    if not events_dir.exists():
+        return
+    history_files = sorted(
+        events_dir.glob("*.json"),
+        key=lambda item: item.stat().st_mtime_ns,
+        reverse=True,
+    )[: max(8, MEMORY_HISTORY_SCAN_LIMIT)]
+    history_state = state.setdefault("history_sync", {})
+    seen_event_ids = [str(item).strip() for item in list(history_state.get("event_ids") or []) if str(item).strip()]
+    seen_set = set(seen_event_ids)
+    max_mtime_ns = max((item.stat().st_mtime_ns for item in history_files), default=0)
+    if int(history_state.get("source_mtime_ns") or 0) == int(max_mtime_ns) and seen_event_ids:
+        return
+
+    changed_records: list[dict[str, Any]] = []
+    for path in history_files:
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        for event in list(payload.get("events") or []):
+            if not isinstance(event, dict):
+                continue
+            event_id = str(event.get("event_id") or "").strip()
+            if not event_id or event_id in seen_set:
+                continue
+            if str(event.get("history_type") or "").strip() != "manager_delivery_artifact":
+                continue
+            entry = _delivery_memory_entry_from_event(event)
+            if not entry:
+                continue
+            record, changed = _upsert_memory_entry(state, entry)
+            if record and changed:
+                changed_records.append(record)
+            seen_event_ids.append(event_id)
+            seen_set.add(event_id)
+
+    for record in changed_records:
+        _run_loom_memory_command(
+            [
+                "write",
+                "--agent-id",
+                MEMORY_RECALL_AGENT_ID,
+                "--category",
+                str(record.get("category") or "successful_output"),
+                "--key",
+                str(record.get("key") or "").strip(),
+                "--content",
+                str(record.get("content") or ""),
+                "--source",
+                str(record.get("source") or MEMORY_DELIVERY_SOURCE),
+            ]
+        )
+
+    history_state["source_mtime_ns"] = int(max_mtime_ns)
+    history_state["event_ids"] = seen_event_ids[-600:]
+
+
+def _remember_successful_delivery_memory(delivery_event: dict[str, Any]) -> None:
+    entry = _delivery_memory_entry_from_event(delivery_event)
+    if not entry:
+        return
+    state = _load_memory_recall_state()
+    record, changed = _upsert_memory_entry(state, entry)
+    _prune_memory_entries(state)
+    _save_memory_recall_state(state)
+    if record and changed:
+        _run_loom_memory_command(
+            [
+                "write",
+                "--agent-id",
+                MEMORY_RECALL_AGENT_ID,
+                "--category",
+                str(record.get("category") or "successful_output"),
+                "--key",
+                str(record.get("key") or "").strip(),
+                "--content",
+                str(record.get("content") or ""),
+                "--source",
+                str(record.get("source") or MEMORY_DELIVERY_SOURCE),
+            ]
+        )
+
+
+def _extract_request_user_fact_entries(request: str, session_key: str) -> list[dict[str, Any]]:
+    text = str(request or "").strip()
+    if not text:
+        return []
+    entries: list[dict[str, Any]] = []
+    lowered = _ascii_fold(text).lower()
+
+    email_matches = sorted(
+        {
+            match.strip().lower()
+            for match in re.findall(r"\b[\w.+-]+@[a-z0-9.-]+\.[a-z]{2,}\b", lowered, flags=re.IGNORECASE)
+        }
+    )
+    for email in email_matches:
+        entries.append(
+            {
+                "key": f"fact/email/{hashlib.sha1(email.encode('utf-8')).hexdigest()[:12]}",
+                "heading": "User Contact",
+                "category": "user_fact",
+                "content": f"User contact email: {email}",
+                "tokens": _request_tokens(f"user contact email {email} {text}"),
+                "source": MEMORY_FACT_SOURCE,
+                "source_session_key": session_key,
+                "source_quality_status": "explicit",
+                "source_recorded_at": _memory_now_iso(),
+            }
+        )
+
+    founder_markers = (
+        "toi la founder",
+        "toi la nguoi sang lap",
+        "i am the founder",
+        "i'm the founder",
+        "im the founder",
+    )
+    if any(marker in lowered for marker in founder_markers):
+        entries.append(
+            {
+                "key": "fact/identity/founder",
+                "heading": "User Identity",
+                "category": "user_fact",
+                "content": "The user is the founder.",
+                "tokens": _request_tokens(f"user founder identity {text}"),
+                "source": MEMORY_FACT_SOURCE,
+                "source_session_key": session_key,
+                "source_quality_status": "explicit",
+                "source_recorded_at": _memory_now_iso(),
+            }
+        )
+
+    name_match = re.search(
+        r"(?:\btoi ten la\b|\bmy name is\b|\bcall me\b)\s+([a-z0-9 _-]{2,48})",
+        lowered,
+        flags=re.IGNORECASE,
+    )
+    if name_match:
+        candidate = re.sub(r"\s+", " ", str(name_match.group(1) or "").strip()).strip(" .,:;")
+        if candidate:
+            entries.append(
+                {
+                    "key": f"fact/name/{hashlib.sha1(candidate.encode('utf-8')).hexdigest()[:12]}",
+                    "heading": "User Name",
+                    "category": "user_fact",
+                    "content": f"User prefers the name: {candidate}",
+                    "tokens": _request_tokens(f"user name {candidate} {text}"),
+                    "source": MEMORY_FACT_SOURCE,
+                    "source_session_key": session_key,
+                    "source_quality_status": "explicit",
+                    "source_recorded_at": _memory_now_iso(),
+                }
+            )
+    return entries
+
+
+def _sync_request_user_fact_memory(state: dict[str, Any], request: str, session_key: str) -> None:
+    changed_records: list[dict[str, Any]] = []
+    for entry in _extract_request_user_fact_entries(request, session_key):
+        record, changed = _upsert_memory_entry(state, entry)
+        if record and changed:
+            changed_records.append(record)
+    for record in changed_records:
+        _run_loom_memory_command(
+            [
+                "write",
+                "--agent-id",
+                MEMORY_RECALL_AGENT_ID,
+                "--category",
+                str(record.get("category") or "user_fact"),
+                "--key",
+                str(record.get("key") or "").strip(),
+                "--content",
+                str(record.get("content") or ""),
+                "--source",
+                str(record.get("source") or MEMORY_FACT_SOURCE),
+            ]
+        )
+
+
+def _prune_memory_entries(state: dict[str, Any]) -> None:
+    entries_state = state.setdefault("entries", {})
+    categories = {
+        "user_fact": MEMORY_USER_FACT_LIMIT,
+        "successful_output": MEMORY_SUCCESSFUL_OUTPUT_LIMIT,
+    }
+    for category, limit in categories.items():
+        items = [
+            dict(item)
+            for item in list(entries_state.values())
+            if isinstance(item, dict) and str(item.get("category") or "").strip() == category
+        ]
+        items.sort(
+            key=lambda item: (
+                int(item.get("memory_value_score") or 0),
+                _memory_timestamp_epoch(item.get("last_recalled_at") or item.get("updated_at") or item.get("source_recorded_at")),
+            ),
+            reverse=True,
+        )
+        for record in items[int(limit):]:
+            key = str(record.get("key") or "").strip()
+            if not key:
+                continue
+            _memory_remove_entry(record)
+            entries_state.pop(key, None)
+
+
 def _sync_memory_retrieval_index() -> dict[str, Any]:
     markdown = MEMORY_PATH.read_text(encoding="utf-8").strip()
     source_mtime_ns = MEMORY_PATH.stat().st_mtime_ns if MEMORY_PATH.exists() else 0
@@ -3698,8 +4099,10 @@ def _sync_memory_retrieval_index() -> dict[str, Any]:
                     MEMORY_RECALL_SOURCE,
                 ]
             )
+    _sync_successful_output_memory(state)
+    _prune_memory_entries(state)
     state["source_mtime_ns"] = int(source_mtime_ns)
-    state["updated_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    state["updated_at"] = _memory_now_iso()
     _save_memory_recall_state(state)
     return state
 
@@ -3708,24 +4111,93 @@ def _memory_entry_score(
     entry: dict[str, Any],
     request: str,
     skill_names: list[str] | None = None,
+    *,
+    session_key: str = "",
 ) -> int:
     request_tokens = set(_request_tokens(request))
     entry_tokens = {str(item).strip().lower() for item in list(entry.get("tokens") or []) if str(item).strip()}
     overlap = request_tokens & entry_tokens
     heading = str(entry.get("heading") or "").strip().lower()
+    category = str(entry.get("category") or "").strip().lower()
+    content_lowered = _ascii_fold(str(entry.get("content") or "")).lower()
     lowered_skills = {str(item or "").strip().lower() for item in list(skill_names or []) if str(item or "").strip()}
+    source_skills = set(_memory_entry_skills(entry))
     score = len(overlap) * 8
-    if any(token in heading for token in ("founder", "mission")):
-        score += 3
-    if lowered_skills.intersection({"protocol-deal-hoi", "research-khach-hang", "scan-doi-thu"}):
+    if category == "markdown_section":
         if any(token in heading for token in ("founder", "mission")):
+            score += 3
+    if lowered_skills.intersection({"protocol-deal-hoi", "research-khach-hang", "scan-doi-thu"}):
+        if category == "markdown_section" and any(token in heading for token in ("founder", "mission")):
             score += 5
     if lowered_skills.intersection({"mail-gui", "follow-demo-soan", "book-meeting"}):
-        if "founder" in heading:
+        if category == "markdown_section" and "founder" in heading:
             score += 2
-    score += min(int(entry.get("accepted_count") or 0), 6)
-    score -= min(int(entry.get("failure_count") or 0), 4)
+    if category == "user_fact":
+        email_matches = re.findall(r"\b[\w.+-]+@[a-z0-9.-]+\.[a-z]{2,}\b", content_lowered, flags=re.IGNORECASE)
+        if overlap:
+            score += 12
+        if email_matches and any(email in _ascii_fold(request).lower() for email in email_matches):
+            score += 16
+        if "founder" in content_lowered and request_tokens.intersection({"founder", "positioning", "buyer", "mission"}):
+            score += 8
+    elif category == "successful_output":
+        if overlap:
+            score += 6
+        if lowered_skills and source_skills.intersection(lowered_skills):
+            score += 20
+        elif lowered_skills and source_skills:
+            score -= 40
+        if session_key and str(entry.get("source_session_key") or "").strip() == str(session_key or "").strip():
+            score += 6
+        if _request_wants_protocol_artifact(request) and source_skills.intersection({"protocol-deal-hoi"}):
+            score += 10
+        if _request_is_customer_research(request, list(skill_names or [])) and source_skills.intersection({"research-khach-hang"}):
+            score += 10
+        if "scan-doi-thu" in lowered_skills and source_skills.intersection({"scan-doi-thu"}):
+            score += 10
+        score += _memory_entry_recency_bonus(entry)
+        if str(entry.get("source_quality_status") or "").strip().lower() == "success":
+            score += 4
+    score += min(int(entry.get("accepted_count") or 0), 8)
+    score += min(int(entry.get("memory_value_score") or 0), 8)
+    score -= min(max(0, int(entry.get("failure_count") or 0)), 6)
     return score
+
+
+def _memory_packet_delivery_entries(memory_packet: dict[str, Any] | None) -> list[dict[str, Any]]:
+    packet = dict(memory_packet or {})
+    entries: list[dict[str, Any]] = []
+    for item in list(packet.get("entries") or []):
+        if not isinstance(item, dict):
+            continue
+        entries.append(
+            {
+                "key": str(item.get("key") or "").strip(),
+                "heading": str(item.get("heading") or "").strip(),
+                "category": str(item.get("category") or "").strip(),
+                "fit_score": int(item.get("fit_score") or 0),
+                "memory_value_score": int(item.get("memory_value_score") or 0),
+                "origin_agent": str(item.get("origin_agent") or "").strip().lower(),
+                "source_skill_names": [
+                    str(skill or "").strip().lower()
+                    for skill in list(item.get("source_skill_names") or [])
+                    if str(skill or "").strip()
+                ],
+                "source_quality_status": str(item.get("source_quality_status") or "").strip().lower(),
+            }
+        )
+    return entries
+
+
+def _memory_entry_packet_eligible(entry: dict[str, Any], skill_names: list[str] | None = None) -> bool:
+    category = str(entry.get("category") or "").strip().lower()
+    if category != "successful_output":
+        return True
+    lowered_skills = {str(item or "").strip().lower() for item in list(skill_names or []) if str(item or "").strip()}
+    source_skills = set(_memory_entry_skills(entry))
+    if lowered_skills and source_skills and not lowered_skills.intersection(source_skills):
+        return False
+    return True
 
 
 def _build_memory_packet(
@@ -3736,6 +4208,8 @@ def _build_memory_packet(
     limit: int = MEMORY_RECALL_LIMIT,
 ) -> dict[str, Any]:
     state = _sync_memory_retrieval_index()
+    _sync_request_user_fact_memory(state, request, session_key)
+    _prune_memory_entries(state)
     entries = [
         dict(item)
         for item in list((state.get("entries") or {}).values())
@@ -3747,7 +4221,7 @@ def _build_memory_packet(
         (
             {
                 **entry,
-                "fit_score": _memory_entry_score(entry, request, skill_names),
+                "fit_score": _memory_entry_score(entry, request, skill_names, session_key=session_key),
             }
             for entry in entries
         ),
@@ -3758,9 +4232,16 @@ def _build_memory_packet(
         ),
         reverse=True,
     )
-    selected = [item for item in ranked if int(item.get("fit_score") or 0) > 0][: max(1, int(limit or 0))]
+    selected = [
+        item
+        for item in ranked
+        if int(item.get("fit_score") or 0) > 0 and _memory_entry_packet_eligible(item, skill_names)
+    ][: max(1, int(limit or 0))]
     if not selected:
-        selected = ranked[: min(2, len(ranked))]
+        selected = [
+            item for item in ranked
+            if str(item.get("category") or "").strip() == "markdown_section"
+        ][:1]
     packet_entries = [
         {
             "key": str(item.get("key") or "").strip(),
@@ -3769,6 +4250,10 @@ def _build_memory_packet(
             "memory_value_score": int(item.get("memory_value_score") or 0),
             "accepted_count": int(item.get("accepted_count") or 0),
             "failure_count": int(item.get("failure_count") or 0),
+            "category": str(item.get("category") or "").strip(),
+            "origin_agent": str(item.get("origin_agent") or "").strip().lower(),
+            "source_skill_names": _memory_entry_skills(item),
+            "source_quality_status": str(item.get("source_quality_status") or "").strip().lower(),
             "content": str(item.get("content") or "").strip(),
         }
         for item in selected
@@ -3780,14 +4265,16 @@ def _build_memory_packet(
     ).strip()
     state.setdefault("session_packets", {})[session_key] = {
         "keys": [str(item.get("key") or "").strip() for item in packet_entries],
+        "entries": _memory_packet_delivery_entries({"entries": packet_entries}),
         "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "request_hash": hashlib.sha256(str(request or "").encode("utf-8")).hexdigest(),
+        "retrieval_mode": "scored_governed_memory_recall",
     }
     _save_memory_recall_state(state)
     return {
         "entries": packet_entries,
         "context": context,
-        "retrieval_mode": "scored_markdown_section_recall",
+        "retrieval_mode": "scored_governed_memory_recall",
     }
 
 
@@ -3818,11 +4305,13 @@ def _record_memory_recall_outcome(
         if not record:
             continue
         record["recall_count"] = int(record.get("recall_count") or 0) + 1
-        if accepted:
+        if normalized_quality == "success":
+            record["accepted_count"] = int(record.get("accepted_count") or 0) + 2
+        elif normalized_quality == "partial":
             record["accepted_count"] = int(record.get("accepted_count") or 0) + 1
         elif normalized_quality == "failure":
-            record["failure_count"] = int(record.get("failure_count") or 0) + 1
-        record["last_recalled_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+            record["failure_count"] = int(record.get("failure_count") or 0) + 2
+        record["last_recalled_at"] = _memory_now_iso()
         record["last_quality_status"] = normalized_quality
         record["last_delivery_fingerprint"] = delivery_fingerprint
         record["memory_value_score"] = int(record.get("accepted_count") or 0) - int(record.get("failure_count") or 0)
@@ -3831,8 +4320,10 @@ def _record_memory_recall_outcome(
             {
                 "key": key,
                 "heading": str(record.get("heading") or "").strip(),
+                "category": str(record.get("category") or "").strip(),
                 "memory_value_score": int(record.get("memory_value_score") or 0),
                 "recall_count": int(record.get("recall_count") or 0),
+                "origin_agent": str(record.get("origin_agent") or "").strip().lower(),
             }
         )
     session_packets.pop(session_key, None)
@@ -3842,7 +4333,7 @@ def _record_memory_recall_outcome(
     return {
         "quality_status": normalized_quality,
         "entries": updated,
-        "retrieval_mode": str(packet.get("retrieval_mode") or "scored_markdown_section_recall"),
+        "retrieval_mode": str(packet.get("retrieval_mode") or "scored_governed_memory_recall"),
     }
 
 
@@ -4504,6 +4995,11 @@ def _score_user_session_delivery(session_key: str, delivery_event_id: str) -> di
     agents = ledger.get("agents") or {}
     deltas: dict[str, dict[str, Any]] = {}
     writer_issue_detected = _contributors_show_writer_issue(contributors)
+    contributor_agent_keys = {
+        str(item.get("economy_key") or "").strip().lower()
+        for item in contributors
+        if isinstance(item, dict) and str(item.get("economy_key") or "").strip()
+    }
 
     def add_delta(agent_key: str, rep_delta: int, auth_delta: int, reason: str) -> None:
         normalized = str(agent_key or "").strip().lower()
@@ -4622,6 +5118,45 @@ def _score_user_session_delivery(session_key: str, delivery_event_id: str) -> di
             add_delta(agent_key, 1, 1, "compression_supported_delivery")
         elif task_kind == "verify" and qa_pass and quality_status == "success":
             add_delta(agent_key, 1, 1, "verification_supported_delivery")
+
+    memory_entries = [item for item in list(delivery_event.get("memory_entries") or []) if isinstance(item, dict)]
+    for memory_entry in memory_entries:
+        origin_agent = str(memory_entry.get("origin_agent") or "").strip().lower()
+        if not origin_agent or origin_agent not in agents:
+            continue
+        category = str(memory_entry.get("category") or "").strip().lower()
+        if category != "successful_output":
+            continue
+        fit_score = int(memory_entry.get("fit_score") or 0)
+        value_score = int(memory_entry.get("memory_value_score") or 0)
+        source_quality_status = str(memory_entry.get("source_quality_status") or "").strip().lower()
+        source_skill_names = {
+            str(item or "").strip().lower()
+            for item in list(memory_entry.get("source_skill_names") or [])
+            if str(item or "").strip()
+        }
+        same_skill = bool(lowered_skill_names.intersection(source_skill_names))
+        origin_is_current_contributor = origin_agent in contributor_agent_keys
+
+        if quality_status == "success" and fit_score >= 18:
+            rep_delta = 2 if same_skill else 1
+            auth_delta = 1 if same_skill or fit_score >= 28 else 0
+            if value_score >= 4:
+                rep_delta += 1
+            if source_quality_status == "success" and fit_score >= 34:
+                auth_delta += 1
+            if origin_is_current_contributor:
+                rep_delta = max(1, rep_delta - 1)
+            add_delta(origin_agent, rep_delta, auth_delta, "memory_recall_supported_delivery")
+        elif quality_status == "partial" and fit_score >= 18 and value_score < 0:
+            add_delta(origin_agent, -1, -1, "memory_recall_low_value_drag")
+        elif quality_status == "failure" and fit_score >= 18:
+            rep_penalty = -2 if value_score < 0 else -1
+            auth_penalty = -2 if value_score < 0 else -1
+            if origin_is_current_contributor:
+                rep_penalty = max(rep_penalty, -1)
+                auth_penalty = max(auth_penalty, -1)
+            add_delta(origin_agent, rep_penalty, auth_penalty, "memory_recall_failed_delivery")
 
     applied: dict[str, dict[str, Any]] = {}
     for agent_key, delta in deltas.items():
