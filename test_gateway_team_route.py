@@ -527,6 +527,30 @@ Use this skill when the user gives a short prompt such as:
         )
         self.assertEqual(workers, ['QUILL', 'AEGIS'])
 
+    def test_customer_research_starter_downshifts_quill_when_no_writer_cue(self):
+        workers = meridian_gateway._refine_skill_routed_workers(
+            'research khách hàng trả tiền cho Meridian',
+            [{'name': 'research-khach-hang'}],
+            ['ATLAS', 'QUILL', 'AEGIS'],
+        )
+        self.assertEqual(workers, ['ATLAS', 'AEGIS'])
+
+    def test_customer_research_brief_keeps_quill_when_writer_cue_present(self):
+        workers = meridian_gateway._refine_skill_routed_workers(
+            'viết customer research brief cho Meridian',
+            [{'name': 'research-khach-hang'}],
+            ['ATLAS', 'QUILL', 'AEGIS'],
+        )
+        self.assertEqual(workers, ['ATLAS', 'QUILL', 'AEGIS'])
+
+    def test_bounded_competitor_scan_downshifts_quill_when_report_not_requested(self):
+        workers = meridian_gateway._refine_skill_routed_workers(
+            'scan đối thủ openai tuần này',
+            [{'name': 'scan-doi-thu'}],
+            ['ATLAS', 'QUILL', 'AEGIS'],
+        )
+        self.assertEqual(workers, ['ATLAS', 'AEGIS'])
+
     def test_communication_skills_use_fast_specialist_timeouts(self):
         self.assertEqual(
             meridian_gateway._specialist_timeout_for_request('AEGIS', 'gửi mail cho khách', ['mail-gui']),
@@ -570,6 +594,20 @@ Use this skill when the user gives a short prompt such as:
         self.assertTrue(
             meridian_gateway._request_prefers_safe_web_research(
                 'đọc source này giúp tôi https://openai.com/index/introducing-gpt-5/'
+            )
+        )
+
+    def test_email_address_does_not_trigger_safe_web_route(self):
+        self.assertFalse(
+            meridian_gateway._request_prefers_safe_web_research(
+                'gửi mail cho tôi tới nguyensimon186@gmail.com về tình hình Meridian'
+            )
+        )
+
+    def test_trang_thai_phrase_does_not_trigger_safe_web_route(self):
+        self.assertFalse(
+            meridian_gateway._request_prefers_safe_web_research(
+                'gửi mail cho tôi về trạng thái cập nhật mới nhất của Meridian'
             )
         )
 
@@ -814,6 +852,64 @@ Use this skill when the user gives a short prompt such as:
         self.assertIn('tiêu chí dừng', repaired.lower())
         self.assertNotIn('likely buyer', repaired.lower())
         self.assertIn('manager_response_repaired_from_best_worker_artifact', warnings)
+
+    def test_manager_synthesis_fastpaths_bounded_scan_without_codex(self):
+        steps = [
+            {
+                'agent_id': 'agent_atlas',
+                'status': 'ok',
+                'task_kind': 'research',
+                'result': meridian_gateway._salvage_competitor_scan_artifact('scan đối thủ openai tuần này'),
+                'warnings': [],
+                'citations': [],
+            },
+            {
+                'agent_id': 'agent_aegis',
+                'status': 'ok',
+                'task_kind': 'qa_gate',
+                'result': 'PASS',
+                'warnings': ['Fast direct QA lane used for low-latency communication skill.'],
+            },
+        ]
+        with mock.patch.object(meridian_gateway, '_run_codex_exec', side_effect=AssertionError('should not call codex')):
+            answer = meridian_gateway._manager_synthesis(
+                'scan đối thủ openai tuần này',
+                'web_api:test-fastpath-scan',
+                steps,
+                {'skills': [{'name': 'scan-doi-thu'}]},
+            )
+        self.assertIn('Verified findings', answer)
+
+    def test_manager_synthesis_fastpaths_customer_research_starter_without_codex(self):
+        steps = [
+            {
+                'agent_id': 'agent_atlas',
+                'status': 'ok',
+                'task_kind': 'research',
+                'result': '# Meridian Paid-Customer Research Starter Pack\n\n## 1. Objective\n- Validate buyers',
+                'warnings': [],
+                'citations': [],
+            },
+            {
+                'agent_id': 'agent_aegis',
+                'status': 'ok',
+                'task_kind': 'qa_gate',
+                'result': 'PASS',
+                'warnings': [
+                    'No explicit timeline or resource allocation is provided for execution of research methods.',
+                    'Sample size justification for surveys/interviews is not included (e.g., power analysis or margin of error calculations).',
+                ],
+            },
+        ]
+        with mock.patch.object(meridian_gateway, '_run_codex_exec', side_effect=AssertionError('should not call codex')):
+            answer = meridian_gateway._manager_synthesis(
+                'research khách hàng trả tiền cho Meridian',
+                'web_api:test-fastpath-research',
+                steps,
+                {'skills': [{'name': 'research-khach-hang'}]},
+            )
+        self.assertIn('Likely buyer', answer)
+        self.assertIn('What must be validated', answer)
 
     def test_delivery_contributors_snapshot_marks_best_fit_and_final_artifact_match(self):
         request = (

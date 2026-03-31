@@ -1587,6 +1587,29 @@ def _request_has_meeting_execution_details(text: str) -> bool:
     return has_contact and has_precise_time and has_platform
 
 
+def _request_wants_research_writer(text: str) -> bool:
+    lowered = str(text or "").strip().lower()
+    if not lowered:
+        return False
+    writer_cues = (
+        "brief",
+        "report",
+        "memo",
+        "battlecard",
+        "deck",
+        "slide",
+        "presentation",
+        "document",
+        "tài liệu",
+        "tai lieu",
+        "soạn",
+        "viet",
+        "write ",
+        "draft ",
+    )
+    return any(cue in lowered for cue in writer_cues)
+
+
 def _refine_skill_routed_workers(request: str, matched_skills: list[dict[str, Any]], workers: list[str]) -> list[str]:
     lowered_skills = {str(item.get("name") or "").strip().lower() for item in matched_skills}
     selected = _normalize_worker_selection(workers, request)
@@ -1595,8 +1618,14 @@ def _refine_skill_routed_workers(request: str, matched_skills: list[dict[str, An
     if "book-meeting" in lowered_skills and not _request_has_meeting_execution_details(request):
         return _normalize_worker_selection(["QUILL", "AEGIS"], request)
     if "safe-web-research" in lowered_skills or _request_prefers_safe_web_research(request):
+        if not _request_wants_research_writer(request):
+            return _normalize_worker_selection(["ATLAS", "AEGIS"], request)
         return _normalize_worker_selection(["ATLAS", "QUILL", "AEGIS"], request)
+    if "scan-doi-thu" in lowered_skills and not _request_wants_research_writer(request):
+        return _normalize_worker_selection(["ATLAS", "AEGIS"], request)
     if _request_is_customer_research(request, list(lowered_skills)):
+        if not _request_wants_research_writer(request):
+            return _normalize_worker_selection(["ATLAS", "AEGIS"], request)
         return _normalize_worker_selection(["ATLAS", "QUILL", "AEGIS"], request)
     return selected
 
@@ -2349,7 +2378,66 @@ def _run_specialist_step(agent_key: str, request: str, session_key: str, plan: d
     return receipt
 
 
+def _qa_gate_allows_manager_fastpath(steps: list[dict[str, Any]]) -> bool:
+    qa_steps = [
+        step
+        for step in list(steps or [])
+        if str(step.get("task_kind") or "").strip() == "qa_gate"
+        and str(step.get("status") or "").strip().lower() == "ok"
+    ]
+    if not qa_steps:
+        return False
+    for step in qa_steps:
+        if "fail" in _step_result_text(step).lower():
+            return False
+        for warning in _step_warning_texts(step):
+            if _warning_is_hard_blocker(warning) or _warning_is_runtime_failure(warning):
+                return False
+    return True
+
+
+def _manager_fastpath_artifact(
+    goal: str,
+    steps: list[dict[str, Any]],
+    skill_names: list[str],
+) -> tuple[str, str]:
+    lowered_skill_names = {str(item or "").strip().lower() for item in skill_names}
+    if not _qa_gate_allows_manager_fastpath(steps):
+        return "", ""
+    best_worker_artifact = _best_usable_step_artifact(steps, goal, skill_names)
+    if ("scan-doi-thu" in lowered_skill_names or "safe-web-research" in lowered_skill_names) and best_worker_artifact:
+        if _artifact_matches_skill_shape(best_worker_artifact, goal, skill_names):
+            return best_worker_artifact, "manager_synthesis_fastpathed_to_best_worker_artifact"
+    if _request_is_customer_research(goal, skill_names) and not _request_wants_research_writer(goal):
+        if best_worker_artifact and _artifact_matches_skill_shape(best_worker_artifact, goal, skill_names):
+            return best_worker_artifact, "manager_synthesis_fastpathed_to_best_worker_artifact"
+        return _salvage_customer_research_artifact(goal), "manager_synthesis_fastpathed_to_customer_research_starter"
+    return "", ""
+
+
 def _manager_synthesis(goal: str, session_key: str, steps: list[dict[str, Any]], plan: dict[str, Any] | None = None) -> str:
+    skill_names = [
+        str(item.get("name") or "").strip()
+        for item in list((plan or {}).get("skills") or [])
+        if isinstance(item, dict) and str(item.get("name") or "").strip()
+    ]
+    fastpath_artifact, fastpath_warning = _manager_fastpath_artifact(goal, steps, skill_names)
+    if fastpath_artifact:
+        append_session_event(session_key, {
+            "history_type": "manager_response",
+            "status": "completed",
+            "agent_id": TEAM_MANAGER_AGENT_ID,
+            "speaker": "manager",
+            "text": fastpath_artifact,
+            "provider_profile": TEAM_TOPOLOGY.manager.profile_name,
+            "model": TEAM_TOPOLOGY.manager.model,
+            "transport_kind": "codex_session",
+            "auth_mode": "codex_auth_json",
+            "execution_owner": "meridian",
+            "warnings": [fastpath_warning],
+        }, loom_root=LOOM_ROOT)
+        return fastpath_artifact
+
     manager = _loom_manager_defaults()
     history_context = imported_history_context(session_key, loom_root=LOOM_ROOT, limit=24)
     cleaned_steps = _manager_step_view(steps)
@@ -2395,11 +2483,6 @@ def _manager_synthesis(goal: str, session_key: str, steps: list[dict[str, Any]],
             "execution_owner": "meridian",
         }, loom_root=LOOM_ROOT)
         return answer
-    skill_names = [
-        str(item.get("name") or "").strip()
-        for item in list((plan or {}).get("skills") or [])
-        if isinstance(item, dict) and str(item.get("name") or "").strip()
-    ]
     verification_incomplete = any(
         str(item.get("task_kind") or "").strip() in {"verify", "qa_gate"}
         and (
@@ -3150,10 +3233,28 @@ def _request_prefers_safe_web_research(text: str) -> bool:
         return False
     if _extract_request_url(lowered):
         return True
-    if re.search(r"(?<!@)\b[a-z0-9.-]+\.(com|org|net|io|ai|dev|app|co|xyz|vn)(/[^\s]*)?\b", lowered):
+    scrubbed = re.sub(r"\b[\w.+-]+@[a-z0-9.-]+\.[a-z]{2,}\b", " ", lowered)
+    if re.search(r"(?<![\w@.-])[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(com|org|net|io|ai|dev|app|co|xyz|vn)(/[^\s]*)?(?![\w@.-])", scrubbed):
         return True
     tokens = set(_request_tokens(lowered))
-    return bool(tokens.intersection({"url", "link", "website", "domain", "web", "source", "page", "nguon", "trang"}))
+    if tokens.intersection({"url", "link", "website", "domain", "web", "source", "page", "nguon"}):
+        return True
+    return any(
+        phrase in lowered
+        for phrase in (
+            "trang web",
+            "đọc trang",
+            "doc trang",
+            "đọc source",
+            "doc source",
+            "nguồn này",
+            "nguon nay",
+            "link này",
+            "link nay",
+            "website này",
+            "website nay",
+        )
+    )
 
 
 TEAM_SKILLS = SkillRegistry(SKILLS_DIR)
@@ -4091,6 +4192,8 @@ def _warning_is_informational(text: str) -> bool:
             "quill_output_drift_rewritten_to_user_artifact",
             "bounded_competitor_scan_salvaged_after_research_failure",
             "customer_research_starter_salvaged_after_unverified_research",
+            "manager_synthesis_fastpathed_to_best_worker_artifact",
+            "manager_synthesis_fastpathed_to_customer_research_starter",
             "manager_response_repaired_from_best_worker_artifact",
             "manager_response_repaired_from_worker_artifact",
             "manager_response_repaired_from_salvage_template",
@@ -4100,6 +4203,8 @@ def _warning_is_informational(text: str) -> bool:
             "all buyer segments, pain points, and pricing claims are correctly labeled as hypotheses",
             "next steps align with meridian research-khach-hang workflow",
             "recommended next steps align with meridian's research-khach-hang workflow",
+            "no explicit timeline or resource allocation is provided for execution of research methods",
+            "sample size justification for surveys/interviews is not included",
             "execution constraints (no fabricated findings, bounded artifact) are followed",
             "payout_execution_gate:",
             "disk pressure and scheduled-job status were not independently verified in this snapshot",
