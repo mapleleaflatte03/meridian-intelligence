@@ -554,6 +554,119 @@ def public_loom_runtime_receipt(
     }
 
 
+def public_loom_surface_contract_receipt(
+    proof: Mapping[str, Any],
+    *,
+    bound_org_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    health = dict(proof.get('health') or {})
+    service_probe = dict(proof.get('service_probe') or {})
+    memory_context = dict(proof.get('memory_context') or {})
+    session_runtime = dict(health.get('session_runtime') or {})
+    channel_runtime = dict(health.get('channel_runtime') or {})
+    memory = dict(memory_context.get('memory') or {})
+    context = dict(memory_context.get('context') or {})
+    enabled_channels = [channel for channel in (channel_runtime.get('channel_ids') or []) if channel]
+
+    omni_channel_status = (
+        'bounded_proven'
+        if bool(service_probe.get('ok')) and bool(enabled_channels)
+        else 'unverified'
+    )
+    memory_status = (
+        'bounded_proven'
+        if bool(memory_context.get('checked')) and bool(memory_context.get('memory_ok')) and bool(memory_context.get('context_ok'))
+        else 'unverified'
+    )
+
+    return {
+        'runtime_id': proof.get('runtime_id', 'loom_native'),
+        'proof_type': 'bounded_live_surface_contract',
+        'contract_version': 1,
+        'checked_at': proof.get('checked_at', _now()),
+        'bound_org_id': bound_org_id,
+        'deployment_truth': dict(proof.get('deployment_truth') or {}),
+        'surface_contract': {
+            'scope': 'bounded_live_host_surfaces',
+            'surfaces': {
+                'omni_channel_presence': {
+                    'status': omni_channel_status,
+                    'claim': (
+                        'This host proves bounded channel runtime presence and delivery state for the '
+                        'currently enabled Loom channels on this deployment.'
+                    ),
+                    'evidence': {
+                        'service_probe_ok': bool(service_probe.get('ok')),
+                        'transport': service_probe.get('transport', ''),
+                        'channel_count': channel_runtime.get('total_count', 0),
+                        'enabled_count': channel_runtime.get('enabled_count', 0),
+                        'channel_ids': enabled_channels,
+                        'ingress_count': channel_runtime.get('ingress_count', 0),
+                        'active_delivery_count': channel_runtime.get('active_delivery_count', 0),
+                        'archived_delivery_count': channel_runtime.get('archived_delivery_count', 0),
+                        'telegram_ok': bool((health.get('telegram') or {}).get('ok')),
+                        'session_total': session_runtime.get('total_count', 0),
+                        'active_session_count': session_runtime.get('active_count', 0),
+                    },
+                    'proven_boundary': [
+                        'enabled channel registry on this host',
+                        'ingress and delivery counters on this host',
+                        'bounded Telegram and web channel presence where enabled',
+                        'live runtime service probe for the Loom transport',
+                    ],
+                    'not_claimed': [
+                        'email delivery',
+                        'slack delivery',
+                        'every future channel kind',
+                        'self-serve universal customer automation',
+                        '24/7 autonomous delivery guarantees',
+                    ],
+                },
+                'persistent_memory': {
+                    'status': memory_status,
+                    'claim': (
+                        'This host proves bounded durable memory and context-engine surfaces through '
+                        'live Loom memory/context status receipts.'
+                    ),
+                    'evidence': {
+                        'checked': bool(memory_context.get('checked')),
+                        'memory_ok': bool(memory_context.get('memory_ok')),
+                        'context_ok': bool(memory_context.get('context_ok')),
+                        'agent_count': memory.get('agent_count', 0),
+                        'total_entries': memory.get('total_entries', 0),
+                        'total_bytes': memory.get('total_bytes', 0),
+                        'agent_isolation': bool((memory.get('policy') or {}).get('agent_isolation')),
+                        'max_entries_per_agent': (memory.get('policy') or {}).get('max_entries_per_agent'),
+                        'retention_days': (memory.get('policy') or {}).get('retention_days'),
+                        'layer_count': context.get('layer_count', 0),
+                        'section_count': context.get('section_count', 0),
+                        'mutable_count': context.get('mutable_count', 0),
+                        'sections': list(context.get('sections') or []),
+                    },
+                    'proven_boundary': [
+                        'agent-isolated memory store policy on this host',
+                        'memory store status and entry counters',
+                        'context engine registry and overlay section counts',
+                        'read-only proof of durable state surfaces, not semantic quality claims',
+                    ],
+                    'not_claimed': [
+                        'broad semantic recall quality',
+                        'cross-user memory sharing',
+                        'non-empty customer memory for every agent',
+                        'blanket hosted-memory guarantees for every deployment',
+                    ],
+                },
+            },
+            'not_claimed': [
+                'blanket proof for every Loom architecture surface',
+                'broad hosted runtime replacement',
+                'future channel kinds that are not enabled on this host',
+                'future memory behavior beyond the current live status receipts',
+            ],
+        },
+    }
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     argv = list(argv or sys.argv[1:])
     if '--json' in argv:

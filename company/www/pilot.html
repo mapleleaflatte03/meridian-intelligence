@@ -102,7 +102,7 @@
   <table class="offer-table">
     <tr><td>Primary channel</td><td><strong>Email or Telegram</strong> &mdash; activation runs automatically after verified Base USDC capture. Email is the safe default; Telegram delivery is used when a real delivery target is available.</td></tr>
     <tr><td>Public preview</td><td><a href="https://t.me/MeridianIntelligence">@MeridianIntelligence</a> Telegram channel (abbreviated preview when a fresh brief is worth posting).</td></tr>
-    <tr><td>Developer API</td><td>MCP protocol at <code>https://app.welliam.codes/sse</code>. x402-capable settlement path; external-customer proof is still pending.</td></tr>
+    <tr><td>Developer API</td><td>MCP protocol at <code>https://app.welliam.codes/sse</code>. The host now advertises bounded <code>base_usdc_x402</code> readiness and publishes public proof routes such as <code>/api/kernel-proof-bundle</code>; external-customer checkout proof is still pending.</td></tr>
     <tr><td>Email</td><td><strong>Live</strong> as a bounded delivery lane for activated subscriptions on this host.</td></tr>
     <tr><td>Slack</td><td>Planned. Not yet available.</td></tr>
   </table>
@@ -114,7 +114,7 @@
   <table class="offer-table">
     <tr><td>Paid founder pilot</td><td><strong>$49 one time for 7 days.</strong> Scope your competitors, activate the pilot after verified Base USDC payment, and receive bounded delivery on this host.</td></tr>
     <tr><td>Paid continuation</td><td><strong>By arrangement after the pilot proves useful.</strong> Weekly or monthly structure can still be agreed explicitly once the output is useful enough to keep going.</td></tr>
-    <tr><td>MCP pay-per-call</td><td>$0.50 (daily alert), $1.50 (weekly digest), $3.00 (battlecard). x402-capable pricing; external-customer settlement remains unproven.</td></tr>
+    <tr><td>MCP pay-per-call</td><td>$0.50 (daily alert), $1.50 (weekly digest), $3.00 (battlecard). x402-capable pricing with bounded host readiness and kernel reference proof; external-customer settlement remains unproven.</td></tr>
     <tr><td>Custom / enterprise</td><td>Contact us for custom watchlists, dedicated sources, or higher-volume access.</td></tr>
   </table>
 </div>
@@ -207,7 +207,7 @@
   <ul class="mt-sm">
     <li><strong>Scaled automation gate:</strong> Treasury is above the reserve floor today, but only with thin headroom, and the broader nightly/customer-wide automation path is still phase-gated and preflight-gated instead of being marketed as always-on.</li>
     <li><strong>Main checkout rail:</strong> Card, PayPal, and bot-native recurring billing are not live. The live public rail is exact-amount USDC on Base with tx-hash capture.</li>
-    <li><strong>MCP x402 payments:</strong> x402-capable in code, but still unproven with an external customer.</li>
+    <li><strong>MCP x402 payments:</strong> The host now publishes bounded <code>base_usdc_x402</code> readiness and the kernel reference bundle at <code>/api/kernel-proof-bundle</code> includes an external settlement adapter run, but external-customer checkout proof is still pending.</li>
   </ul>
   <p class="dim mt-md">
     <strong>Current honest path:</strong> Buy the 7-day founder pilot through the live Base USDC capture flow below. Bank transfer, Wise, and manual exceptions stay secondary fallback paths, not the main public funnel.

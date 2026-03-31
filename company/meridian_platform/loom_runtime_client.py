@@ -8,13 +8,28 @@ import os
 import subprocess
 import time
 from dataclasses import dataclass
-from typing import Callable, Mapping, Optional
+from typing import Any, Callable, Mapping, Optional
 
 
 Runner = Callable[..., subprocess.CompletedProcess]
 Sleeper = Callable[[float], None]
 ResultLoader = Callable[[str, object], object]
 CapabilityNormalizer = Callable[[dict], dict]
+
+DEFAULT_CAPABILITY_COSTS_USD: dict[str, float] = {
+    'loom.browser.navigate.v1': 0.03,
+    'loom.llm.inference.v1': 0.05,
+    'loom.fs.write.v1': 0.01,
+    'loom.memory.core.v1': 0.01,
+    'loom.system.info.v1': 0.01,
+}
+DEFAULT_ACTION_COSTS_USD: dict[str, float] = {
+    'research': 0.03,
+    'write': 0.01,
+    'observe': 0.01,
+    'execute': 0.02,
+    'synthesize': 0.05,
+}
 
 
 @dataclass(frozen=True)
@@ -32,6 +47,50 @@ class LoomRuntimeContext:
         if self.service_token:
             env['LOOM_SERVICE_TOKEN'] = self.service_token
         return env
+
+
+def _coerce_cost(candidate: Any) -> float | None:
+    try:
+        value = float(candidate)
+    except (TypeError, ValueError):
+        return None
+    if value <= 0:
+        return None
+    return round(value, 4)
+
+
+def format_estimated_cost_usd(value: float | int | str | None) -> str:
+    numeric = _coerce_cost(value) or 0.0
+    rendered = f'{numeric:.4f}'.rstrip('0').rstrip('.')
+    return rendered or '0'
+
+
+def estimate_capability_cost_usd(
+    capability_name: str,
+    payload: Mapping[str, Any] | None = None,
+    *,
+    action_type: str = '',
+    resource: str = '',
+) -> float:
+    payload = payload or {}
+    explicit = _coerce_cost(payload.get('estimated_cost_usd'))
+    if explicit is not None:
+        return explicit
+    explicit = _coerce_cost(payload.get('estimatedCostUsd'))
+    if explicit is not None:
+        return explicit
+    name = str(capability_name or '').strip()
+    if name in DEFAULT_CAPABILITY_COSTS_USD:
+        return DEFAULT_CAPABILITY_COSTS_USD[name]
+    action = str(action_type or '').strip().lower()
+    if action in DEFAULT_ACTION_COSTS_USD:
+        return DEFAULT_ACTION_COSTS_USD[action]
+    resource_text = str(resource or '').strip().lower()
+    if 'research' in resource_text or 'search' in resource_text:
+        return DEFAULT_ACTION_COSTS_USD['research']
+    if 'write' in resource_text or resource_text.endswith('.md') or resource_text.endswith('.txt'):
+        return DEFAULT_ACTION_COSTS_USD['write']
+    return 0.01
 
 
 def _job_record_path(context: LoomRuntimeContext, job_id: str) -> str:
@@ -63,12 +122,15 @@ def capability_preflight(
         'route': route,
         'capability_name': capability_name,
         'errors': [],
+        'warnings': [],
+        'execution_mode': 'service_submit',
     }
     if not capability_name:
         preflight['errors'].append(f'{route} capability is not configured')
         return preflight
 
     env = context.env()
+    service_errors: list[str] = []
     service_cmd = [context.loom_bin, 'service', 'status', '--root', context.loom_root, '--format', 'json']
     capability_cmd = [
         context.loom_bin,
@@ -85,32 +147,32 @@ def capability_preflight(
     try:
         service = runner(service_cmd, capture_output=True, text=True, timeout=15, cwd=context.cwd, env=env)
     except subprocess.TimeoutExpired:
-        preflight['errors'].append('loom service status timed out')
+        service_errors.append('loom service status timed out')
         service = None
     except Exception as exc:
-        preflight['errors'].append(str(exc))
+        service_errors.append(str(exc))
         service = None
 
     if service is not None:
         if service.returncode != 0:
             message = (service.stderr or service.stdout or 'unknown error').strip()
-            preflight['errors'].append(f'loom service status failed: {message[:500]}')
+            service_errors.append(f'loom service status failed: {message[:500]}')
         else:
             try:
                 service_payload = json.loads((service.stdout or '').strip())
             except json.JSONDecodeError:
-                preflight['errors'].append('loom service status returned non-JSON output')
+                service_errors.append('loom service status returned non-JSON output')
             else:
                 preflight['service'] = service_payload
                 if not service_payload.get('running'):
-                    preflight['errors'].append('loom service is not running')
+                    service_errors.append('loom service is not running')
                 if service_payload.get('service_status') != 'running':
-                    preflight['errors'].append(f"loom service_status={service_payload.get('service_status', '')}")
+                    service_errors.append(f"loom service_status={service_payload.get('service_status', '')}")
                 if service_payload.get('health') != 'healthy':
-                    preflight['errors'].append(f"loom health={service_payload.get('health', '')}")
+                    service_errors.append(f"loom health={service_payload.get('health', '')}")
                 transport = (service_payload.get('transport') or '').strip()
                 if transport_allowlist and transport not in transport_allowlist:
-                    preflight['errors'].append(f'loom transport={transport}')
+                    service_errors.append(f'loom transport={transport}')
 
     try:
         capability = runner(capability_cmd, capture_output=True, text=True, timeout=15, cwd=context.cwd, env=env)
@@ -157,8 +219,147 @@ def capability_preflight(
                         f"loom capability promotion={capability_payload.get('promotion_state', '')}"
                     )
 
+    if preflight['errors']:
+        preflight['ok'] = False
+        return preflight
+
+    if service_errors:
+        preflight['warnings'] = service_errors
+        preflight['execution_mode'] = 'direct_action_execute'
+        preflight['service_warnings'] = list(service_errors)
+        preflight['ok'] = True
+        return preflight
+
     preflight['ok'] = not preflight['errors']
     return preflight
+
+
+def _direct_execute_capability(
+    context: LoomRuntimeContext,
+    capability_name: str,
+    payload: dict,
+    timeout: int,
+    *,
+    agent_id: str,
+    session_id: str = '',
+    action_type: str = '',
+    resource: str = '',
+    estimated_cost_usd: float | None = None,
+    runner: Runner = subprocess.run,
+    result_loader: ResultLoader | None = None,
+) -> dict:
+    env = context.env()
+    resolved_action_type = (action_type or '').strip() or 'execute'
+    resolved_resource = (resource or '').strip() or capability_name
+    resolved_estimated_cost_usd = (
+        estimate_capability_cost_usd(
+            capability_name,
+            payload,
+            action_type=resolved_action_type,
+            resource=resolved_resource,
+        )
+        if estimated_cost_usd is None
+        else max(float(estimated_cost_usd), 0.0)
+    )
+    cmd = [
+        context.loom_bin,
+        'action',
+        'execute',
+        '--root',
+        context.loom_root,
+        '--org-id',
+        context.org_id,
+        '--agent-id',
+        agent_id.strip() or context.agent_id,
+        '--capability',
+        capability_name,
+        '--action-type',
+        resolved_action_type,
+        '--resource',
+        resolved_resource,
+        '--estimated-cost-usd',
+        format_estimated_cost_usd(resolved_estimated_cost_usd),
+        '--payload-json',
+        json.dumps(payload),
+        '--format',
+        'json',
+    ]
+    if session_id:
+        cmd.extend(['--session-id', session_id])
+    try:
+        completed = runner(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            cwd=context.cwd,
+            env=env,
+        )
+    except subprocess.TimeoutExpired:
+        return {
+            'ok': False,
+            'runtime': 'loom',
+            'capability_name': capability_name,
+            'execution_mode': 'direct_action_execute',
+            'error': f'Loom direct action execute timed out ({timeout}s limit)',
+        }
+    except Exception as exc:
+        return {
+            'ok': False,
+            'runtime': 'loom',
+            'capability_name': capability_name,
+            'execution_mode': 'direct_action_execute',
+            'error': str(exc),
+        }
+
+    if completed.returncode != 0:
+        message = (completed.stderr or completed.stdout or 'unknown error').strip()
+        return {
+            'ok': False,
+            'runtime': 'loom',
+            'capability_name': capability_name,
+            'execution_mode': 'direct_action_execute',
+            'error': f'Loom direct action execute failed: {message[:500]}',
+        }
+
+    try:
+        payload_json = json.loads((completed.stdout or '').strip())
+    except json.JSONDecodeError:
+        return {
+            'ok': False,
+            'runtime': 'loom',
+            'capability_name': capability_name,
+            'execution_mode': 'direct_action_execute',
+            'error': 'Loom direct action execute returned non-JSON output',
+        }
+
+    worker_result = {}
+    worker_result_path = str(payload_json.get('worker_result_path') or '').strip()
+    if worker_result_path and result_loader is not None:
+        loaded = result_loader(worker_result_path, default={})
+        worker_result = loaded or {}
+
+    snapshot = {
+        'job_status': 'completed' if payload_json.get('worker_status') == 'completed' else 'failed',
+        'runtime_outcome': payload_json.get('runtime_outcome') or '',
+        'worker_status': payload_json.get('worker_status') or '',
+        'execution_mode': 'direct_action_execute',
+        'estimated_cost_usd': resolved_estimated_cost_usd,
+    }
+    worker_status = str(payload_json.get('worker_status') or '').strip().lower()
+    ok = worker_status == 'completed'
+    return {
+        'ok': ok,
+        'runtime': 'loom',
+        'capability_name': capability_name,
+        'job_id': str(payload_json.get('job_id') or '').strip(),
+        'submit': payload_json,
+        'snapshot': snapshot,
+        'worker_result': worker_result,
+        'execution_mode': 'direct_action_execute',
+        'estimated_cost_usd': resolved_estimated_cost_usd,
+        'error': '' if ok else f"Loom direct action execute ended with worker_status={worker_status or 'unknown'}",
+    }
 
 
 def run_capability(
@@ -171,6 +372,7 @@ def run_capability(
     session_id: str = '',
     action_type: str = '',
     resource: str = '',
+    estimated_cost_usd: float | None = None,
     runner: Runner = subprocess.run,
     sleeper: Sleeper = time.sleep,
     result_loader: ResultLoader | None = None,
@@ -184,6 +386,18 @@ def run_capability(
         }
 
     env = context.env()
+    resolved_action_type = (action_type or '').strip()
+    resolved_resource = (resource or '').strip()
+    resolved_estimated_cost_usd = (
+        estimate_capability_cost_usd(
+            capability_name,
+            payload,
+            action_type=resolved_action_type,
+            resource=resolved_resource,
+        )
+        if estimated_cost_usd is None
+        else max(float(estimated_cost_usd), 0.0)
+    )
     submit_cmd = [
         context.loom_bin,
         'service',
@@ -197,14 +411,14 @@ def run_capability(
         '--capability',
         capability_name,
         '--estimated-cost-usd',
-        '0',
+        format_estimated_cost_usd(resolved_estimated_cost_usd),
         '--payload-json',
         json.dumps(payload),
     ]
-    if action_type:
-        submit_cmd.extend(['--action-type', action_type])
-    if resource:
-        submit_cmd.extend(['--resource', resource])
+    if resolved_action_type:
+        submit_cmd.extend(['--action-type', resolved_action_type])
+    if resolved_resource:
+        submit_cmd.extend(['--resource', resolved_resource])
     if session_id:
         submit_cmd.extend(['--session-id', session_id])
     if context.service_token:
@@ -221,13 +435,36 @@ def run_capability(
             env=env,
         )
     except subprocess.TimeoutExpired:
-        return {
-            'ok': False,
-            'runtime': 'loom',
-            'capability_name': capability_name,
-            'error': 'Loom service submit timed out',
-        }
+        return _direct_execute_capability(
+            context,
+            capability_name,
+            payload,
+            timeout,
+            agent_id=(agent_id or context.agent_id).strip(),
+            session_id=session_id,
+            action_type=resolved_action_type,
+            resource=resolved_resource,
+            estimated_cost_usd=resolved_estimated_cost_usd,
+            runner=runner,
+            result_loader=result_loader,
+        )
     except Exception as exc:
+        direct = _direct_execute_capability(
+            context,
+            capability_name,
+            payload,
+            timeout,
+            agent_id=(agent_id or context.agent_id).strip(),
+            session_id=session_id,
+            action_type=resolved_action_type,
+            resource=resolved_resource,
+            estimated_cost_usd=resolved_estimated_cost_usd,
+            runner=runner,
+            result_loader=result_loader,
+        )
+        if direct.get('ok'):
+            direct['warnings'] = [str(exc)]
+            return direct
         return {
             'ok': False,
             'runtime': 'loom',
@@ -236,6 +473,23 @@ def run_capability(
         }
 
     if submit.returncode != 0:
+        direct = _direct_execute_capability(
+            context,
+            capability_name,
+            payload,
+            timeout,
+            agent_id=(agent_id or context.agent_id).strip(),
+            session_id=session_id,
+            action_type=resolved_action_type,
+            resource=resolved_resource,
+            estimated_cost_usd=resolved_estimated_cost_usd,
+            runner=runner,
+            result_loader=result_loader,
+        )
+        if direct.get('ok'):
+            message = (submit.stderr or submit.stdout or 'unknown error').strip()
+            direct['warnings'] = [f'Loom service submit failed: {message[:500]}']
+            return direct
         message = (submit.stderr or submit.stdout or 'unknown error').strip()
         return {
             'ok': False,
@@ -310,6 +564,7 @@ def run_capability(
                         'submit': submit_payload,
                         'snapshot': last_snapshot,
                         'worker_result': worker_result,
+                        'estimated_cost_usd': resolved_estimated_cost_usd,
                     }
                 if status in {'failed', 'denied', 'cancelled', 'hard_deny'}:
                     return {
@@ -319,6 +574,7 @@ def run_capability(
                         'job_id': job_id,
                         'submit': submit_payload,
                         'snapshot': last_snapshot,
+                        'estimated_cost_usd': resolved_estimated_cost_usd,
                         'error': f'Loom job ended with status={status}',
                     }
         sleeper(1)
@@ -337,9 +593,27 @@ def run_capability(
             'job_id': job_id,
             'submit': submit_payload,
             'snapshot': last_snapshot or job_record,
+            'estimated_cost_usd': resolved_estimated_cost_usd,
             'error': message,
         }
 
+    direct = _direct_execute_capability(
+        context,
+        capability_name,
+        payload,
+        timeout,
+        agent_id=(agent_id or context.agent_id).strip(),
+        session_id=session_id,
+        action_type=resolved_action_type,
+        resource=resolved_resource,
+        estimated_cost_usd=resolved_estimated_cost_usd,
+        runner=runner,
+        result_loader=result_loader,
+    )
+    if direct.get('ok'):
+        direct['warnings'] = [f'Loom job timed out ({timeout}s limit)']
+        direct['submit_fallback'] = submit_payload
+        return direct
     return {
         'ok': False,
         'runtime': 'loom',

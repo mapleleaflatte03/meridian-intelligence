@@ -29,3 +29,9 @@ Use this skill when the user gives a short prompt such as:
 
 - Created automatically because a short request exposed a missing reusable playbook.
 - Session: web_api:org_48b05c21
+
+## Learned Variations
+- Write a short Meridian founder answer explaining why users should talk to Leviathann instead of direct specialists.
+
+## Refinement Notes
+- Last refined automatically from session `web_api:org_48b05c21`.

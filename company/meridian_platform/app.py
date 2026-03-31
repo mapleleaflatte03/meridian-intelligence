@@ -11,10 +11,13 @@ PUBLIC_SURFACE_GET_ROUTES = (
     ('/', 'Dashboard HTML'),
     ('/api/status', 'Full system snapshot'),
     ('/api/context', 'Bound institution/runtime context'),
+    ('/api/runtimes', 'Runtime registry with contract compliance and binding usage'),
     ('/api/subscriptions', 'Subscription service state'),
     ('/api/pilot/intake', 'Public pilot intake queue snapshot'),
     ('/api/federation/manifest', 'Public host federation manifest'),
     ('/api/runtime-proof', 'Public live Loom runtime proof receipt'),
+    ('/api/runtime-proof-contract', 'Public bounded Loom surface-proof contract'),
+    ('/api/kernel-proof-bundle', 'Public kernel reference proof bundle with live host receipts'),
 )
 
 PUBLIC_SURFACE_POST_ROUTES = (
@@ -23,10 +26,14 @@ PUBLIC_SURFACE_POST_ROUTES = (
     ('/api/federation/receive', 'Inbound federation envelope validation/receipt'),
 )
 
-PUBLIC_UNAUTHENTICATED_PATHS = (
-    '/api/session/validate',
-    '/api/federation/manifest',
-    '/api/runtime-proof',
+PUBLIC_UNAUTHENTICATED_PATHS = tuple(dict.fromkeys(
+    ['/api/session/validate']
+    + [path for path, _label in PUBLIC_SURFACE_GET_ROUTES if path.startswith('/api/')]
+    + [path for path, _label in PUBLIC_SURFACE_POST_ROUTES if path.startswith('/api/')]
+))
+
+PUBLIC_UNAUTHENTICATED_PREFIXES = (
+    '/api/runtimes/',
 )
 
 SUPPORTED_RUNTIME_BOUNDARIES = (
@@ -117,6 +124,7 @@ def is_workspace_protected_path(path):
     return (
         (path == '/' or path.startswith('/workspace') or path.startswith('/api/'))
         and path not in PUBLIC_UNAUTHENTICATED_PATHS
+        and not any(path.startswith(prefix) for prefix in PUBLIC_UNAUTHENTICATED_PREFIXES)
     )
 
 

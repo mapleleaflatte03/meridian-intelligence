@@ -643,6 +643,11 @@ def _looks_like_http_url(value: str) -> bool:
     return raw.startswith('http://') or raw.startswith('https://')
 
 
+def _placeholder_citation_in_text(text: str) -> bool:
+    lowered = str(text or '').strip().lower()
+    return 'example.com' in lowered or 'placeholder citation' in lowered or 'placeholder source' in lowered
+
+
 def _loom_research_url(topic: str) -> str:
     topic = (topic or '').strip()
     if _looks_like_http_url(topic):
@@ -1396,6 +1401,7 @@ def _run_loom_on_demand_research(
     *,
     agent_id: str = 'agent_atlas',
     session_id: str = '',
+    timeout: int = 150,
 ) -> tuple[dict, dict]:
     specialist_payload = _specialist_llm_payload(
         agent_id,
@@ -1412,7 +1418,7 @@ def _run_loom_on_demand_research(
     loom_result = _run_loom_capability(
         capability_name,
         specialist_payload or _loom_research_payload(topic, depth, prompt),
-        timeout=150,
+        timeout=timeout,
         agent_id=agent_id,
         session_id=session_id,
         action_type='research',
@@ -1430,6 +1436,10 @@ def _run_loom_on_demand_research(
                 research_text = str(host_response.get('note') or host_response.get('decision') or '').strip()
         else:
             research_text = _extract_loom_research_content(worker_result)
+        warnings = parsed.get('warnings', []) if isinstance(parsed.get('warnings'), list) else []
+        if _placeholder_citation_in_text(research_text) or _placeholder_citation_in_text(raw_output):
+            research_text = ''
+            warnings = [*warnings, 'placeholder citations detected in research output; discarded']
         return ({
             'topic': topic,
             'depth': depth,
@@ -1442,7 +1452,7 @@ def _run_loom_on_demand_research(
             'model': (specialist_payload or {}).get('model', ''),
             'confidence': parsed.get('confidence', ''),
             'citations': parsed.get('citations', []) if isinstance(parsed.get('citations'), list) else [],
-            'warnings': parsed.get('warnings', []) if isinstance(parsed.get('warnings'), list) else [],
+            'warnings': warnings,
             'raw_output': raw_output,
         }, loom_result)
     return ({
@@ -1461,12 +1471,20 @@ def do_on_demand_research(
     *,
     agent_id: str = 'agent_atlas',
     session_id: str = '',
+    timeout: int = 150,
 ) -> dict:
     """Run research through the configured runtime adapter."""
     prompt = _on_demand_research_prompt(topic, depth)
     requested_runtime = _intelligence_exec_runtime('research')
     if requested_runtime == 'loom':
-        result, _ = _run_loom_on_demand_research(topic, depth, prompt, agent_id=agent_id, session_id=session_id)
+        result, _ = _run_loom_on_demand_research(
+            topic,
+            depth,
+            prompt,
+            agent_id=agent_id,
+            session_id=session_id,
+            timeout=timeout,
+        )
         return result
     return {
         'topic': topic,
@@ -1482,6 +1500,7 @@ def do_on_demand_research_route(
     *,
     agent_id: str = 'agent_atlas',
     session_id: str = '',
+    timeout: int = 150,
 ) -> dict:
     """Run the paid on-demand research route with route-specific cutover controls."""
     requested_runtime = _intelligence_route_runtime('on_demand_research', tool='research')
@@ -1533,7 +1552,14 @@ def do_on_demand_research_route(
             loom_preflight=loom_preflight,
         )
 
-    result, loom_result = _run_loom_on_demand_research(topic, depth, prompt, agent_id=agent_id, session_id=session_id)
+    result, loom_result = _run_loom_on_demand_research(
+        topic,
+        depth,
+        prompt,
+        agent_id=agent_id,
+        session_id=session_id,
+        timeout=timeout,
+    )
     if not result.get('error'):
         return _with_on_demand_research_cutover(
             result,
@@ -1624,6 +1650,7 @@ def do_qa_verify_route(
     *,
     agent_id: str = 'agent_aegis',
     session_id: str = '',
+    timeout: int = 90,
 ) -> dict:
     """Run QA verification with truthful route preflight and cutover state."""
     requested_runtime = _intelligence_route_runtime('qa_verify', tool='qa')
@@ -1633,6 +1660,45 @@ def do_qa_verify_route(
         f"Return PASS or FAIL with specific reasons and confidence score (0-100). "
         f"Text to verify:\n\n{text[:3000]}"
     )
+    specialist_payload = _specialist_llm_payload(
+        agent_id,
+        f'You are Meridian specialist {agent_id}. Verify claims for {criteria} quality and return strict JSON with keys verification, confidence, warnings.',
+        prompt,
+    )
+
+    def _direct_fallback_result(reason: str, *, loom_job_id: str = '') -> dict | None:
+        if not specialist_payload:
+            return None
+        direct = _specialist_direct_provider_fallback(
+            agent_id,
+            system_prompt=f'You are Meridian specialist {agent_id}. Verify claims for {criteria} quality and return strict JSON with keys verification, confidence, warnings.',
+            user_prompt=prompt,
+            max_tokens=900,
+            timeout=timeout,
+        )
+        if not direct.get('ok'):
+            return None
+        raw_output = str(direct.get('output_text') or '').strip()
+        parsed = _specialist_llm_json(raw_output)
+        verification = str(parsed.get('verification') or parsed.get('result') or raw_output).strip()
+        if not verification:
+            verification = 'Verification lane returned no usable answer.'
+        warnings = parsed.get('warnings', []) if isinstance(parsed.get('warnings'), list) else []
+        warnings = [*warnings, reason]
+        return {
+            'criteria': criteria,
+            'verification': verification,
+            'runtime': 'loom',
+            'capability_name': _loom_qa_capability(),
+            'job_id': loom_job_id,
+            'source': 'Meridian QA Pipeline',
+            'provider_profile': (specialist_payload or {}).get('provider_profile', ''),
+            'model': (specialist_payload or {}).get('model', ''),
+            'raw_output': raw_output,
+            'confidence': str(parsed.get('confidence') or '').strip(),
+            'warnings': warnings,
+            'transport_kind': 'direct_provider_http_fallback',
+        }
 
     if requested_runtime != 'loom':
         blocked_message = _blocked_runtime_message('intelligence_qa_verify', requested_runtime)
@@ -1657,6 +1723,18 @@ def do_qa_verify_route(
             'reason': '; '.join(loom_preflight.get('errors') or ['loom preflight failed']),
             'state': 'preflight_failed',
         }
+        fallback = _direct_fallback_result(
+            f"Loom QA preflight failed: {fallback_state['reason']}",
+        )
+        if fallback is not None:
+            return _with_qa_verify_cutover(
+                fallback,
+                requested_runtime,
+                'loom',
+                False,
+                fallback_state=fallback_state,
+                loom_preflight=loom_preflight,
+            )
         result = {
             'criteria': criteria,
             'runtime': 'loom',
@@ -1672,49 +1750,29 @@ def do_qa_verify_route(
             loom_preflight=loom_preflight,
         )
 
-    specialist_payload = _specialist_llm_payload(
-        agent_id,
-        f'You are Meridian specialist {agent_id}. Verify claims for {criteria} quality and return strict JSON with keys verification, confidence, warnings.',
-        prompt,
-    )
-    def _direct_fallback_result(reason: str) -> dict | None:
-        if not specialist_payload:
-            return None
-        direct = _specialist_direct_provider_fallback(
-            agent_id,
-            system_prompt=f'You are Meridian specialist {agent_id}. Verify claims for {criteria} quality and return strict JSON with keys verification, confidence, warnings.',
-            user_prompt=prompt,
-            max_tokens=900,
-            timeout=90,
+    if timeout <= 30:
+        fallback = _direct_fallback_result(
+            'Fast direct QA lane used for low-latency communication skill.',
         )
-        if not direct.get('ok'):
-            return None
-        raw_output = str(direct.get('output_text') or '').strip()
-        parsed = _specialist_llm_json(raw_output)
-        verification = str(parsed.get('verification') or parsed.get('result') or raw_output).strip()
-        if not verification:
-            verification = 'Verification lane returned no usable answer.'
-        warnings = parsed.get('warnings', []) if isinstance(parsed.get('warnings'), list) else []
-        warnings = [*warnings, reason]
-        return {
-            'criteria': criteria,
-            'verification': verification,
-            'runtime': 'loom',
-            'capability_name': _loom_qa_capability(),
-            'job_id': str(loom_result.get('job_id') or ''),
-            'source': 'Meridian QA Pipeline',
-            'provider_profile': (specialist_payload or {}).get('provider_profile', ''),
-            'model': (specialist_payload or {}).get('model', ''),
-            'raw_output': raw_output,
-            'confidence': str(parsed.get('confidence') or '').strip(),
-            'warnings': warnings,
-            'transport_kind': 'direct_provider_http_fallback',
-        }
+        if fallback is not None:
+            return _with_qa_verify_cutover(
+                fallback,
+                requested_runtime,
+                'loom',
+                False,
+                fallback_state={
+                    'used': True,
+                    'from_runtime': 'loom',
+                    'reason': 'fast_direct_qa_lane',
+                    'state': 'fast_direct_provider_first',
+                },
+                loom_preflight=loom_preflight,
+            )
 
     loom_result = _run_loom_capability(
         _loom_qa_capability(),
         specialist_payload or {'text': text, 'criteria': criteria, 'prompt': prompt},
-        timeout=90,
+        timeout=timeout,
         agent_id=agent_id,
         session_id=session_id,
         action_type='verify',
@@ -1724,7 +1782,10 @@ def do_qa_verify_route(
         verification, raw_output = _specialist_llm_result(loom_result, preferred_key='verification')
         host_note = _specialist_host_response_note(loom_result)
         if (not verification or verification.lstrip().startswith('{"status":')) and host_note:
-            fallback = _direct_fallback_result(f'loom qa lane returned unusable output: {host_note}')
+            fallback = _direct_fallback_result(
+                f'loom qa lane returned unusable output: {host_note}',
+                loom_job_id=str(loom_result.get('job_id') or ''),
+            )
             if fallback is not None:
                 return _with_qa_verify_cutover(
                     fallback,
@@ -1765,7 +1826,10 @@ def do_qa_verify_route(
         'state': 'loom_failed',
     }
 
-    fallback = _direct_fallback_result(str(loom_result.get('error') or 'loom qa lane failed'))
+    fallback = _direct_fallback_result(
+        str(loom_result.get('error') or 'loom qa lane failed'),
+        loom_job_id=str(loom_result.get('job_id') or ''),
+    )
     if fallback is not None:
         return _with_qa_verify_cutover(
             fallback,

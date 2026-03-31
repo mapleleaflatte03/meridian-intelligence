@@ -16,6 +16,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+from pathlib import Path
 
 from loom_runtime_discovery import preferred_loom_bin as _shared_preferred_loom_bin
 from loom_runtime_discovery import preferred_loom_root as _shared_preferred_loom_root
@@ -33,6 +34,23 @@ WORKSPACE = os.path.dirname(COMPANY_DIR)
 NIGHT_SHIFT_DIR = os.path.join(WORKSPACE, "night-shift")
 SUBSCRIPTIONS_PY = os.path.join(COMPANY_DIR, "subscriptions.py")
 CI_VERTICAL_PY = os.path.join(PLATFORM_DIR, "ci_vertical.py")
+LOOM_REPO = "/home/ubuntu/meridian-loom"
+KERNEL_REPO = "/opt/meridian-kernel"
+INTELLIGENCE_REPO = WORKSPACE
+MIGRATION_REPOS = (
+    ("meridian-intelligence", INTELLIGENCE_REPO),
+    ("meridian-loom", LOOM_REPO),
+    ("meridian-kernel", KERNEL_REPO),
+)
+MIGRATION_CRITICAL_PATHS = (
+    ("/home/ubuntu/.meridian/.env", "secret_config"),
+    ("/home/ubuntu/.meridian/host_identity.json", "host_identity"),
+    ("/home/ubuntu/.local/share/meridian-loom/runtime/default", "loom_runtime_state"),
+    ("/opt/meridian-kernel/economy", "kernel_economy_state"),
+    ("/home/ubuntu/.meridian/workspace/company/meridian_platform/observability.db", "observability_db"),
+    ("/home/ubuntu/.config/systemd/user/meridian-gateway.service", "user_service_unit"),
+    ("/etc/caddy/Caddyfile", "reverse_proxy_config"),
+)
 
 _subs_spec = importlib.util.spec_from_file_location(
     'company_subscriptions', os.path.join(COMPANY_DIR, 'subscriptions.py')
@@ -76,6 +94,11 @@ def _run(cmd, cwd=WORKSPACE, timeout=30):
             "stdout": "",
             "stderr": f"timeout after {timeout}s",
         }
+
+
+def _safe_splitlines(value):
+    raw = (value or "").strip()
+    return [line.strip() for line in raw.splitlines() if line.strip()]
 
 
 def _latest_brief():
@@ -306,6 +329,164 @@ def _route_cutovers():
     return {'intelligence_on_demand_research': route}
 
 
+def _classify_repo_path(path: str) -> str:
+    normalized = str(path or "").replace("\\", "/").strip()
+    if not normalized:
+        return "unknown"
+    if normalized.startswith("economy/") or normalized.startswith("treasury/"):
+        return "state"
+    if normalized.startswith("kernel/runtime_audit/"):
+        return "state"
+    if normalized.endswith(".db") or normalized.endswith(".lock") or normalized.endswith(".jsonl"):
+        return "state"
+    return "code"
+
+
+def _repo_sync_snapshot(label: str, repo_path: str) -> dict:
+    snapshot = {
+        "label": label,
+        "path": repo_path,
+        "exists": os.path.isdir(repo_path),
+        "git": False,
+        "head": "",
+        "origin_main": "",
+        "ahead": 0,
+        "behind": 0,
+        "remote_sync_ok": False,
+        "clean": False,
+        "tracked_dirty": [],
+        "untracked": [],
+        "code_dirty": [],
+        "state_dirty": [],
+        "errors": [],
+    }
+    if not snapshot["exists"]:
+        snapshot["errors"].append("repo_path_missing")
+        return snapshot
+    if not os.path.isdir(os.path.join(repo_path, ".git")):
+        snapshot["errors"].append("not_a_git_repo")
+        return snapshot
+    snapshot["git"] = True
+
+    head = _run(["git", "rev-parse", "HEAD"], cwd=repo_path, timeout=20)
+    if head["ok"]:
+        snapshot["head"] = (head["stdout"] or "").strip()
+    else:
+        snapshot["errors"].append(f"head_unavailable: {(head['stderr'] or head['stdout']).strip()[:200]}")
+
+    fetch = _run(["git", "fetch", "--quiet", "origin", "main"], cwd=repo_path, timeout=40)
+    if not fetch["ok"]:
+        snapshot["errors"].append(f"fetch_failed: {(fetch['stderr'] or fetch['stdout']).strip()[:200]}")
+
+    origin_head = _run(["git", "rev-parse", "origin/main"], cwd=repo_path, timeout=20)
+    if origin_head["ok"]:
+        snapshot["origin_main"] = (origin_head["stdout"] or "").strip()
+    else:
+        snapshot["errors"].append(f"origin_main_unavailable: {(origin_head['stderr'] or origin_head['stdout']).strip()[:200]}")
+
+    counts = _run(["git", "rev-list", "--left-right", "--count", "origin/main...HEAD"], cwd=repo_path, timeout=20)
+    if counts["ok"]:
+        try:
+            behind_raw, ahead_raw = (counts["stdout"] or "0\t0").split()
+            snapshot["behind"] = int(behind_raw)
+            snapshot["ahead"] = int(ahead_raw)
+        except Exception:
+            snapshot["errors"].append(f"rev_list_parse_failed: {(counts['stdout'] or '').strip()[:200]}")
+    else:
+        snapshot["errors"].append(f"rev_list_failed: {(counts['stderr'] or counts['stdout']).strip()[:200]}")
+
+    tracked_dirty = _run(["git", "diff", "--name-only"], cwd=repo_path, timeout=20)
+    untracked = _run(["git", "ls-files", "--others", "--exclude-standard"], cwd=repo_path, timeout=20)
+    snapshot["tracked_dirty"] = _safe_splitlines(tracked_dirty["stdout"]) if tracked_dirty["ok"] else []
+    snapshot["untracked"] = _safe_splitlines(untracked["stdout"]) if untracked["ok"] else []
+    combined = snapshot["tracked_dirty"] + snapshot["untracked"]
+    snapshot["code_dirty"] = [item for item in combined if _classify_repo_path(item) == "code"]
+    snapshot["state_dirty"] = [item for item in combined if _classify_repo_path(item) == "state"]
+    snapshot["clean"] = not combined
+    snapshot["remote_sync_ok"] = snapshot["ahead"] == 0 and snapshot["behind"] == 0
+    return snapshot
+
+
+def _path_snapshot(path: str, kind: str) -> dict:
+    target = Path(path)
+    exists = target.exists()
+    entry = {
+        "path": str(target),
+        "kind": kind,
+        "exists": exists,
+        "type": "missing",
+    }
+    if not exists:
+        return entry
+    if target.is_dir():
+        entry["type"] = "directory"
+    elif target.is_file():
+        entry["type"] = "file"
+        try:
+            entry["size_bytes"] = target.stat().st_size
+        except OSError:
+            pass
+    else:
+        entry["type"] = "other"
+    return entry
+
+
+def _system_unit_snapshot(unit: str, *, user: bool = False) -> dict:
+    base_cmd = ["systemctl"]
+    if user:
+        base_cmd.append("--user")
+    result = _run(base_cmd + ["is-active", unit], cwd=WORKSPACE, timeout=15)
+    status = (result["stdout"] or result["stderr"] or "").strip()
+    return {
+        "unit": unit,
+        "scope": "user" if user else "system",
+        "active": result["ok"] and status == "active",
+        "status": status or "unknown",
+    }
+
+
+def _migration_snapshot() -> dict:
+    repos = {label: _repo_sync_snapshot(label, path) for label, path in MIGRATION_REPOS}
+    critical_paths = [_path_snapshot(path, kind) for path, kind in MIGRATION_CRITICAL_PATHS]
+    services = {
+        "meridian-gateway.service": _system_unit_snapshot("meridian-gateway.service", user=True),
+        "meridian-workspace.service": _system_unit_snapshot("meridian-workspace.service"),
+        "meridian-mcp.service": _system_unit_snapshot("meridian-mcp.service"),
+        "meridian-loom.service": _system_unit_snapshot("meridian-loom.service"),
+        "caddy.service": _system_unit_snapshot("caddy.service"),
+    }
+    blockers = []
+    for label, repo in repos.items():
+        if not repo.get("exists"):
+            blockers.append(f"{label}: repo_missing")
+            continue
+        if not repo.get("git"):
+            blockers.append(f"{label}: not_git")
+            continue
+        if not repo.get("remote_sync_ok"):
+            blockers.append(
+                f"{label}: remote_mismatch ahead={repo.get('ahead', 0)} behind={repo.get('behind', 0)}"
+            )
+        if not repo.get("clean"):
+            blockers.append(
+                f"{label}: dirty_worktree code={len(repo.get('code_dirty') or [])} state={len(repo.get('state_dirty') or [])}"
+            )
+    for path_entry in critical_paths:
+        if not path_entry.get("exists"):
+            blockers.append(f"missing_state:{path_entry.get('kind')}:{path_entry.get('path')}")
+    for unit, service in services.items():
+        if not service.get("active"):
+            blockers.append(f"service_inactive:{unit}:{service.get('status')}")
+    return {
+        "ready": not blockers,
+        "blockers": blockers,
+        "repos": repos,
+        "critical_paths": critical_paths,
+        "services": services,
+        "migration_mode": "clone_plus_state_snapshot_required",
+    }
+
+
 def collect():
     org_id = _founding_org_id()
     runtime_env = _runtime_env_defaults()
@@ -374,6 +555,7 @@ def collect():
         "delivery_targets": targets,
         "persistence": persistence,
         "observability": observability,
+        "migration": _migration_snapshot(),
     }
 
 
@@ -491,6 +673,27 @@ def print_report(report):
             + f"pending {alert_queue.get('pending_delivery_count', 0)} | "
             + f"delivered {alert_queue.get('delivered_count', 0)}"
         )
+    migration = report.get("migration", {})
+    if migration:
+        print(
+            "Migration readiness: "
+            + ("READY" if migration.get("ready") else f"BLOCKED ({len(migration.get('blockers', []))} blockers)")
+        )
+        for label, repo in (migration.get("repos") or {}).items():
+            print(
+                f"Repo {label}: "
+                f"ahead={repo.get('ahead', 0)} behind={repo.get('behind', 0)} "
+                f"clean={'yes' if repo.get('clean') else 'no'} "
+                f"code_dirty={len(repo.get('code_dirty') or [])} "
+                f"state_dirty={len(repo.get('state_dirty') or [])}"
+            )
+        missing_paths = [item for item in migration.get("critical_paths", []) if not item.get("exists")]
+        if missing_paths:
+            print(f"Migration missing state paths: {len(missing_paths)}")
+        if migration.get("blockers"):
+            print("Migration blockers:")
+            for item in migration["blockers"][:10]:
+                print(f"- {item}")
 
     if report["verdict"] == "ENGINEERING_BLOCKED_RUNTIME":
         print("Next action: clear Loom health or service-state blockers before attempting pipeline execution.")

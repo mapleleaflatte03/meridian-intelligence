@@ -57,6 +57,8 @@ Endpoints:
   GET  /api/alerts               → Alert queue, delivery, and dispatch summary
   POST /api/alerts/dispatch      → Acknowledge queued alerts without claiming delivery
   GET  /api/runtime-proof         → Public live Loom runtime proof receipt
+  GET  /api/runtime-proof-contract → Public bounded Loom surface-proof contract
+  GET  /api/kernel-proof-bundle   → Public kernel reference proof bundle with live host receipts
   POST /api/authority/kill-switch → Engage/disengage kill switch
   POST /api/authority/approve     → Decide an approval
   POST /api/authority/request     → Request approval
@@ -142,6 +144,7 @@ import hmac
 import json
 import os
 import sys
+import time
 from http.server import HTTPServer, ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib import error as urllib_error, request as urllib_request
 from urllib.parse import urlparse, parse_qs
@@ -183,6 +186,9 @@ WORKSPACE_AUTH_REQUIRED = os.environ.get('MERIDIAN_WORKSPACE_AUTH_REQUIRED', '')
 KERNEL_ROOT = os.environ.get('MERIDIAN_KERNEL_ROOT', '/opt/meridian-kernel')
 KERNEL_MODULE_DIR = os.path.join(KERNEL_ROOT, 'kernel')
 KERNEL_RUNTIME_ADAPTER_FILE = os.path.join(KERNEL_ROOT, 'kernel', 'runtime_adapter.py')
+KERNEL_PUBLIC_PROOF_BUNDLE_FILE = os.path.join(KERNEL_ROOT, 'examples', 'generate_public_proof_bundle.py')
+PUBLIC_BASE_URL = (os.environ.get('MERIDIAN_PUBLIC_BASE_URL') or 'https://app.welliam.codes').strip() or 'https://app.welliam.codes'
+PUBLIC_PROOF_CACHE_TTL_SECONDS = max(0, int(os.environ.get('MERIDIAN_PUBLIC_PROOF_CACHE_TTL_SECONDS', '300') or '300'))
 sys.path.insert(0, PLATFORM_DIR)
 
 from organizations import (load_orgs, set_charter, set_policy_defaults,
@@ -218,6 +224,8 @@ kernel_load_runtimes = _runtime_adapter_mod.load_runtimes
 kernel_get_runtime = _runtime_adapter_mod.get_runtime
 kernel_check_all_contracts = _runtime_adapter_mod.check_all_contracts
 kernel_check_contract = _runtime_adapter_mod.check_contract
+_kernel_public_proof_bundle_mod = None
+_public_kernel_proof_cache = {}
 
 if KERNEL_MODULE_DIR not in sys.path:
     sys.path.append(KERNEL_MODULE_DIR)
@@ -392,6 +400,73 @@ def _load_workspace_credentials():
             elif line.startswith('user_id:'):
                 user_id = line.split(':', 1)[1].strip() or None
     return user, password, org_id, user_id
+
+
+def _normalized_public_base_url(value):
+    return (str(value or '').strip() or PUBLIC_BASE_URL).rstrip('/')
+
+
+def _request_public_base_url(handler):
+    forwarded_proto = (handler.headers.get('X-Forwarded-Proto') or '').strip()
+    host = (handler.headers.get('X-Forwarded-Host') or handler.headers.get('Host') or '').strip()
+    if forwarded_proto and host:
+        return _normalized_public_base_url(f'{forwarded_proto}://{host}')
+    return _normalized_public_base_url(PUBLIC_BASE_URL)
+
+
+def _load_kernel_public_proof_builder():
+    global _kernel_public_proof_bundle_mod
+    if _kernel_public_proof_bundle_mod is not None:
+        return getattr(_kernel_public_proof_bundle_mod, 'build_bundle', None)
+    if not os.path.exists(KERNEL_PUBLIC_PROOF_BUNDLE_FILE):
+        return None
+    spec = importlib.util.spec_from_file_location(
+        'meridian_kernel_public_proof_bundle',
+        KERNEL_PUBLIC_PROOF_BUNDLE_FILE,
+    )
+    if spec is None or spec.loader is None:
+        return None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    _kernel_public_proof_bundle_mod = module
+    return getattr(module, 'build_bundle', None)
+
+
+def _kernel_public_proof_bundle(*, base_url=None):
+    builder = _load_kernel_public_proof_builder()
+    if builder is None:
+        raise RuntimeError(
+            f'Kernel public proof bundle builder unavailable at {KERNEL_PUBLIC_PROOF_BUNDLE_FILE}'
+        )
+
+    normalized_base = _normalized_public_base_url(base_url)
+    cache_entry = _public_kernel_proof_cache.get(normalized_base)
+    now = time.time()
+    if cache_entry and PUBLIC_PROOF_CACHE_TTL_SECONDS > 0:
+        age = now - float(cache_entry.get('cached_at_epoch', 0.0))
+        if age <= PUBLIC_PROOF_CACHE_TTL_SECONDS:
+            return copy.deepcopy(cache_entry['payload'])
+
+    payload = builder(
+        live_manifest_url=f'{normalized_base}/api/federation/manifest',
+        live_runtime_proof_url=f'{normalized_base}/api/runtime-proof',
+    )
+    payload['public_routes'] = {
+        'kernel_proof_bundle': '/api/kernel-proof-bundle',
+        'federation_manifest': '/api/federation/manifest',
+        'runtime_proof': '/api/runtime-proof',
+        'runtime_proof_contract': '/api/runtime-proof-contract',
+    }
+    payload['generated_from'] = {
+        'kernel_root': KERNEL_ROOT,
+        'bundle_builder': KERNEL_PUBLIC_PROOF_BUNDLE_FILE,
+        'public_base_url': normalized_base,
+    }
+    _public_kernel_proof_cache[normalized_base] = {
+        'cached_at_epoch': now,
+        'payload': copy.deepcopy(payload),
+    }
+    return payload
 
 
 def _canonical_meridian_user_id(user_id):
@@ -3802,6 +3877,8 @@ def api_status(context_source='founding_default', institution_context=None):
         'observability': status_surface.observability_snapshot(org_id),
         'runtime_proof': {
             'route': '/api/runtime-proof',
+            'contract_route': '/api/runtime-proof-contract',
+            'kernel_bundle_route': '/api/kernel-proof-bundle',
             'runtime_id': 'loom_native',
             'proof_mode': 'live_host_runtime_probe',
         },
@@ -4433,6 +4510,8 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
         '/api/federation/witness/archive',
         '/api/alerts',
         '/api/runtime-proof',
+        '/api/runtime-proof-contract',
+        '/api/kernel-proof-bundle',
         '/api/admission',
         '/api/session/validate',
         '/api/court',
@@ -4799,6 +4878,20 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                 loom_runtime_proof.public_loom_runtime_receipt(
                     proof,
                     bound_org_id=org_id,
+                )
+            )
+        elif path == '/api/runtime-proof-contract':
+            proof = loom_runtime_proof.collect_loom_runtime_proof(include_service_probe=True)
+            return self._json(
+                loom_runtime_proof.public_loom_surface_contract_receipt(
+                    proof,
+                    bound_org_id=org_id,
+                )
+            )
+        elif path == '/api/kernel-proof-bundle':
+            return self._json(
+                _kernel_public_proof_bundle(
+                    base_url=_request_public_base_url(self),
                 )
             )
         elif path == '/api/admission':

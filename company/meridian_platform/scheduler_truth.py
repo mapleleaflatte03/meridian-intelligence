@@ -16,8 +16,10 @@ Usage:
 """
 import argparse
 import datetime as dt
+import glob
 import json
 import os
+import re
 
 try:
     from loom_runtime_discovery import preferred_loom_bin, preferred_loom_root, run_loom_json
@@ -28,6 +30,8 @@ except ImportError:
 CRON_DIR = os.path.expanduser('~/.meridian/cron')
 JOBS_FILE = os.path.join(CRON_DIR, 'jobs.json')
 RUNS_DIR = os.path.join(CRON_DIR, 'runs')
+RECURRING_RUNS_DIR = os.path.join(preferred_loom_root(), 'state', 'recurring', 'runs')
+DELIVERY_DIR = os.path.join(preferred_loom_root(), 'state', 'channels', 'delivery')
 
 
 def _fmt_ms(ms):
@@ -65,6 +69,49 @@ def latest_run_entry(job_id):
     if not entries:
         return None
     return max(entries, key=lambda entry: entry.get('ts', 0))
+
+
+def load_recurring_run_entries(*job_keys):
+    if not os.path.isdir(RECURRING_RUNS_DIR):
+        return []
+    keys = {str(key) for key in job_keys if key}
+    entries = []
+    for name in os.listdir(RECURRING_RUNS_DIR):
+        if not name.endswith('.json'):
+            continue
+        path = os.path.join(RECURRING_RUNS_DIR, name)
+        try:
+            with open(path) as f:
+                entry = json.load(f)
+        except (OSError, json.JSONDecodeError):
+            continue
+        if str(entry.get('job_id') or '') in keys or str(entry.get('capability_name') or '') in keys:
+            entries.append(entry)
+    return entries
+
+
+def latest_recurring_run_entry(*job_keys):
+    entries = load_recurring_run_entries(*job_keys)
+    if not entries:
+        return None
+    return max(
+        entries,
+        key=lambda entry: int(entry.get('completed_at') or entry.get('started_at') or 0),
+    )
+
+
+def load_delivery_record(delivery_id):
+    if not delivery_id:
+        return None
+    matches = sorted(glob.glob(os.path.join(DELIVERY_DIR, f'*-{delivery_id}.json')))
+    if not matches:
+        return None
+    path = matches[-1]
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return None
 
 
 def _runtime_truth():
@@ -111,6 +158,7 @@ def _schedule_config(job):
 def _latest_run(job):
     state = job.get('state', {})
     latest = latest_run_entry(job['id'])
+    recurring = latest_recurring_run_entry(job['id'], job.get('name'))
     latest_run = {
         'source': 'jobs_state',
         'run_status': state.get('lastRunStatus', ''),
@@ -133,6 +181,52 @@ def _latest_run(job):
             'finished_at_ms': latest.get('ts') or latest_run['finished_at_ms'],
             'summary': latest.get('summary', ''),
         })
+
+    if recurring:
+        recurring_finished_at_ms = int(recurring.get('completed_at') or recurring.get('started_at') or 0) * 1000
+        latest_finished_at_ms = int(latest_run.get('finished_at_ms') or 0)
+        if recurring_finished_at_ms >= latest_finished_at_ms:
+            delivered = False
+            delivery_status = ''
+            summary = recurring.get('stdout_summary') or ''
+            error = recurring.get('last_error') or recurring.get('stderr_summary') or ''
+            try:
+                parsed = json.loads(summary) if summary else {}
+            except json.JSONDecodeError:
+                parsed = {}
+            result = parsed.get('result') if isinstance(parsed, dict) else {}
+            channel_delivery = result.get('channel_delivery') if isinstance(result, dict) else {}
+            if isinstance(channel_delivery, dict):
+                delivery_id = str(channel_delivery.get('delivery_id') or '')
+                delivery_status = str(channel_delivery.get('status') or '')
+                delivered = delivery_status == 'delivered'
+                if not error:
+                    error = str(channel_delivery.get('status_detail') or '')
+                if delivery_id and not delivery_status:
+                    delivery_record = load_delivery_record(delivery_id)
+                    if delivery_record:
+                        delivery_status = str(delivery_record.get('status') or '')
+                        delivered = delivery_status == 'delivered'
+                        if not error:
+                            error = str(delivery_record.get('status_detail') or '')
+            if not delivery_status:
+                match = re.search(r'"delivery_id"\s*:\s*"([^"]+)"', summary)
+                delivery_record = load_delivery_record(match.group(1) if match else '')
+                if delivery_record:
+                    delivery_status = str(delivery_record.get('status') or '')
+                    delivered = delivery_status == 'delivered'
+                    if not error:
+                        error = str(delivery_record.get('status_detail') or '')
+            latest_run.update({
+                'source': 'loom_recurring',
+                'run_status': 'ok' if recurring.get('status') == 'completed' and int(recurring.get('exit_code') or 0) == 0 else 'error',
+                'delivered': delivered,
+                'delivery_status': delivery_status,
+                'error': error,
+                'run_at_ms': int(recurring.get('started_at') or 0) * 1000,
+                'finished_at_ms': recurring_finished_at_ms,
+                'summary': summary,
+            })
 
     latest_run['raw_delivered'] = latest_run['delivered']
     latest_run['raw_delivery_status'] = latest_run['delivery_status']

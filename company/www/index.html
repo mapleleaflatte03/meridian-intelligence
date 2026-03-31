@@ -137,11 +137,11 @@
     </div>
     <div class="feature-card">
       <h3>Omni-channel Presence</h3>
-      <p>Declared gateway surface with verified Telegram and web delivery on this host. This is not a blanket claim that every delivery mode is self-serve or customer-live.</p>
+      <p>Declared gateway surface with bounded verified Telegram and web delivery on this host. The proof contract is published at <code>/api/runtime-proof-contract</code>; this is not a blanket claim that every delivery mode is self-serve or customer-live.</p>
     </div>
     <div class="feature-card">
       <h3>Persistent Memory</h3>
-      <p>Memory-store primitives define durable state, search, and replay surfaces above the runtime boundary. The broader memory architecture remains larger than the current local proof line.</p>
+      <p>Memory-store primitives define durable state, search, and replay surfaces above the runtime boundary. The current bounded proof contract is published at <code>/api/runtime-proof-contract</code>; the broader memory architecture remains larger than the present live proof line.</p>
     </div>
     <div class="feature-card">
       <h3>Heartbeat / Background Autonomy</h3>
@@ -152,7 +152,7 @@
       <p>Capability import, plugin compatibility, and workspace skill loading remain part of the Loom operator surface. This does not imply every external skill or plugin path is already customer-live.</p>
     </div>
   </div>
-  <p class="note">Truth line: terminal execution, browser navigation, and heartbeat scheduling are proven local primitives; omni-channel presence, memory, and skill loading are real operator surfaces but still bounded more narrowly than a universal hosted-product claim.</p>
+  <p class="note">Truth line: terminal execution, browser navigation, and heartbeat scheduling are proven local primitives; omni-channel presence and persistent memory now have a bounded public proof contract on this host, while broader hosted-product claims remain out of scope.</p>
 
   <!-- Why Telegram -->
   <h2 id="why-telegram" class="reveal">Why Telegram?</h2>
@@ -309,7 +309,7 @@
   </details>
   <details>
     <summary>What is MCP?</summary>
-    <p>Model Context Protocol — a standard for AI tools. Connect your AI client to Meridian's MCP server to access intelligence tools programmatically. x402-capable settlement path over USDC on Base L2. Every call is audited and metered, but external-customer settlement proof is still pending.</p>
+    <p>Model Context Protocol — a standard for AI tools. Connect your AI client to Meridian's MCP server to access intelligence tools programmatically. The host now publishes bounded <code>base_usdc_x402</code> readiness plus a kernel reference proof bundle; external-customer checkout proof is still pending.</p>
   </details>
 
   <!-- Developer Section -->
@@ -319,6 +319,7 @@
     <div class="card">
       <p><strong>Developer truth:</strong> Meridian is runtime-neutral in design, and this host publishes only the Meridian routes and proof surfaces it actually runs.</p>
       <p>Today the built-in kernel/runtime pair is the live governed runtime surface on this host. Loom is the active Meridian runtime boundary here.</p>
+      <p>Proof routes: <code>/api/federation/manifest</code>, <code>/api/runtime-proof</code>, <code>/api/runtime-proof-contract</code>, <code>/api/kernel-proof-bundle</code>.</p>
     </div>
     <h3>MCP Integration</h3>
     <p>Add to your AI client config:</p>
@@ -342,7 +343,7 @@
 
     <h3>Payment</h3>
     <div class="card">
-      <p><strong>Protocol:</strong> x402-capable settlement path (HTTP 402 Payment Required), with external-customer settlement proof still pending</p>
+      <p><strong>Protocol:</strong> x402-capable settlement path (HTTP 402 Payment Required). This host now advertises bounded <code>base_usdc_x402</code> readiness and the kernel reference proof bundle includes an external settlement adapter reference run; external-customer checkout proof is still pending.</p>
       <p><strong>Chain:</strong> Base L2 (Chain ID 8453)</p>
       <p><strong>Token:</strong> USDC</p>
       <p><strong>Wallet:</strong><br><span class="wallet">0x82009D0fa435d490A12e0cBfBE47bf3358e47761</span></p>

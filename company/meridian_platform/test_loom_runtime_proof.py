@@ -247,6 +247,63 @@ class LoomRuntimeProofTests(unittest.TestCase):
         self.assertEqual(receipt['governed_agents'][0]['economy_key'], 'main')
         self.assertEqual(receipt['governed_agents'][0]['loom_handle'], 'leviathann')
 
+    def test_public_surface_contract_binds_omni_channel_and_memory_claims(self):
+        contract = proof.public_loom_surface_contract_receipt({
+            'runtime_id': 'loom_native',
+            'checked_at': '2026-03-30T18:00:00Z',
+            'deployment_truth': {'scope': 'single_host', 'generic_runtime_claim': False},
+            'health': {
+                'telegram': {'ok': True},
+                'session_runtime': {'total_count': 8, 'active_count': 6},
+                'channel_runtime': {
+                    'total_count': 2,
+                    'enabled_count': 2,
+                    'ingress_count': 170,
+                    'active_delivery_count': 137,
+                    'archived_delivery_count': 28,
+                    'channel_ids': ['web_api', 'telegram'],
+                },
+            },
+            'service_probe': {'ok': True, 'transport': 'socket+http'},
+            'memory_context': {
+                'checked': True,
+                'memory_ok': True,
+                'context_ok': True,
+                'memory': {
+                    'agent_count': 2,
+                    'total_entries': 0,
+                    'total_bytes': 0,
+                    'policy': {
+                        'agent_isolation': True,
+                        'max_entries_per_agent': 500,
+                        'retention_days': 365,
+                    },
+                },
+                'context': {
+                    'layer_count': 33,
+                    'section_count': 6,
+                    'mutable_count': 28,
+                    'sections': ['agents', 'heartbeat', 'memory', 'soul', 'tools', 'user'],
+                },
+            },
+        }, bound_org_id='org_48b05c21')
+
+        self.assertEqual(contract['proof_type'], 'bounded_live_surface_contract')
+        self.assertEqual(contract['contract_version'], 1)
+        self.assertEqual(contract['surface_contract']['surfaces']['omni_channel_presence']['status'], 'bounded_proven')
+        self.assertEqual(contract['surface_contract']['surfaces']['persistent_memory']['status'], 'bounded_proven')
+        self.assertEqual(
+            contract['surface_contract']['surfaces']['omni_channel_presence']['evidence']['channel_ids'],
+            ['web_api', 'telegram'],
+        )
+        self.assertTrue(
+            contract['surface_contract']['surfaces']['persistent_memory']['evidence']['agent_isolation']
+        )
+        self.assertIn(
+            'email delivery',
+            contract['surface_contract']['surfaces']['omni_channel_presence']['not_claimed'],
+        )
+
 
 if __name__ == '__main__':
     unittest.main()
