@@ -735,7 +735,55 @@ Use this skill when the user gives a short prompt such as:
         self.assertIn('giả thuyết', repaired.lower())
         self.assertIn('câu hỏi', repaired.lower())
         self.assertIn('tiêu chí dừng', repaired.lower())
-        self.assertIn('manager_response_repaired_from_worker_artifact', warnings)
+        self.assertIn('manager_response_repaired_from_best_worker_artifact', warnings)
+
+    def test_repair_manager_answer_prefers_high_fit_worker_artifact_over_later_generic_step(self):
+        request = (
+            'hãy tạo cho tôi một protocol kéo deal im lặng quay lại trong 13 phút: gồm 3 giả thuyết, '
+            '4 câu hỏi bóc ngụy biện, 1 tin nhắn follow-up kéo khách trả lời, và 1 tiêu chí dừng rõ ràng.'
+        )
+        steps = [
+            {
+                'agent_id': 'agent_quill',
+                'status': 'ok',
+                'task_kind': 'write',
+                'confidence': 'high',
+                'result': (
+                    '**Protocol xử lý**\n\n'
+                    '**Giả thuyết**\n1. H1\n2. H2\n\n'
+                    '**Câu hỏi bóc tách**\n1. Q1\n2. Q2\n\n'
+                    '**Tin nhắn follow-up**\nPing khách ngay.\n\n'
+                    '**Tiêu chí dừng**\nDừng nếu không có owner.'
+                ),
+                'warnings': [],
+                'citations': [],
+            },
+            {
+                'agent_id': 'agent_atlas',
+                'status': 'ok',
+                'task_kind': 'research',
+                'confidence': 'medium',
+                'result': (
+                    '**Status**\n\n'
+                    'Đây là research starter dạng giả thuyết cần kiểm chứng.\n\n'
+                    '**Likely buyer**\n- PMM\n\n'
+                    '**What must be validated**\n- Pain\n\n'
+                    '**Next move**\n- Phỏng vấn khách'
+                ),
+                'warnings': [],
+                'citations': [],
+            },
+        ]
+        repaired, warnings = meridian_gateway._repair_manager_answer(
+            request,
+            'LLM endpoint returned HTTP 400:',
+            steps,
+            ['protocol-deal-hoi'],
+        )
+        self.assertIn('giả thuyết', repaired.lower())
+        self.assertIn('tiêu chí dừng', repaired.lower())
+        self.assertNotIn('likely buyer', repaired.lower())
+        self.assertIn('manager_response_repaired_from_best_worker_artifact', warnings)
 
 
 if __name__ == '__main__':

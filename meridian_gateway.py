@@ -2040,7 +2040,7 @@ def _run_specialist_step(agent_key: str, request: str, session_key: str, plan: d
     if agent_key == "AEGIS":
         qa_timeout = _specialist_timeout_for_request(agent_key, request, skills_used)
         prior_steps = list(plan.get("steps") or []) if isinstance(plan.get("steps"), list) else []
-        candidate_artifact = _latest_usable_step_artifact(prior_steps)
+        candidate_artifact = _best_usable_step_artifact(prior_steps, request, skills_used)
         qa_sections: list[str] = []
         if candidate_artifact:
             qa_sections.append(f"Candidate artifact to verify:\n{candidate_artifact}")
@@ -2352,13 +2352,11 @@ def _manager_synthesis(goal: str, session_key: str, steps: list[dict[str, Any]],
             "execution_owner": "meridian",
         }, loom_root=LOOM_ROOT)
         return answer
-    preferred_steps = sorted(
-        steps,
-        key=lambda item: (
-            0 if str(item.get("task_kind") or "").strip() == "write" else 1,
-            0 if str(item.get("agent_id") or "").strip() == "agent_quill" else 1,
-        ),
-    )
+    skill_names = [
+        str(item.get("name") or "").strip()
+        for item in list((plan or {}).get("skills") or [])
+        if isinstance(item, dict) and str(item.get("name") or "").strip()
+    ]
     verification_incomplete = any(
         str(item.get("task_kind") or "").strip() in {"verify", "qa_gate"}
         and (
@@ -2377,31 +2375,29 @@ def _manager_synthesis(goal: str, session_key: str, steps: list[dict[str, Any]],
         )
         for item in steps
     )
-    for item in preferred_steps:
-        text = str(item.get("result") or "").strip()
-        if text:
-            if str(item.get("task_kind") or "").strip() == "write":
-                preface: list[str] = []
-                if research_unverified:
-                    preface.append("I could not verify a documented founder quote or external source for this exact rationale.")
-                if verification_incomplete:
-                    preface.append("The verification step did not complete, so treat the answer below as founder positioning rather than a sourced factual claim.")
-                if preface:
-                    text = "\n\n".join([" ".join(preface), text])
-            append_session_event(session_key, {
-                "history_type": "manager_response",
-                "status": "degraded",
-                "agent_id": TEAM_MANAGER_AGENT_ID,
-                "speaker": "manager",
-                "text": text,
-                "provider_profile": TEAM_TOPOLOGY.manager.profile_name,
-                "model": TEAM_TOPOLOGY.manager.model,
-                "transport_kind": "codex_session",
-                "auth_mode": "codex_auth_json",
-                "execution_owner": "meridian",
-                "warnings": ["manager_synthesis_fallback_to_worker_result"],
-            }, loom_root=LOOM_ROOT)
-            return text
+    fallback_artifact = _best_usable_step_artifact(steps, goal, skill_names)
+    if fallback_artifact:
+        preface: list[str] = []
+        if research_unverified:
+            preface.append("I could not verify a documented founder quote or external source for this exact rationale.")
+        if verification_incomplete:
+            preface.append("The verification step did not complete, so treat the answer below as founder positioning rather than a sourced factual claim.")
+        if preface:
+            fallback_artifact = "\n\n".join([" ".join(preface), fallback_artifact])
+        append_session_event(session_key, {
+            "history_type": "manager_response",
+            "status": "degraded",
+            "agent_id": TEAM_MANAGER_AGENT_ID,
+            "speaker": "manager",
+            "text": fallback_artifact,
+            "provider_profile": TEAM_TOPOLOGY.manager.profile_name,
+            "model": TEAM_TOPOLOGY.manager.model,
+            "transport_kind": "codex_session",
+            "auth_mode": "codex_auth_json",
+            "execution_owner": "meridian",
+            "warnings": ["manager_synthesis_fallback_to_best_worker_artifact"],
+        }, loom_root=LOOM_ROOT)
+        return fallback_artifact
     answer = "Unable to complete the managed team response."
     append_session_event(session_key, {
         "history_type": "manager_response",
@@ -3967,6 +3963,110 @@ def _latest_usable_step_artifact(steps: list[dict[str, Any]]) -> str:
     return ""
 
 
+def _confidence_fit_bonus(value: Any) -> int:
+    lowered = str(value or "").strip().lower()
+    if not lowered:
+        return 0
+    if any(token in lowered for token in ("high", "strong", "confident", "cao", "clear")):
+        return 4
+    if any(token in lowered for token in ("medium", "moderate", "partial", "vừa", "tam")):
+        return 2
+    if any(token in lowered for token in ("low", "weak", "tentative", "thấp")):
+        return 0
+    return 0
+
+
+def _step_artifact_fit_score(
+    step: dict[str, Any],
+    request: str,
+    skill_names: list[str] | None = None,
+) -> int:
+    raw_text = _step_result_text(step)
+    artifact = _coerce_request_specific_artifact(raw_text, request)
+    if not artifact:
+        return -100
+    score = 0
+    status = str(step.get("status") or "").strip().lower()
+    task_kind = str(step.get("task_kind") or "").strip().lower()
+    agent_id = str(step.get("agent_id") or "").strip().lower()
+    lowered_skill_names = {str(item or "").strip().lower() for item in (skill_names or [])}
+
+    if status == "ok":
+        score += 8
+    else:
+        score -= 30
+    if _artifact_matches_skill_shape(artifact, request, skill_names):
+        score += 40
+    elif _final_artifact_is_usable(artifact, skill_names):
+        score += 24
+    if _looks_like_scope_document(artifact):
+        score -= 40
+    if task_kind == "write":
+        score += 8
+    elif task_kind == "research":
+        score += 3
+    elif task_kind in {"verify", "qa_gate"}:
+        score -= 8
+
+    if _request_wants_protocol_artifact(request):
+        if task_kind == "write":
+            score += 8
+        if agent_id == "agent_quill":
+            score += 4
+        if agent_id == "agent_forge":
+            score += 2
+    if _request_is_customer_research(request, list(skill_names or [])):
+        if task_kind == "research":
+            score += 8
+        if agent_id == "agent_atlas":
+            score += 4
+    if "safe-web-research" in lowered_skill_names and task_kind == "research":
+        score += 6
+    if "scan-doi-thu" in lowered_skill_names and task_kind == "research":
+        score += 6
+
+    citations = step.get("citations") if isinstance(step.get("citations"), list) else []
+    score += min(len(citations), 3) * 2
+    score += _confidence_fit_bonus(step.get("confidence"))
+
+    for warning in _step_warning_texts(step):
+        if _warning_is_informational(warning):
+            continue
+        if _warning_is_hard_blocker(warning):
+            score -= 50
+        elif _warning_is_runtime_failure(warning):
+            score -= 25
+        elif _warning_is_recoverable_gap(warning):
+            score -= 5
+        else:
+            score -= 2
+
+    if raw_text.lstrip().startswith("{") and artifact != raw_text:
+        score += 4
+    if len(artifact) >= 120:
+        score += 2
+    return score
+
+
+def _best_usable_step_artifact(
+    steps: list[dict[str, Any]],
+    request: str,
+    skill_names: list[str] | None = None,
+) -> str:
+    best_artifact = ""
+    best_score = -1000
+    for step in list(steps or []):
+        raw_text = _step_result_text(step)
+        artifact = _coerce_request_specific_artifact(raw_text, request)
+        if not artifact:
+            continue
+        score = _step_artifact_fit_score(step, request, skill_names)
+        if score > best_score:
+            best_score = score
+            best_artifact = artifact
+    return best_artifact if best_score > 0 else ""
+
+
 def _request_wants_protocol_artifact(request: str) -> bool:
     lowered = str(request or "").strip().lower()
     if not lowered:
@@ -4091,9 +4191,9 @@ def _repair_manager_answer(
     if _artifact_matches_skill_shape(artifact, request, skill_names):
         return artifact, []
 
-    latest_step_artifact = _coerce_request_specific_artifact(_latest_usable_step_artifact(steps), request)
-    if latest_step_artifact and _artifact_matches_skill_shape(latest_step_artifact, request, skill_names):
-        return latest_step_artifact, ["manager_response_repaired_from_worker_artifact"]
+    best_step_artifact = _best_usable_step_artifact(steps, request, list(skill_names or []))
+    if best_step_artifact and _artifact_matches_skill_shape(best_step_artifact, request, skill_names):
+        return best_step_artifact, ["manager_response_repaired_from_best_worker_artifact"]
 
     salvaged_artifact = _salvage_user_artifact(request, list(skill_names or []))
     if salvaged_artifact and _artifact_matches_skill_shape(salvaged_artifact, request, skill_names):
