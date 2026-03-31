@@ -174,6 +174,13 @@ MEMORY_SUCCESSFUL_OUTPUT_LIMIT = int(os.environ.get("MERIDIAN_MEMORY_SUCCESSFUL_
 MEMORY_USER_FACT_LIMIT = int(os.environ.get("MERIDIAN_MEMORY_USER_FACT_LIMIT", "24"))
 MEMORY_DELIVERY_CONTENT_LIMIT = int(os.environ.get("MERIDIAN_MEMORY_DELIVERY_CONTENT_LIMIT", "1200"))
 MEMORY_FACT_CONTENT_LIMIT = int(os.environ.get("MERIDIAN_MEMORY_FACT_CONTENT_LIMIT", "240"))
+MEMORY_COMPRESSED_OUTPUT_LIMIT = int(os.environ.get("MERIDIAN_MEMORY_COMPRESSED_OUTPUT_LIMIT", "420"))
+MEMORY_SUCCESSFUL_OUTPUT_DECAY_AFTER_DAYS = int(os.environ.get("MERIDIAN_MEMORY_SUCCESSFUL_OUTPUT_DECAY_AFTER_DAYS", "3"))
+MEMORY_USER_FACT_DECAY_AFTER_DAYS = int(os.environ.get("MERIDIAN_MEMORY_USER_FACT_DECAY_AFTER_DAYS", "21"))
+MEMORY_SUCCESSFUL_OUTPUT_EVICT_AFTER_DAYS = int(os.environ.get("MERIDIAN_MEMORY_SUCCESSFUL_OUTPUT_EVICT_AFTER_DAYS", "21"))
+MEMORY_USER_FACT_EVICT_AFTER_DAYS = int(os.environ.get("MERIDIAN_MEMORY_USER_FACT_EVICT_AFTER_DAYS", "120"))
+MEMORY_LOW_VALUE_EVICT_THRESHOLD = int(os.environ.get("MERIDIAN_MEMORY_LOW_VALUE_EVICT_THRESHOLD", "-2"))
+MEMORY_RECALL_ARTIFACT_VERSION = "compressed_recall_v1"
 SKILL_STOPWORDS = {
     "a",
     "an",
@@ -2056,6 +2063,7 @@ def _run_specialist_step(agent_key: str, request: str, session_key: str, plan: d
     if agent_key == "ATLAS" and not _atlas_should_use_internal_analysis(plan, request):
         atlas_timeout = _specialist_timeout_for_request(agent_key, request, skills_used)
         lowered_skill_names = {item.lower() for item in skills_used}
+        atlas_memory_block = _atlas_memory_research_block(dict(plan or {}).get("memory_packet"), request, skills_used)
         if "safe-web-research" in lowered_skill_names and _request_prefers_safe_web_research(request):
             safe_url = _extract_request_url(request)
             if not safe_url:
@@ -2106,12 +2114,14 @@ def _run_specialist_step(agent_key: str, request: str, session_key: str, plan: d
                 "skills_used": skills_used,
             }, loom_root=LOOM_ROOT)
             return receipt
+        atlas_research_brief = str(plan.get("topic") or request)
+        research_sections = [atlas_research_brief]
+        if atlas_memory_block:
+            research_sections.append(atlas_memory_block)
+        if skill_guidance_block:
+            research_sections.append(skill_guidance_block)
         result = mcp_server.do_on_demand_research_route(
-            (
-                f"{str(plan.get('topic') or request)}\n\n{skill_guidance_block}"
-                if skill_guidance_block
-                else str(plan.get("topic") or request)
-            ),
+            "\n\n".join(section for section in research_sections if str(section or "").strip()),
             (
                 "quick"
                 if (
@@ -3653,6 +3663,78 @@ def _memory_entry_skills(entry: dict[str, Any]) -> list[str]:
     ]
 
 
+def _memory_inline_digest(text: str, *, limit: int = 220) -> str:
+    flattened = re.sub(r"\s+", " ", str(text or "").strip()).strip()
+    if len(flattened) <= int(limit or 0):
+        return flattened
+    return f"{flattened[: max(0, int(limit or 0) - 3)].rstrip()}..."
+
+
+def _memory_markdown_heading(line: str) -> str:
+    cleaned = str(line or "").strip()
+    if not cleaned:
+        return ""
+    if cleaned.startswith("## "):
+        return cleaned[3:].strip()
+    if cleaned.startswith("**") and cleaned.endswith("**") and len(cleaned) > 4:
+        return cleaned.strip("* ").strip()
+    if cleaned.endswith(":") and not cleaned.startswith(("-", "*")) and len(cleaned.split()) <= 8:
+        return cleaned.rstrip(":").strip()
+    return ""
+
+
+def _compress_successful_output_memory(
+    content: str,
+    skill_names: list[str] | None = None,
+) -> str:
+    raw = str(content or "").strip()
+    if not raw:
+        return ""
+    lines = [str(line or "").rstrip() for line in raw.splitlines()]
+    sections: list[tuple[str, list[str]]] = []
+    current_heading = ""
+    current_body: list[str] = []
+
+    def flush_section() -> None:
+        nonlocal current_heading, current_body
+        if current_heading or any(item.strip() for item in current_body):
+            sections.append((current_heading, list(current_body)))
+        current_heading = ""
+        current_body = []
+
+    for line in lines:
+        cleaned = str(line or "").strip()
+        if not cleaned:
+            continue
+        heading = _memory_markdown_heading(cleaned)
+        if heading:
+            flush_section()
+            current_heading = heading
+            continue
+        current_body.append(cleaned.lstrip("-* ").strip())
+    flush_section()
+
+    shortlist: list[str] = []
+    for heading, body_lines in sections:
+        if not any(item.strip() for item in body_lines):
+            continue
+        snippets = [_memory_inline_digest(item, limit=110) for item in body_lines if item.strip()]
+        if not snippets:
+            continue
+        shortlist.append(f"{heading}: {' | '.join(snippets[:2])}" if heading else " | ".join(snippets[:2]))
+        if len(shortlist) >= 4:
+            break
+    if not shortlist:
+        fallback = [
+            _memory_inline_digest(line.lstrip("-* ").strip(), limit=110)
+            for line in lines
+            if str(line or "").strip()
+        ]
+        shortlist = [item for item in fallback[:4] if item]
+    compressed = "\n".join(f"- {item}" for item in shortlist if item).strip()
+    return compressed[:MEMORY_COMPRESSED_OUTPUT_LIMIT].strip()
+
+
 def _memory_timestamp_epoch(value: Any) -> int:
     raw = str(value or "").strip()
     if not raw:
@@ -3686,6 +3768,118 @@ def _memory_entry_recency_bonus(entry: dict[str, Any]) -> int:
     return 0
 
 
+def _memory_entry_last_signal_epoch(entry: dict[str, Any]) -> int:
+    return max(
+        _memory_timestamp_epoch(entry.get("last_recalled_at")),
+        _memory_timestamp_epoch(entry.get("updated_at")),
+        _memory_timestamp_epoch(entry.get("source_recorded_at")),
+    )
+
+
+def _refresh_memory_value_score(record: dict[str, Any], *, now_epoch: int | None = None) -> dict[str, Any]:
+    current_epoch = int(now_epoch if now_epoch is not None else time.time())
+    category = str(record.get("category") or "").strip().lower()
+    base_score = int(record.get("accepted_count") or 0) - int(record.get("failure_count") or 0)
+    decay_penalty = 0
+    if category in {"successful_output", "user_fact"}:
+        last_signal_epoch = _memory_entry_last_signal_epoch(record)
+        if last_signal_epoch > 0 and current_epoch > last_signal_epoch:
+            age_days = max(0, (current_epoch - last_signal_epoch) // 86400)
+            decay_after = (
+                MEMORY_SUCCESSFUL_OUTPUT_DECAY_AFTER_DAYS
+                if category == "successful_output"
+                else MEMORY_USER_FACT_DECAY_AFTER_DAYS
+            )
+            if age_days >= int(decay_after or 0):
+                decay_penalty = max(1, int(age_days // max(1, int(decay_after or 1))))
+    record["baseline_value_score"] = base_score
+    record["value_decay_penalty"] = decay_penalty
+    record["memory_value_score"] = base_score - decay_penalty
+    record["last_decay_applied_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(current_epoch))
+    return record
+
+
+def _memory_entry_should_evict(record: dict[str, Any], *, now_epoch: int | None = None) -> bool:
+    current_epoch = int(now_epoch if now_epoch is not None else time.time())
+    category = str(record.get("category") or "").strip().lower()
+    if category not in {"successful_output", "user_fact"}:
+        return False
+    value_score = int(record.get("memory_value_score") or 0)
+    if value_score <= int(MEMORY_LOW_VALUE_EVICT_THRESHOLD):
+        return True
+    last_signal_epoch = _memory_entry_last_signal_epoch(record)
+    if last_signal_epoch <= 0 or current_epoch <= last_signal_epoch:
+        return False
+    age_days = max(0, (current_epoch - last_signal_epoch) // 86400)
+    recall_count = int(record.get("recall_count") or 0)
+    evict_after = (
+        MEMORY_SUCCESSFUL_OUTPUT_EVICT_AFTER_DAYS
+        if category == "successful_output"
+        else MEMORY_USER_FACT_EVICT_AFTER_DAYS
+    )
+    if age_days < int(evict_after or 0):
+        return False
+    if category == "successful_output":
+        return recall_count == 0 or value_score <= 0
+    return value_score < 0
+
+
+def _normalize_memory_entries(state: dict[str, Any], *, now_epoch: int | None = None) -> None:
+    entries_state = state.setdefault("entries", {})
+    current_epoch = int(now_epoch if now_epoch is not None else time.time())
+    changed_records: list[dict[str, Any]] = []
+    removed_records: list[dict[str, Any]] = []
+    for key in list(entries_state):
+        record = dict(entries_state.get(key) or {})
+        if not record:
+            continue
+        category = str(record.get("category") or "").strip().lower()
+        previous_content = str(record.get("content") or "")
+        previous_value = int(record.get("memory_value_score") or 0)
+        if category == "successful_output":
+            compressed = _compress_successful_output_memory(previous_content, _memory_entry_skills(record))
+            if compressed:
+                record["content"] = compressed[:MEMORY_COMPRESSED_OUTPUT_LIMIT].strip()
+            else:
+                record["content"] = previous_content[:MEMORY_COMPRESSED_OUTPUT_LIMIT].strip()
+            record["content_format"] = MEMORY_RECALL_ARTIFACT_VERSION
+        elif category == "user_fact":
+            record["content"] = previous_content[:MEMORY_FACT_CONTENT_LIMIT].strip()
+            record["content_format"] = "user_fact_v1"
+        else:
+            record["content_format"] = str(record.get("content_format") or "markdown_section_v1").strip()
+        record["content_hash"] = hashlib.sha256(str(record.get("content") or "").encode("utf-8")).hexdigest()
+        _refresh_memory_value_score(record, now_epoch=current_epoch)
+        entries_state[key] = record
+        if _memory_entry_should_evict(record, now_epoch=current_epoch):
+            removed_records.append(record)
+            entries_state.pop(key, None)
+            continue
+        if str(record.get("content") or "") != previous_content or int(record.get("memory_value_score") or 0) != previous_value:
+            changed_records.append(record)
+
+    for record in removed_records:
+        _memory_remove_entry(record)
+    for record in changed_records:
+        if str(record.get("category") or "").strip().lower() != "successful_output":
+            continue
+        _run_loom_memory_command(
+            [
+                "write",
+                "--agent-id",
+                MEMORY_RECALL_AGENT_ID,
+                "--category",
+                str(record.get("category") or "successful_output"),
+                "--key",
+                str(record.get("key") or "").strip(),
+                "--content",
+                str(record.get("content") or ""),
+                "--source",
+                str(record.get("source") or MEMORY_DELIVERY_SOURCE),
+            ]
+        )
+
+
 def _memory_remove_entry(record: dict[str, Any]) -> None:
     _run_loom_memory_command(
         [
@@ -3717,12 +3911,22 @@ def _upsert_memory_entry(state: dict[str, Any], entry: dict[str, Any]) -> tuple[
     record["heading"] = str(entry.get("heading") or record.get("heading") or "Memory").strip()
     record["category"] = str(entry.get("category") or record.get("category") or "markdown_section").strip()
     category = str(entry.get("category") or "").strip()
+    source_skill_names = [
+        str(item or "").strip().lower()
+        for item in list(entry.get("source_skill_names") or record.get("source_skill_names") or [])
+        if str(item or "").strip()
+    ]
+    record["source_skill_names"] = source_skill_names
     if category == "successful_output":
-        record["content"] = content[:MEMORY_DELIVERY_CONTENT_LIMIT]
+        compressed = _compress_successful_output_memory(content, source_skill_names)
+        record["content"] = (compressed or content)[:MEMORY_COMPRESSED_OUTPUT_LIMIT].strip()
+        record["content_format"] = MEMORY_RECALL_ARTIFACT_VERSION
     elif category == "user_fact":
         record["content"] = content[:MEMORY_FACT_CONTENT_LIMIT]
+        record["content_format"] = "user_fact_v1"
     else:
         record["content"] = content
+        record["content_format"] = str(entry.get("content_format") or record.get("content_format") or "markdown_section_v1").strip()
     record["tokens"] = list(entry.get("tokens") or [])
     record["source"] = str(entry.get("source") or record.get("source") or MEMORY_RECALL_SOURCE).strip()
     record["source_session_key"] = str(entry.get("source_session_key") or record.get("source_session_key") or "").strip()
@@ -3731,17 +3935,12 @@ def _upsert_memory_entry(state: dict[str, Any], entry: dict[str, Any]) -> tuple[
     record["source_recorded_at"] = str(entry.get("source_recorded_at") or record.get("source_recorded_at") or "").strip()
     record["artifact_source"] = str(entry.get("artifact_source") or record.get("artifact_source") or "").strip().lower()
     record["origin_agent"] = str(entry.get("origin_agent") or record.get("origin_agent") or "").strip().lower()
-    record["source_skill_names"] = [
-        str(item or "").strip().lower()
-        for item in list(entry.get("source_skill_names") or record.get("source_skill_names") or [])
-        if str(item or "").strip()
-    ]
     record["origin_delivery_fingerprint"] = str(
         entry.get("origin_delivery_fingerprint") or record.get("origin_delivery_fingerprint") or ""
     ).strip()
     record["updated_at"] = _memory_now_iso()
     record["content_hash"] = hashlib.sha256(record["content"].encode("utf-8")).hexdigest()
-    record["memory_value_score"] = int(record.get("accepted_count") or 0) - int(record.get("failure_count") or 0)
+    _refresh_memory_value_score(record)
     changed = previous_hash != str(record.get("content_hash") or "").strip()
     entries_state[key] = record
     return record, changed
@@ -3795,17 +3994,20 @@ def _delivery_memory_entry_from_event(delivery_event: dict[str, Any]) -> dict[st
         return None
     if skill_names and request_text and not _artifact_matches_skill_shape(artifact, request_text, skill_names):
         return None
+    compressed_artifact = _compress_successful_output_memory(artifact, skill_names)
+    if not compressed_artifact:
+        return None
     delivery_fingerprint = str(delivery_event.get("delivery_fingerprint") or "").strip()
     if not delivery_fingerprint:
         return None
     heading_label = ", ".join(skill_names[:2]) if skill_names else "general"
-    artifact = artifact[:MEMORY_DELIVERY_CONTENT_LIMIT].strip()
     return {
         "key": f"delivery/{delivery_fingerprint}",
         "heading": f"Successful output: {heading_label}",
         "category": "successful_output",
-        "content": artifact,
-        "tokens": _request_tokens(f"{request_text}\n{' '.join(skill_names)}\n{artifact}"),
+        "content": compressed_artifact,
+        "content_format": MEMORY_RECALL_ARTIFACT_VERSION,
+        "tokens": _request_tokens(f"{request_text}\n{' '.join(skill_names)}\n{artifact[:MEMORY_DELIVERY_CONTENT_LIMIT]}"),
         "source": MEMORY_DELIVERY_SOURCE,
         "source_session_key": str(delivery_event.get("session_key") or "").strip(),
         "source_event_id": str(delivery_event.get("event_id") or "").strip(),
@@ -3888,6 +4090,7 @@ def _remember_successful_delivery_memory(delivery_event: dict[str, Any]) -> None
         return
     state = _load_memory_recall_state()
     record, changed = _upsert_memory_entry(state, entry)
+    _normalize_memory_entries(state)
     _prune_memory_entries(state)
     _save_memory_recall_state(state)
     if record and changed:
@@ -4062,7 +4265,8 @@ def _sync_memory_retrieval_index() -> dict[str, Any]:
         record["content_hash"] = content_hash
         record["source"] = MEMORY_RECALL_SOURCE
         record["updated_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-        record["memory_value_score"] = int(record.get("accepted_count") or 0) - int(record.get("failure_count") or 0)
+        record["content_format"] = "markdown_section_v1"
+        _refresh_memory_value_score(record)
         entries_state[key] = record
         if content_hash != previous_hash:
             changed_keys.append(key)
@@ -4100,6 +4304,7 @@ def _sync_memory_retrieval_index() -> dict[str, Any]:
                 ]
             )
     _sync_successful_output_memory(state)
+    _normalize_memory_entries(state)
     _prune_memory_entries(state)
     state["source_mtime_ns"] = int(source_mtime_ns)
     state["updated_at"] = _memory_now_iso()
@@ -4209,6 +4414,7 @@ def _build_memory_packet(
 ) -> dict[str, Any]:
     state = _sync_memory_retrieval_index()
     _sync_request_user_fact_memory(state, request, session_key)
+    _normalize_memory_entries(state)
     _prune_memory_entries(state)
     entries = [
         dict(item)
@@ -4254,6 +4460,7 @@ def _build_memory_packet(
             "origin_agent": str(item.get("origin_agent") or "").strip().lower(),
             "source_skill_names": _memory_entry_skills(item),
             "source_quality_status": str(item.get("source_quality_status") or "").strip().lower(),
+            "content_format": str(item.get("content_format") or "").strip(),
             "content": str(item.get("content") or "").strip(),
         }
         for item in selected
@@ -4297,7 +4504,6 @@ def _record_memory_recall_outcome(
     normalized_quality = str(quality_status or "partial").strip().lower()
     if normalized_quality not in {"success", "partial", "failure"}:
         normalized_quality = "partial"
-    accepted = normalized_quality in {"success", "partial"}
     entries_state = state.setdefault("entries", {})
     updated: list[dict[str, Any]] = []
     for key in keys:
@@ -4314,7 +4520,7 @@ def _record_memory_recall_outcome(
         record["last_recalled_at"] = _memory_now_iso()
         record["last_quality_status"] = normalized_quality
         record["last_delivery_fingerprint"] = delivery_fingerprint
-        record["memory_value_score"] = int(record.get("accepted_count") or 0) - int(record.get("failure_count") or 0)
+        _refresh_memory_value_score(record)
         entries_state[key] = record
         updated.append(
             {
@@ -4327,6 +4533,7 @@ def _record_memory_recall_outcome(
             }
         )
     session_packets.pop(session_key, None)
+    _normalize_memory_entries(state)
     _save_memory_recall_state(state)
     if not updated:
         return None
@@ -4343,6 +4550,51 @@ def _memory_context_block(memory_packet: dict[str, Any] | None) -> str:
     if not context:
         return "(none)"
     return context
+
+
+def _atlas_memory_research_block(
+    memory_packet: dict[str, Any] | None,
+    request: str,
+    skill_names: list[str] | None = None,
+) -> str:
+    entries = [dict(item) for item in list(dict(memory_packet or {}).get("entries") or []) if isinstance(item, dict)]
+    if not entries:
+        return ""
+    lowered_skills = {str(item or "").strip().lower() for item in list(skill_names or []) if str(item or "").strip()}
+    ranked = sorted(
+        entries,
+        key=lambda item: (
+            3 if str(item.get("category") or "").strip().lower() == "successful_output" else
+            2 if str(item.get("category") or "").strip().lower() == "user_fact" else 1,
+            1 if lowered_skills.intersection(set(_memory_entry_skills(item))) else 0,
+            int(item.get("fit_score") or 0),
+            int(item.get("memory_value_score") or 0),
+        ),
+        reverse=True,
+    )
+    shortlist = ranked[:3]
+    if not shortlist:
+        return ""
+    lines = [
+        "Governed memory shortlist for research planning:",
+        "Use this only as prior bounded context and reusable patterns. Do not treat it as live evidence.",
+    ]
+    for item in shortlist:
+        category = str(item.get("category") or "").strip().lower()
+        if category == "successful_output":
+            label = "Reusable prior pattern"
+        elif category == "user_fact":
+            label = "Known user fact"
+        else:
+            label = "Stable Meridian context"
+        skills_label = ", ".join(_memory_entry_skills(item)[:2])
+        skills_suffix = f"; skills={skills_label}" if skills_label else ""
+        lines.append(
+            f"- {label} [{str(item.get('heading') or 'Memory').strip()}] "
+            f"(fit={int(item.get('fit_score') or 0)}, value={int(item.get('memory_value_score') or 0)}{skills_suffix}): "
+            f"{_memory_inline_digest(str(item.get('content') or ''), limit=220)}"
+        )
+    return "\n".join(lines).strip()
 
 
 def _memory_packet_keys(memory_packet: dict[str, Any] | None) -> list[str]:

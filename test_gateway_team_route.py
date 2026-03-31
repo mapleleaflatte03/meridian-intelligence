@@ -249,6 +249,11 @@ class GatewayTeamRouteTests(unittest.TestCase):
         self.assertEqual(entry['origin_agent'], 'main')
         self.assertIn('research-khach-hang', entry['source_skill_names'])
         self.assertTrue(entry['key'].startswith('delivery/'))
+        self.assertEqual(entry['content_format'], meridian_gateway.MEMORY_RECALL_ARTIFACT_VERSION)
+        self.assertNotEqual(entry['content'], delivery_event['text'].strip())
+        self.assertLess(len(entry['content']), len(delivery_event['text']))
+        self.assertIn('Likely buyer', entry['content'])
+        self.assertIn('Next move', entry['content'])
 
     def test_build_memory_packet_penalizes_cross_skill_successful_output_memory(self):
         state = {
@@ -290,6 +295,57 @@ class GatewayTeamRouteTests(unittest.TestCase):
         keys = [item['key'] for item in packet['entries']]
         self.assertNotIn('delivery/udf_mail', keys)
         self.assertIn('section/mission', keys)
+
+    def test_normalize_memory_entries_decays_stale_successful_output_value(self):
+        state = {
+            'entries': {
+                'delivery/udf_old': {
+                    'key': 'delivery/udf_old',
+                    'heading': 'Successful output: research-khach-hang',
+                    'category': 'successful_output',
+                    'content': '**Likely buyer**\n- PMM\n\n**Next move**\n- Interview buyers',
+                    'source_skill_names': ['research-khach-hang'],
+                    'accepted_count': 4,
+                    'failure_count': 0,
+                    'memory_value_score': 4,
+                    'source_recorded_at': '2026-03-20T00:00:00Z',
+                    'updated_at': '2026-03-20T00:00:00Z',
+                    'recall_count': 1,
+                },
+            },
+            'session_packets': {},
+        }
+        now_epoch = meridian_gateway._memory_timestamp_epoch('2026-03-31T00:00:00Z')
+        with mock.patch.object(meridian_gateway, '_run_loom_memory_command', return_value={'ok': True}):
+            meridian_gateway._normalize_memory_entries(state, now_epoch=now_epoch)
+        record = state['entries']['delivery/udf_old']
+        self.assertLess(record['memory_value_score'], 4)
+        self.assertEqual(record['content_format'], meridian_gateway.MEMORY_RECALL_ARTIFACT_VERSION)
+
+    def test_normalize_memory_entries_evicts_stale_low_value_successful_output(self):
+        state = {
+            'entries': {
+                'delivery/udf_bad': {
+                    'key': 'delivery/udf_bad',
+                    'heading': 'Successful output: research-khach-hang',
+                    'category': 'successful_output',
+                    'content': '**Likely buyer**\n- PMM',
+                    'source_skill_names': ['research-khach-hang'],
+                    'accepted_count': 0,
+                    'failure_count': 2,
+                    'memory_value_score': -2,
+                    'source_recorded_at': '2026-03-01T00:00:00Z',
+                    'updated_at': '2026-03-01T00:00:00Z',
+                    'recall_count': 0,
+                },
+            },
+            'session_packets': {},
+        }
+        now_epoch = meridian_gateway._memory_timestamp_epoch('2026-03-31T00:00:00Z')
+        with mock.patch.object(meridian_gateway, '_run_loom_memory_command', return_value={'ok': True}) as loom_mock:
+            meridian_gateway._normalize_memory_entries(state, now_epoch=now_epoch)
+        self.assertNotIn('delivery/udf_bad', state['entries'])
+        self.assertTrue(any('remove' in str(call.args[0]) for call in loom_mock.call_args_list))
 
     def test_actionable_end_user_request_creates_skill_routed_team_plan(self):
         prompt = 'bạn có thể gửi mail cho tôi về trạng thái cập nhật mới nhất của Meridian thông qua mail của chính tôi là nguyensimon186@gmail.com.'
@@ -480,6 +536,64 @@ Use this skill when the user gives a short prompt such as:
         self.assertIn('giả thuyết cần kiểm chứng', receipt['result'])
         self.assertIn('placeholder_citations_detected_in_research_output', receipt['warnings'])
         self.assertIn('customer_research_starter_salvaged_after_unverified_research', receipt['warnings'])
+
+    def test_atlas_research_route_receives_memory_shortlist(self):
+        plan = {
+            'manager_brief': 'Research paid customer demand for Meridian.',
+            'topic': 'research khách hàng trả tiền cho Meridian',
+            'criteria': 'factual',
+            'memory_packet': {
+                'entries': [
+                    {
+                        'key': 'delivery/udf_old_research',
+                        'heading': 'Successful output: research-khach-hang',
+                        'category': 'successful_output',
+                        'content': 'Reusable pattern (research-khach-hang)\n- Likely buyer: PMM | operator\n- Next move: interview 5 buyers',
+                        'fit_score': 42,
+                        'memory_value_score': 5,
+                        'source_skill_names': ['research-khach-hang'],
+                    },
+                    {
+                        'key': 'fact/email/demo',
+                        'heading': 'User Contact',
+                        'category': 'user_fact',
+                        'content': 'User contact email: nguyensimon186@gmail.com',
+                        'fit_score': 18,
+                        'memory_value_score': 1,
+                        'source_skill_names': [],
+                    },
+                ],
+                'context': '...',
+            },
+            'skills': [
+                {
+                    'name': 'research-khach-hang',
+                    'description': 'Customer research starter pack',
+                    'workers': ['ATLAS', 'AEGIS'],
+                    'category': 'research',
+                }
+            ],
+        }
+        result = {
+            'research': '**Status**\n\nĐây là research starter dạng giả thuyết cần kiểm chứng.',
+            'job_id': 'job-atlas',
+            'error': '',
+        }
+        with mock.patch.object(meridian_gateway, 'append_session_event'):
+            with mock.patch.object(meridian_gateway, '_atlas_should_use_internal_analysis', return_value=False):
+                with mock.patch.object(meridian_gateway.mcp_server, 'do_on_demand_research_route', return_value=result) as route_mock:
+                    receipt = meridian_gateway._run_specialist_step(
+                        'ATLAS',
+                        'research khách hàng trả tiền cho Meridian',
+                        'web_api:test-atlas-memory-shortlist',
+                        plan,
+                    )
+        self.assertEqual(receipt['status'], 'ok')
+        research_prompt = route_mock.call_args.args[0]
+        self.assertIn('Governed memory shortlist for research planning', research_prompt)
+        self.assertIn('Reusable prior pattern', research_prompt)
+        self.assertIn('Known user fact', research_prompt)
+        self.assertIn('Do not treat it as live evidence', research_prompt)
 
     def test_complex_governance_request_does_not_collapse_to_internal_status(self):
         prompt = (
