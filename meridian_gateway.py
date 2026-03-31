@@ -3953,6 +3953,40 @@ def _latest_usable_step_artifact(steps: list[dict[str, Any]]) -> str:
     return ""
 
 
+def _request_wants_protocol_artifact(request: str) -> bool:
+    lowered = str(request or "").strip().lower()
+    if not lowered:
+        return False
+    return (
+        any(token in lowered for token in ("protocol", "playbook", "quy trình", "quy trinh"))
+        and any(token in lowered for token in ("giả thuyết", "gia thuyet", "hypothesis"))
+        and any(token in lowered for token in ("câu hỏi", "cau hoi", "question"))
+        and any(token in lowered for token in ("follow-up", "follow up", "followup", "tin nhắn", "tin nhan", "message"))
+        and any(token in lowered for token in ("tiêu chí dừng", "tieu chi dung", "stop rule", "exit criteria"))
+    )
+
+
+def _artifact_matches_protocol_request_shape(text: str, request: str) -> bool:
+    if not _request_wants_protocol_artifact(request):
+        return False
+    lowered = str(text or "").strip().lower()
+    if not lowered:
+        return False
+    return _artifact_looks_like_protocol_answer(text)
+
+
+def _artifact_looks_like_protocol_answer(text: str) -> bool:
+    lowered = str(text or "").strip().lower()
+    if not lowered:
+        return False
+    return (
+        any(token in lowered for token in ("giả thuyết", "gia thuyet", "hypothesis"))
+        and any(token in lowered for token in ("câu hỏi", "cau hoi", "question"))
+        and any(token in lowered for token in ("follow-up", "follow up", "followup", "tin nhắn", "tin nhan", "message"))
+        and any(token in lowered for token in ("tiêu chí dừng", "tieu chi dung", "stop rule", "exit criteria"))
+    )
+
+
 def _artifact_matches_skill_shape(text: str, request: str, skill_names: list[str] | None = None) -> bool:
     lowered_skills = {str(item or "").strip().lower() for item in (skill_names or [])}
     artifact = str(text or "").strip()
@@ -3961,6 +3995,8 @@ def _artifact_matches_skill_shape(text: str, request: str, skill_names: list[str
         return False
     if _looks_like_scope_document(artifact):
         return False
+    if _artifact_matches_protocol_request_shape(artifact, request):
+        return True
     if "scan-doi-thu" in lowered_skills:
         return not _competitor_scan_artifact_needs_salvage(artifact)
     if "safe-web-research" in lowered_skills:
@@ -4040,6 +4076,8 @@ def _final_artifact_is_usable(final_artifact: str, skill_names: list[str] | None
     text = str(final_artifact or "").strip()
     if not text:
         return False
+    if _artifact_looks_like_protocol_answer(text):
+        return True
     if "scan-doi-thu" in lowered_skills:
         return not _competitor_scan_artifact_needs_salvage(text)
     if "mail-gui" in lowered_skills:

@@ -569,6 +569,45 @@ Use this skill when the user gives a short prompt such as:
         )
         self.assertIn('Cảm ơn anh/chị đã dành thời gian tham gia buổi demo hôm qua', salvaged)
 
+    def test_protocol_request_keeps_manager_protocol_answer_over_mail_follow_worker_artifact(self):
+        request = (
+            'hãy tạo cho tôi một protocol cứu deal chết trong 7 phút: gồm 3 giả thuyết, '
+            '5 câu hỏi bóc tách, 1 tin nhắn follow-up gửi khách, và 1 tiêu chí dừng rõ ràng.'
+        )
+        manager_answer = (
+            '**Protocol cứu deal chết trong 7 phút**\n\n'
+            '**3 giả thuyết**\n'
+            '1. Deal kẹt ở ưu tiên nội bộ.\n'
+            '2. Deal kẹt ở rủi ro quyết định.\n'
+            '3. Deal kẹt ở timing hoặc ngân sách.\n\n'
+            '**5 câu hỏi bóc tách**\n'
+            '1. Điều gì đang chặn quyết định?\n'
+            '2. Ưu tiên nào đang đứng trước deal này?\n'
+            '3. Ai còn chưa đồng ý?\n'
+            '4. Rủi ro lớn nhất là gì?\n'
+            '5. Điều gì cần đổi để deal chạy lại?\n\n'
+            '**1 tin nhắn follow-up gửi khách**\n'
+            'Anh/chị cho em hỏi đâu là điểm lớn nhất đang chặn quyết định để bên em xử lý ngay.\n\n'
+            '**1 tiêu chí dừng rõ ràng**\n'
+            'Nếu không có người chịu trách nhiệm và không có mốc thời gian rõ trong 7 ngày thì đóng deal.'
+        )
+        steps = [
+            {
+                'status': 'ok',
+                'task_kind': 'write',
+                'result': '**Tiêu đề:** Chào anh/chị\\n\\n**Nội dung:** Xin lịch hẹn ngày mai.',
+                'warnings': [],
+            }
+        ]
+        repaired, warnings = meridian_gateway._repair_manager_answer(
+            request,
+            manager_answer,
+            steps,
+            ['follow-demo-soan', 'mail-gui'],
+        )
+        self.assertEqual(repaired, manager_answer)
+        self.assertEqual(warnings, [])
+
 
 if __name__ == '__main__':
     unittest.main()
