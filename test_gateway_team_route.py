@@ -246,7 +246,7 @@ class GatewayTeamRouteTests(unittest.TestCase):
         entry = meridian_gateway._delivery_memory_entry_from_event(delivery_event)
         self.assertIsNotNone(entry)
         self.assertEqual(entry['category'], 'successful_output')
-        self.assertEqual(entry['origin_agent'], 'main')
+        self.assertEqual(entry['origin_agent'], 'atlas')
         self.assertIn('research-khach-hang', entry['source_skill_names'])
         self.assertTrue(entry['key'].startswith('delivery/'))
         self.assertEqual(entry['content_format'], meridian_gateway.MEMORY_RECALL_ARTIFACT_VERSION)
@@ -254,6 +254,38 @@ class GatewayTeamRouteTests(unittest.TestCase):
         self.assertLess(len(entry['content']), len(delivery_event['text']))
         self.assertIn('Likely buyer', entry['content'])
         self.assertIn('Next move', entry['content'])
+
+    def test_delivery_memory_entry_keeps_manager_origin_for_manager_shaped_mail(self):
+        delivery_event = {
+            'status': 'success',
+            'artifact_source': 'manager_response',
+            'final_artifact_usable': True,
+            'request_text': 'gửi mail cho khách về Meridian',
+            'text': (
+                '**Subject:** Meridian update\n\n'
+                '**Body:**\n'
+                'Hello [Name],\n\nI wanted to share a concise Meridian update and ask for a short follow-up call.'
+            ),
+            'skills_used': ['mail-gui'],
+            'session_key': 'web_api:test-memory-delivery-mail',
+            'event_id': 'evt-memory-delivery-mail',
+            'delivery_fingerprint': 'udf_memory_delivery_mail',
+            'recorded_at': '2026-03-31T13:41:00Z',
+            'contributors': [
+                {
+                    'economy_key': 'quill',
+                    'task_kind': 'write',
+                    'status': 'ok',
+                    'usable_artifact': True,
+                    'artifact_fit_score': 61,
+                    'matches_final_artifact': True,
+                    'best_fit_contributor': True,
+                }
+            ],
+        }
+        entry = meridian_gateway._delivery_memory_entry_from_event(delivery_event)
+        self.assertIsNotNone(entry)
+        self.assertEqual(entry['origin_agent'], 'main')
 
     def test_build_memory_packet_penalizes_cross_skill_successful_output_memory(self):
         state = {

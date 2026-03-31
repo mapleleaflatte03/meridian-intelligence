@@ -3946,30 +3946,42 @@ def _upsert_memory_entry(state: dict[str, Any], entry: dict[str, Any]) -> tuple[
     return record, changed
 
 
-def _memory_delivery_origin_agent(delivery_event: dict[str, Any]) -> str:
-    artifact_source = str(delivery_event.get("artifact_source") or "").strip().lower()
-    contributors = [item for item in list(delivery_event.get("contributors") or []) if isinstance(item, dict)]
-    if artifact_source in {"manager_response", "salvage_template"}:
-        return str(TEAM_TOPOLOGY.manager.handle or "").strip().lower()
+def _memory_best_origin_contributor(
+    contributors: list[dict[str, Any]],
+    *,
+    task_kinds: set[str] | None = None,
+    min_fit_score: int = 32,
+) -> str:
     best_agent = ""
     best_score = -1000
     for contributor in contributors:
         agent_key = str(contributor.get("economy_key") or "").strip().lower()
         if not agent_key:
             continue
-        score = int(contributor.get("artifact_fit_score") or -100)
+        task_kind = str(contributor.get("task_kind") or "").strip().lower()
+        if task_kinds and task_kind not in task_kinds:
+            continue
+        if str(contributor.get("status") or "").strip().lower() != "ok":
+            continue
+        if bool(contributor.get("drift_rewritten")):
+            continue
+        fit_score = int(contributor.get("artifact_fit_score") or -100)
+        support_level = _contributor_support_level(contributor)
+        effective_min_fit = int(min_fit_score)
+        if task_kind == "research" and bool(contributor.get("best_fit_contributor")):
+            effective_min_fit = min(effective_min_fit, 24)
+        if fit_score < effective_min_fit and support_level == "none":
+            continue
+        score = fit_score
         if bool(contributor.get("matches_final_artifact")):
             score += 80
-        elif _contributor_support_level(contributor) == "primary":
+        elif support_level == "primary":
             score += 50
         elif bool(contributor.get("best_fit_contributor")):
             score += 25
-        task_kind = str(contributor.get("task_kind") or "").strip().lower()
-        if task_kind == "write":
+        if task_kind == "research":
             score += 8
-        elif task_kind == "research":
-            score += 6
-        elif task_kind == "execute":
+        elif task_kind == "write":
             score += 4
         if bool(contributor.get("usable_artifact")):
             score += 4
@@ -3977,6 +3989,23 @@ def _memory_delivery_origin_agent(delivery_event: dict[str, Any]) -> str:
             best_score = score
             best_agent = agent_key
     return best_agent
+
+
+def _memory_delivery_origin_agent(delivery_event: dict[str, Any]) -> str:
+    artifact_source = str(delivery_event.get("artifact_source") or "").strip().lower()
+    contributors = [item for item in list(delivery_event.get("contributors") or []) if isinstance(item, dict)]
+    if artifact_source == "salvage_template":
+        return str(TEAM_TOPOLOGY.manager.handle or "").strip().lower()
+    if artifact_source == "manager_response":
+        research_origin = _memory_best_origin_contributor(
+            contributors,
+            task_kinds={"research"},
+            min_fit_score=32,
+        )
+        if research_origin:
+            return research_origin
+        return str(TEAM_TOPOLOGY.manager.handle or "").strip().lower()
+    return _memory_best_origin_contributor(contributors)
 
 
 def _delivery_memory_entry_from_event(delivery_event: dict[str, Any]) -> dict[str, Any] | None:
