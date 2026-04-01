@@ -875,8 +875,10 @@ class GatewayTeamRouteTests(unittest.TestCase):
 
     def test_extract_operator_token_supports_bearer_and_header_fallback(self):
         bearer_headers = {'Authorization': 'Bearer secret-token'}
+        basic_headers = {'Authorization': 'Basic b3BlcmF0b3I6YmFzaWMtc2VjcmV0'}
         header_headers = {'X-Meridian-Operator-Token': 'header-token'}
         self.assertEqual(meridian_gateway._extract_operator_token(bearer_headers), 'secret-token')
+        self.assertEqual(meridian_gateway._extract_operator_token(basic_headers), 'basic-secret')
         self.assertEqual(meridian_gateway._extract_operator_token(header_headers), 'header-token')
 
     def test_operator_token_valid_uses_env_token(self):

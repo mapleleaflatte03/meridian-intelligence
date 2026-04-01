@@ -348,6 +348,13 @@ def _extract_operator_token(headers: Any) -> str:
             return authorization[7:].strip()
         if lowered.startswith("token "):
             return authorization[6:].strip()
+        if lowered.startswith("basic "):
+            try:
+                decoded = base64.b64decode(authorization[6:].strip()).decode("utf-8")
+            except Exception:
+                decoded = ""
+            if ":" in decoded:
+                return decoded.split(":", 1)[1].strip()
     return str(header_get("X-Meridian-Operator-Token", "") or "").strip()
 
 

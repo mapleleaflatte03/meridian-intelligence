@@ -278,7 +278,11 @@
       });
     }
     config.headers = requestHeaders(headers);
-    return fetch(url, config);
+    var targetUrl = safeText(url);
+    if (/^\//.test(targetUrl)) {
+      targetUrl = new URL(targetUrl, window.location.origin).toString();
+    }
+    return fetch(targetUrl, config);
   }
 
   function persistOperatorToken(token) {
@@ -350,6 +354,19 @@
     currentSnapshot = null;
     setOperatorStatus('Operator token required to read Trust Ops state.', true);
     setAuthStatus('Operator token cleared.', false);
+    syncBulkSelectionUi();
+  }
+
+  function showLockedTrustOpsState(authMessage, statusMessage, authError) {
+    if (queueBody) {
+      queueBody.innerHTML = '<tr><td colspan="7">Operator token required to load queue data.</td></tr>';
+    }
+    if (questionnaireDetail) {
+      questionnaireDetail.innerHTML = '<p class="dim">Unlock the queue to inspect questionnaire detail.</p>';
+    }
+    currentSnapshot = null;
+    setOperatorStatus(statusMessage || 'Operator token required to read Trust Ops state.', true);
+    setAuthStatus(authMessage || 'Operator token required.', Boolean(authError));
     syncBulkSelectionUi();
   }
 
@@ -533,10 +550,6 @@
   }
 
   async function loadOperatorSnapshot() {
-    if (!operatorToken) {
-      clearOperatorToken();
-      return;
-    }
     var params = new URLSearchParams();
     var formData = new FormData(filterForm);
     formData.forEach(function (value, key) {
@@ -556,8 +569,16 @@
       var response = await trustOpsFetch('/api/trust-ops/queue?' + params.toString());
       var payload = await response.json();
       if (response.status === 401) {
-        clearOperatorToken();
-        setAuthStatus('Operator token was rejected. Paste a valid token to continue.', true);
+        if (operatorToken) {
+          clearOperatorToken();
+          setAuthStatus('Operator token was rejected. Paste a valid token to continue.', true);
+        } else {
+          showLockedTrustOpsState(
+            'Operator token required. Browser auth alone was not enough for queue access.',
+            'Operator token required to read Trust Ops state.',
+            false
+          );
+        }
         return;
       }
       if (!response.ok) {
@@ -601,8 +622,16 @@
       });
       var payload = await response.json();
       if (response.status === 401) {
-        clearOperatorToken();
-        setAuthStatus('Operator token was rejected. Paste a valid token to continue.', true);
+        if (operatorToken) {
+          clearOperatorToken();
+          setAuthStatus('Operator token was rejected. Paste a valid token to continue.', true);
+        } else {
+          showLockedTrustOpsState(
+            'Operator token required before queue review can run.',
+            'Operator token required to review queue items.',
+            false
+          );
+        }
         return;
       }
       if (!response.ok) {
@@ -638,8 +667,16 @@
       });
       var payload = await response.json();
       if (response.status === 401) {
-        clearOperatorToken();
-        setAuthStatus('Operator token was rejected. Paste a valid token to continue.', true);
+        if (operatorToken) {
+          clearOperatorToken();
+          setAuthStatus('Operator token was rejected. Paste a valid token to continue.', true);
+        } else {
+          showLockedTrustOpsState(
+            'Operator token required before bulk review can run.',
+            'Operator token required to review queue items.',
+            false
+          );
+        }
         return;
       }
       if (!response.ok) {
@@ -737,17 +774,8 @@
   });
 
   restoreOperatorToken();
-  if (operatorToken) {
-    loadOperatorSnapshot();
-  } else {
-    if (queueBody) {
-      queueBody.innerHTML = '<tr><td colspan="7">Operator token required to load queue data.</td></tr>';
-    }
-    if (questionnaireDetail) {
-      questionnaireDetail.innerHTML = '<p class="dim">Unlock the queue to inspect questionnaire detail.</p>';
-    }
-    setOperatorStatus('Operator token required to read Trust Ops state.', true);
-    setAuthStatus('Operator token required.', false);
-    syncBulkSelectionUi();
+  if (!operatorToken) {
+    showLockedTrustOpsState('Operator token required.', 'Operator token required to read Trust Ops state.', false);
   }
+  loadOperatorSnapshot();
 })();
