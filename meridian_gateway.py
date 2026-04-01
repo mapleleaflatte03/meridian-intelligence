@@ -8605,6 +8605,48 @@ def _request_prefers_vietnamese(text: str) -> bool:
     return any(token in lowered for token in ("gửi", "gui", "khách", "lịch", "lich", "sáng mai", "toi", "tôi"))
 
 
+def _mail_request_wants_status_update(request: str) -> bool:
+    lowered = str(request or "").strip().lower()
+    if not lowered:
+        return False
+    status_terms = (
+        "trạng thái",
+        "trang thai",
+        "status update",
+        "current status",
+        "cập nhật",
+        "cap nhat",
+        "update",
+    )
+    subject_terms = (
+        "agent",
+        "agents",
+        "meridian",
+        "bạn và các agent",
+        "you and the other agents",
+    )
+    return any(term in lowered for term in status_terms) and any(term in lowered for term in subject_terms)
+
+
+def _mail_request_wants_meeting(request: str) -> bool:
+    lowered = str(request or "").strip().lower()
+    if not lowered:
+        return False
+    meeting_terms = (
+        "lịch hẹn",
+        "lich hen",
+        "đặt lịch",
+        "dat lich",
+        "meeting",
+        "meet",
+        "zoom",
+        "teams",
+        "google meet",
+        "follow-up",
+    )
+    return any(term in lowered for term in meeting_terms)
+
+
 def _looks_like_scope_document(text: str) -> bool:
     lowered = str(text or "").strip().lower()
     if not lowered:
@@ -8639,40 +8681,147 @@ def _meeting_output_needs_salvage(text: str) -> bool:
 
 
 def _salvage_mail_artifact(request: str) -> str:
+    if _mail_request_wants_status_update(request):
+        if _request_prefers_vietnamese(request):
+            return textwrap.dedent(
+                """
+                **Tiêu đề:** Cập nhật trạng thái hiện tại của Meridian và các Agent
+
+                **Nội dung:**
+
+                Chào anh/chị,
+
+                Đây là bản cập nhật ngắn về trạng thái hiện tại của Meridian và các Agent trên host đang chạy:
+
+                - **Meridian:** đang vận hành theo hướng governed Trust Ops, với boundary công khai và các proof route đang hoạt động trên host hiện tại.
+                - **Leviathann:** giữ vai trò manager, điều phối output cuối và route các lane theo boundary hiện tại.
+                - **Atlas:** phụ trách research và signal discovery cho các lane cần evidence hoặc watch output.
+                - **Quill:** phụ trách drafting các artifact gửi người dùng như email, brief, questionnaire pack, và output buyer-facing.
+                - **Aegis / Sentinel:** phụ trách quality gate, contradiction check, và cảnh báo khi output không đủ proof.
+                - **Forge / Pulse:** phụ trách execution bounded steps và nén/đóng gói output cho delivery.
+
+                Nếu anh/chị muốn, em có thể viết tiếp bản này thành memo rõ hơn theo format:
+                1. trạng thái host hiện tại,
+                2. trạng thái từng Agent,
+                3. phần nào đã live,
+                4. phần nào vẫn còn bounded hoặc phase-gated.
+
+                Trân trọng,
+                [Tên bạn]
+                [Chức danh]
+                [Công ty]
+                [Email]
+                """
+            ).strip()
+        return textwrap.dedent(
+            """
+            **Subject:** Current Status Update for Meridian and Its Agents
+
+            **Body:**
+
+            Hello,
+
+            Here is a short update on the current status of Meridian and the agents running on the current host:
+
+            - **Meridian:** operating as a governed Trust Ops system with a public boundary and live proof routes on the current host.
+            - **Leviathann:** acting as the manager, routing work and choosing the final user-facing artifact.
+            - **Atlas:** handling research and signal discovery for evidence-heavy and watch-oriented lanes.
+            - **Quill:** drafting buyer-facing output such as emails, briefs, questionnaire packs, and communication artifacts.
+            - **Aegis / Sentinel:** handling quality gates, contradiction checks, and warning when output lacks enough proof.
+            - **Forge / Pulse:** handling bounded execution steps and compressing output for delivery.
+
+            If useful, I can also turn this into a more formal status memo with:
+            1. current host status,
+            2. per-agent status,
+            3. what is live now,
+            4. what remains bounded or phase-gated.
+
+            Best,
+            [Your Name]
+            [Title]
+            [Company]
+            [Email]
+            """
+        ).strip()
+    if _mail_request_wants_meeting(request):
+        if _request_prefers_vietnamese(request):
+            return textwrap.dedent(
+                """
+                **Tiêu đề:** Chào anh/chị và xin lịch hẹn ngày mai
+
+                **Nội dung:**
+
+                Chào anh/chị [Tên khách],
+
+                Em là [Tên bạn] từ [Tên công ty].
+
+                Em gửi lời chào và mong được sắp xếp một buổi trao đổi ngắn với anh/chị vào ngày mai, [ngày/tháng/năm]. Nếu thuận tiện, anh/chị cho em xin khung giờ phù hợp trong buổi sáng theo múi giờ [Múi giờ] để em chốt lịch ngay.
+
+                Nếu cần, em cũng có thể gửi lời mời họp qua `Google Meet`, `Zoom`, hoặc `Teams`.
+
+                Trân trọng,
+                [Tên bạn]
+                [Chức danh]
+                [Công ty]
+                [Số điện thoại]
+                [Email]
+                """
+            ).strip()
+        return textwrap.dedent(
+            """
+            **Subject:** Welcome and Meeting Availability for Tomorrow
+
+            **Body:**
+
+            Hello [Customer Name],
+
+            I hope you're doing well. I wanted to send a quick welcome note and ask whether you have any availability for a short meeting tomorrow.
+
+            If you prefer, I can send the invite via Google Meet, Zoom, or Teams once you confirm a suitable time.
+
+            Best,
+            [Your Name]
+            [Title]
+            [Company]
+            """
+        ).strip()
     if _request_prefers_vietnamese(request):
         return textwrap.dedent(
             """
-            **Tiêu đề:** Chào anh/chị và xin lịch hẹn ngày mai
+            **Tiêu đề:** Bản nháp email cần hoàn thiện trước khi gửi
 
             **Nội dung:**
 
-            Chào anh/chị [Tên khách],
+            Chào [Tên người nhận],
 
-            Em là [Tên bạn] từ [Tên công ty].
+            Đây là bản nháp email an toàn vì yêu cầu gốc vẫn còn thiếu vài chi tiết cụ thể.
 
-            Em gửi lời chào và mong được sắp xếp một buổi trao đổi ngắn với anh/chị vào ngày mai, [ngày/tháng/năm]. Nếu thuận tiện, anh/chị cho em xin khung giờ phù hợp trong buổi sáng theo múi giờ [Múi giờ] để em chốt lịch ngay.
-
-            Nếu cần, em cũng có thể gửi lời mời họp qua `Google Meet`, `Zoom`, hoặc `Teams`.
+            - Mục đích email: [điền mục tiêu chính]
+            - Nội dung chính cần truyền đạt: [điền thông tin cốt lõi]
+            - Hành động mong muốn từ người nhận: [điền next step]
+            - Mốc thời gian hoặc deadline (nếu có): [điền thời gian]
 
             Trân trọng,
             [Tên bạn]
             [Chức danh]
             [Công ty]
-            [Số điện thoại]
             [Email]
             """
         ).strip()
     return textwrap.dedent(
         """
-        **Subject:** Welcome and Meeting Availability for Tomorrow
+        **Subject:** Draft email to finalize before sending
 
         **Body:**
 
-        Hello [Customer Name],
+        Hello [Recipient Name],
 
-        I hope you're doing well. I wanted to send a quick welcome note and ask whether you have any availability for a short meeting tomorrow.
+        This is a safe draft because the original request is still missing some concrete details.
 
-        If you prefer, I can send the invite via Google Meet, Zoom, or Teams once you confirm a suitable time.
+        - Main goal of the email: [fill this in]
+        - Key point to communicate: [fill this in]
+        - Desired next step from the recipient: [fill this in]
+        - Timeline or deadline, if relevant: [fill this in]
 
         Best,
         [Your Name]

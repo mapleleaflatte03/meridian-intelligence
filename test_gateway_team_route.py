@@ -1704,6 +1704,21 @@ Use this skill when the user gives a short prompt such as:
         self.assertIn('tiêu chí dừng', salvaged.lower())
         self.assertNotIn('**tiêu đề:**', salvaged.lower())
 
+    def test_mail_request_salvage_prefers_status_update_template(self):
+        request = 'gửi mail cho tôi về trạng thái hiện tại của bạn và các Agent khác. Mail tôi là nguyensimon186@gmail.com'
+        salvaged = meridian_gateway._salvage_user_artifact(request, ['mail-gui'])
+        lowered = salvaged.lower()
+        self.assertIn('cập nhật trạng thái hiện tại của meridian', lowered)
+        self.assertIn('leviathann', lowered)
+        self.assertNotIn('xin lịch hẹn ngày mai', lowered)
+
+    def test_mail_request_salvage_keeps_meeting_template_for_meeting_prompt(self):
+        request = 'gửi mail cho tôi nội dung chào khách và hỏi lịch hẹn ngày mai'
+        salvaged = meridian_gateway._salvage_user_artifact(request, ['mail-gui'])
+        lowered = salvaged.lower()
+        self.assertIn('xin lịch hẹn ngày mai', lowered)
+        self.assertNotIn('cập nhật trạng thái hiện tại của meridian', lowered)
+
     def test_protocol_request_repairs_from_worker_payload_dict(self):
         request = (
             'hãy tạo cho tôi một protocol kéo deal im lặng quay lại trong 11 phút: gồm 3 giả thuyết, '
