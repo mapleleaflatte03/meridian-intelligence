@@ -255,7 +255,7 @@ class GatewayTeamRouteTests(unittest.TestCase):
         self.assertIn('Likely buyer', entry['content'])
         self.assertIn('Next move', entry['content'])
 
-    def test_delivery_memory_entry_keeps_manager_origin_for_manager_shaped_mail(self):
+    def test_delivery_memory_entry_assigns_writer_origin_for_manager_shaped_mail(self):
         delivery_event = {
             'status': 'success',
             'artifact_source': 'manager_response',
@@ -285,7 +285,46 @@ class GatewayTeamRouteTests(unittest.TestCase):
         }
         entry = meridian_gateway._delivery_memory_entry_from_event(delivery_event)
         self.assertIsNotNone(entry)
-        self.assertEqual(entry['origin_agent'], 'main')
+        self.assertEqual(entry['origin_agent'], 'quill')
+        self.assertEqual(entry['origin_task_kind'], 'write')
+
+    def test_delivery_memory_entry_assigns_execute_origin_for_manager_shaped_ops_snapshot(self):
+        delivery_event = {
+            'status': 'success',
+            'artifact_source': 'manager_response',
+            'final_artifact_usable': True,
+            'request_text': 'ops snapshot',
+            'text': 'Operational Meridian snapshot: runtime `loom_native` for `org_48b05c21` is up.',
+            'skills_used': ['ops-snapshot'],
+            'session_key': 'web_api:test-memory-delivery-ops',
+            'event_id': 'evt-memory-delivery-ops',
+            'delivery_fingerprint': 'udf_memory_delivery_ops',
+            'recorded_at': '2026-04-01T05:40:00Z',
+            'contributors': [
+                {
+                    'economy_key': 'forge',
+                    'task_kind': 'execute',
+                    'status': 'ok',
+                    'usable_artifact': True,
+                    'artifact_fit_score': 58,
+                    'matches_final_artifact': True,
+                    'best_fit_contributor': True,
+                },
+                {
+                    'economy_key': 'pulse',
+                    'task_kind': 'compress',
+                    'status': 'ok',
+                    'usable_artifact': True,
+                    'artifact_fit_score': 34,
+                    'matches_final_artifact': False,
+                    'best_fit_contributor': False,
+                },
+            ],
+        }
+        entry = meridian_gateway._delivery_memory_entry_from_event(delivery_event)
+        self.assertIsNotNone(entry)
+        self.assertEqual(entry['origin_agent'], 'forge')
+        self.assertEqual(entry['origin_task_kind'], 'execute')
 
     def test_upsert_memory_entry_seeds_successful_output_value_from_first_delivery(self):
         state = {'entries': {}}

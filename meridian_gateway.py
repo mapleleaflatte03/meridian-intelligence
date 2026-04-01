@@ -3969,6 +3969,7 @@ def _upsert_memory_entry(state: dict[str, Any], entry: dict[str, Any]) -> tuple[
     record["source_recorded_at"] = str(entry.get("source_recorded_at") or record.get("source_recorded_at") or "").strip()
     record["artifact_source"] = str(entry.get("artifact_source") or record.get("artifact_source") or "").strip().lower()
     record["origin_agent"] = str(entry.get("origin_agent") or record.get("origin_agent") or "").strip().lower()
+    record["origin_task_kind"] = str(entry.get("origin_task_kind") or record.get("origin_task_kind") or "").strip().lower()
     record["origin_delivery_fingerprint"] = str(
         entry.get("origin_delivery_fingerprint") or record.get("origin_delivery_fingerprint") or ""
     ).strip()
@@ -4003,13 +4004,14 @@ def _upsert_memory_entry(state: dict[str, Any], entry: dict[str, Any]) -> tuple[
     return record, changed
 
 
-def _memory_best_origin_contributor(
+def _memory_best_origin_contributor_details(
     contributors: list[dict[str, Any]],
     *,
     task_kinds: set[str] | None = None,
     min_fit_score: int = 32,
-) -> str:
+) -> tuple[str, str]:
     best_agent = ""
+    best_task_kind = ""
     best_score = -1000
     for contributor in contributors:
         agent_key = str(contributor.get("economy_key") or "").strip().lower()
@@ -4020,10 +4022,16 @@ def _memory_best_origin_contributor(
             continue
         if str(contributor.get("status") or "").strip().lower() != "ok":
             continue
-        if bool(contributor.get("drift_rewritten")):
-            continue
         fit_score = int(contributor.get("artifact_fit_score") or -100)
         support_level = _contributor_support_level(contributor)
+        drift_rewritten = bool(contributor.get("drift_rewritten"))
+        if drift_rewritten and not (
+            task_kind == "write"
+            and bool(contributor.get("artifact_matches_shape"))
+            and fit_score >= 48
+            and support_level in {"primary", "supporting"}
+        ):
+            continue
         effective_min_fit = int(min_fit_score)
         if task_kind == "research" and bool(contributor.get("best_fit_contributor")):
             effective_min_fit = min(effective_min_fit, 24)
@@ -4040,29 +4048,83 @@ def _memory_best_origin_contributor(
             score += 8
         elif task_kind == "write":
             score += 4
+        elif task_kind == "execute":
+            score += 6
+        elif task_kind in {"verify", "qa_gate"}:
+            score += 2
+        elif task_kind == "compress":
+            score += 1
         if bool(contributor.get("usable_artifact")):
             score += 4
+        if drift_rewritten:
+            score -= 12
         if score > best_score:
             best_score = score
             best_agent = agent_key
+            best_task_kind = task_kind
+    return best_agent, best_task_kind
+
+
+def _memory_best_origin_contributor(
+    contributors: list[dict[str, Any]],
+    *,
+    task_kinds: set[str] | None = None,
+    min_fit_score: int = 32,
+) -> str:
+    best_agent, _ = _memory_best_origin_contributor_details(
+        contributors,
+        task_kinds=task_kinds,
+        min_fit_score=min_fit_score,
+    )
     return best_agent
 
 
-def _memory_delivery_origin_agent(delivery_event: dict[str, Any]) -> str:
+def _memory_preferred_origin_task_groups(
+    request: str,
+    skill_names: list[str] | None = None,
+) -> list[tuple[set[str], int]]:
+    lowered_skills = {str(item or "").strip().lower() for item in list(skill_names or []) if str(item or "").strip()}
+    groups: list[tuple[set[str], int]] = []
+    if _request_is_customer_research(request, list(lowered_skills)) or lowered_skills.intersection({"scan-doi-thu", "safe-web-research"}):
+        groups.append(({"research"}, 24))
+    if (
+        _request_needs_writer(request)
+        or _request_wants_protocol_artifact(request)
+        or lowered_skills.intersection({"mail-gui", "follow-demo-soan", "book-meeting", "protocol-deal-hoi"})
+    ):
+        groups.append(({"write"}, 26))
+    if lowered_skills.intersection({"ops-snapshot"}):
+        groups.append(({"execute"}, 18))
+        groups.append(({"compress"}, 24))
+        groups.append(({"verify", "qa_gate"}, 28))
+    groups.append(({"write", "execute", "research", "verify", "qa_gate", "compress"}, 42))
+    return groups
+
+
+def _memory_delivery_origin_details(delivery_event: dict[str, Any]) -> tuple[str, str]:
     artifact_source = str(delivery_event.get("artifact_source") or "").strip().lower()
     contributors = [item for item in list(delivery_event.get("contributors") or []) if isinstance(item, dict)]
     if artifact_source == "salvage_template":
-        return str(TEAM_TOPOLOGY.manager.handle or "").strip().lower()
+        return str(TEAM_TOPOLOGY.manager.handle or "").strip().lower(), "manage"
+    request_text = str(delivery_event.get("request_text") or "").strip()
+    skill_names = [str(item or "").strip().lower() for item in list(delivery_event.get("skills_used") or []) if str(item or "").strip()]
     if artifact_source == "manager_response":
-        research_origin = _memory_best_origin_contributor(
-            contributors,
-            task_kinds={"research"},
-            min_fit_score=32,
-        )
-        if research_origin:
-            return research_origin
-        return str(TEAM_TOPOLOGY.manager.handle or "").strip().lower()
-    return _memory_best_origin_contributor(contributors)
+        for task_kinds, min_fit_score in _memory_preferred_origin_task_groups(request_text, skill_names):
+            origin_agent, origin_task_kind = _memory_best_origin_contributor_details(
+                contributors,
+                task_kinds=task_kinds,
+                min_fit_score=min_fit_score,
+            )
+            if origin_agent:
+                return origin_agent, origin_task_kind
+        return str(TEAM_TOPOLOGY.manager.handle or "").strip().lower(), "manage"
+    origin_agent, origin_task_kind = _memory_best_origin_contributor_details(contributors)
+    return origin_agent, origin_task_kind
+
+
+def _memory_delivery_origin_agent(delivery_event: dict[str, Any]) -> str:
+    origin_agent, _ = _memory_delivery_origin_details(delivery_event)
+    return origin_agent
 
 
 def _delivery_memory_entry_from_event(delivery_event: dict[str, Any]) -> dict[str, Any] | None:
@@ -4087,6 +4149,7 @@ def _delivery_memory_entry_from_event(delivery_event: dict[str, Any]) -> dict[st
     if not delivery_fingerprint:
         return None
     heading_label = ", ".join(skill_names[:2]) if skill_names else "general"
+    origin_agent, origin_task_kind = _memory_delivery_origin_details(delivery_event)
     return {
         "key": f"delivery/{delivery_fingerprint}",
         "heading": f"Successful output: {heading_label}",
@@ -4100,7 +4163,8 @@ def _delivery_memory_entry_from_event(delivery_event: dict[str, Any]) -> dict[st
         "source_quality_status": "success",
         "source_recorded_at": str(delivery_event.get("recorded_at") or "").strip(),
         "artifact_source": str(delivery_event.get("artifact_source") or "").strip().lower(),
-        "origin_agent": _memory_delivery_origin_agent(delivery_event),
+        "origin_agent": origin_agent,
+        "origin_task_kind": origin_task_kind,
         "source_skill_names": skill_names,
         "origin_delivery_fingerprint": delivery_fingerprint,
     }
