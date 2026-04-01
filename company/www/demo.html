@@ -103,171 +103,217 @@
 <!-- ─────────────── STEP 1: WATCHLIST ─────────────── -->
 <span class="step-label">Step 1</span>
 <h2>Set Your Competitor Watchlist</h2>
-<p>You tell Meridian which competitors to track and what topics matter. This workflow runs as Meridian's first managed vertical: a governed institution operating registered agents against monitored competitor sources. The point is governed work, not just a cool multi-agent story.</p>
+<p class="section-intro compact-copy">A customer defines rivals, themes, and trusted sources once. Meridian turns that into a governed watchlist instead of a loose recurring prompt.</p>
 
-<div class="card">
-  <div class="card-header">Watchlist: Acme Corp (sample customer)</div>
-  <table class="data-table">
-    <thead>
-      <tr><th>Competitor</th><th>Topics</th><th>Sources Monitored</th><th>Status</th></tr>
-    </thead>
-    <tbody>
-      <tr>
-        <td data-label="Competitor"><strong>OpenAI</strong></td>
-        <td data-label="Topics"><span class="tag tag-pricing">pricing</span><span class="tag tag-product">models</span><span class="tag tag-deprecation">API changes</span></td>
-        <td data-label="Sources Monitored">3 (blog, changelog, pricing page)</td>
-        <td data-label="Status" class="status-active">Active</td>
-      </tr>
-      <tr>
-        <td data-label="Competitor"><strong>Anthropic</strong></td>
-        <td data-label="Topics"><span class="tag tag-pricing">pricing</span><span class="tag tag-product">models</span><span class="tag tag-strategy">safety</span></td>
-        <td data-label="Sources Monitored">2 (blog, model docs)</td>
-        <td data-label="Status" class="status-active">Active</td>
-      </tr>
-      <tr>
-        <td data-label="Competitor"><strong>Google (Gemini)</strong></td>
-        <td data-label="Topics"><span class="tag tag-pricing">pricing</span><span class="tag tag-deprecation">deprecations</span><span class="tag tag-product">Vertex AI</span></td>
-        <td data-label="Sources Monitored">3 (DeepMind blog, pricing page, deprecation page)</td>
-        <td data-label="Status" class="status-active">Active</td>
-      </tr>
-    </tbody>
-  </table>
+<div class="metric-strip">
+  <div class="metric-card">
+    <span class="metric-label">tracked rivals</span>
+    <div class="metric-value">3</div>
+    <p>OpenAI, Anthropic, Google.</p>
+  </div>
+  <div class="metric-card">
+    <span class="metric-label">watched themes</span>
+    <div class="metric-value">8</div>
+    <p>Pricing, models, deprecations, safety, and API shifts.</p>
+  </div>
+  <div class="metric-card">
+    <span class="metric-label">source families</span>
+    <div class="metric-value">3</div>
+    <p>Blogs, changelogs, and pricing/docs pages.</p>
+  </div>
+  <div class="metric-card">
+    <span class="metric-label">governed state</span>
+    <div class="metric-value">live</div>
+    <p>Tracked per customer, not shared as a generic feed.</p>
+  </div>
 </div>
-<p class="note">Watchlists are configured per customer. Meridian's pipeline automatically prioritizes sources for tracked competitors.</p>
+
+<div class="feature-grid">
+  <div class="feature-card">
+    <h3>OpenAI</h3>
+    <p>Track pricing changes, GPT releases, forced migrations, and API deprecations.</p>
+    <div class="lane-tags">
+      <span class="lane-tag">pricing</span>
+      <span class="lane-tag">models</span>
+      <span class="lane-tag">API</span>
+    </div>
+  </div>
+  <div class="feature-card">
+    <h3>Anthropic</h3>
+    <p>Track Claude launches, context-window changes, safety posture, and pricing stability.</p>
+    <div class="lane-tags">
+      <span class="lane-tag">pricing</span>
+      <span class="lane-tag">context</span>
+      <span class="lane-tag">safety</span>
+    </div>
+  </div>
+  <div class="feature-card">
+    <h3>Google Gemini</h3>
+    <p>Track preview shutdowns, Flash pricing, Vertex updates, and deprecation cadence.</p>
+    <div class="lane-tags">
+      <span class="lane-tag">deprecations</span>
+      <span class="lane-tag">Vertex</span>
+      <span class="lane-tag">pricing</span>
+    </div>
+  </div>
+</div>
 
 <!-- ─────────────── STEP 2: DAILY ALERT ─────────────── -->
 <span class="step-label">Step 2</span>
 <h2>Receive Daily Competitor Alerts</h2>
-<p>When Meridian is running for a team, it produces a cited intelligence alert covering the most important changes across tracked competitors. Below is a qualified March 2026 pipeline output shown as a reference example, not a claim that today's public host is issuing this exact alert automatically to customers.</p>
+<p class="section-intro compact-copy">The real output shape is short, sourced, and action-oriented. This reference example is deliberately compressed so you can see the workflow instead of reading a wall of prose.</p>
 
-<div class="brief-box">
-  <h4>Competitor Intelligence Alert &mdash; March 17, 2026</h4>
-  <p><em>Covering: OpenAI, Anthropic, Google (Gemini)</em></p>
-
-  <div class="finding">
-    <div class="finding-title"><span class="tag tag-pricing">Pricing</span> OpenAI introduces regional surcharges and batch discounts for GPT-5.4</div>
-    <div class="finding-body">OpenAI's pricing page now shows a <strong>10% regional processing surcharge</strong> on all GPT-5.4 models and a <strong>50% Batch API discount</strong> on both input and output costs. Standard pricing applies under 270K context tokens. This is the first time OpenAI has added geography-based pricing to its API, creating new cost dynamics for customers choosing between providers. Teams running high-volume batch workloads may see significant savings; teams in surcharge regions face a material cost increase.</div>
-    <div class="finding-source">Source: openai.com/api/pricing (fetched 2026-03-17)</div>
+<div class="metric-strip">
+  <div class="metric-card">
+    <span class="metric-label">vendors covered</span>
+    <div class="metric-value">3</div>
+    <p>OpenAI, Anthropic, Google.</p>
   </div>
-
-  <div class="finding">
-    <div class="finding-title"><span class="tag tag-product">Product</span> Anthropic holds pricing steady while expanding Claude to 1M-token context</div>
-    <div class="finding-body">Anthropic shipped <strong>Claude Opus 4.6</strong> (Feb 5) and <strong>Sonnet 4.6</strong> (Feb 17) without raising prices. Opus stays at $5/$25 per million tokens; Sonnet stays at $3/$15. Both models gained a <strong>1M-token context window</strong> in beta. Opus 4.6 shows state-of-the-art results on agentic coding benchmarks (Terminal-Bench 2.0) and long-context reliability. For competitive positioning: Anthropic is expanding capability without price increases, making the "context window per dollar" comparison increasingly favorable.</div>
-    <div class="finding-source">Source: anthropic.com/news/claude-opus-4-6 (2026-02-05), anthropic.com/news/claude-sonnet-4-6 (2026-02-17)</div>
+  <div class="metric-card">
+    <span class="metric-label">priority moves</span>
+    <div class="metric-value">5</div>
+    <p>Only the changes worth escalating.</p>
   </div>
-
-  <div class="finding">
-    <div class="finding-title"><span class="tag tag-deprecation">Deprecation</span> Google hard-deprecates Gemini 3 Pro Preview</div>
-    <div class="finding-body">Google shut down <strong>gemini-3-pro-preview</strong> on <strong>March 9, 2026</strong> and recommends migrating to Gemini 3.1 Pro Preview. This is a fast deprecation cycle &mdash; the preview model was live for less than 8 weeks. Teams building on Gemini preview models need active migration tracking. Google's deprecation cadence is notably faster than OpenAI's or Anthropic's.</div>
-    <div class="finding-source">Source: ai.google.dev/gemini-api/docs/pricing (2026-03-09 shutdown date)</div>
+  <div class="metric-card">
+    <span class="metric-label">actions emitted</span>
+    <div class="metric-value">4</div>
+    <p>Every alert ends with concrete next moves.</p>
   </div>
-
-  <div class="finding">
-    <div class="finding-title"><span class="tag tag-pricing">Pricing</span> Google positions Gemini Flash as the low-cost high-volume option</div>
-    <div class="finding-body"><strong>Gemini 2.5 Flash</strong> is priced at $0.30/1M input and $2.50/1M output tokens with a 1M-token context window and 50% Batch API discount. This undercuts both OpenAI and Anthropic on raw token cost for high-volume workloads. Google is clearly competing on price for the inference-heavy segment.</div>
-    <div class="finding-source">Source: ai.google.dev/gemini-api/docs/pricing (fetched 2026-03-17)</div>
-  </div>
-
-  <div class="finding">
-    <div class="finding-title"><span class="tag tag-product">Product</span> OpenAI accelerates release cadence with GPT-5.4</div>
-    <div class="finding-body">OpenAI introduced <strong>GPT-5.4</strong> on March 5 as its most capable model, then migrated existing GPT-5.1 conversations to GPT-5.3/5.4 by March 11. This indicates a <strong>monthly release cadence</strong> that operators need to track. GPT-5.4 emphasizes coding, computer use, tool search, and a 1M-token context window &mdash; converging with Anthropic on context size.</div>
-    <div class="finding-source">Source: openai.com/index/introducing-gpt-5-4 (2026-03-05), help.openai.com release notes (2026-03-11)</div>
-  </div>
-
-  <h4 class="brief-label mt-lg">Action Items</h4>
-  <div class="action-item">Review OpenAI's regional surcharges to assess cost impact on your deployment regions.</div>
-  <div class="action-item">Update internal pricing comparisons: Anthropic and Google are both more competitive per token than 30 days ago.</div>
-  <div class="action-item">If using Gemini preview models, check deprecation timelines now. Google's cycle is fast.</div>
-  <div class="action-item">Track OpenAI's monthly release cadence &mdash; plan for model migration as a recurring task, not an exception.</div>
-
-  <div class="risk-box">
-    <strong>Risk to Watch:</strong> Provider pricing is diverging: OpenAI adding surcharges, Google competing on price, Anthropic holding steady. Teams using multiple providers need updated cost models. Gemini's fast deprecation cycle adds migration risk for preview-model adopters.
+  <div class="metric-card">
+    <span class="metric-label">risk line</span>
+    <div class="metric-value">1</div>
+    <p>A single danger worth watching this week.</p>
   </div>
 </div>
-<p class="note">Above: qualified March 17, 2026 pipeline output used as a reference example. It demonstrates the output shape and source discipline, not a claim that this exact alert is a current live customer artifact on the public host.</p>
+
+<div class="feature-grid">
+  <div class="feature-card">
+    <h3>OpenAI pricing shift</h3>
+    <p>Regional surcharges and batch discounts changed cost math for global deployments.</p>
+    <div class="lane-tags">
+      <span class="lane-tag">pricing</span>
+      <span class="lane-tag">cost model</span>
+    </div>
+  </div>
+  <div class="feature-card">
+    <h3>Anthropic context expansion</h3>
+    <p>Claude gained 1M-token context without a matching price increase, improving context-per-dollar.</p>
+    <div class="lane-tags">
+      <span class="lane-tag">product</span>
+      <span class="lane-tag">pricing</span>
+    </div>
+  </div>
+  <div class="feature-card">
+    <h3>Google deprecation cadence</h3>
+    <p>Gemini 3 Pro Preview was retired in under two months, forcing fast migration planning.</p>
+    <div class="lane-tags">
+      <span class="lane-tag">deprecation</span>
+      <span class="lane-tag">migration</span>
+    </div>
+  </div>
+  <div class="feature-card">
+    <h3>Google Flash pressure</h3>
+    <p>Gemini Flash undercut rivals for high-volume inference and changed low-cost positioning.</p>
+    <div class="lane-tags">
+      <span class="lane-tag">pricing</span>
+      <span class="lane-tag">throughput</span>
+    </div>
+  </div>
+</div>
+
+<div class="split-grid">
+  <div class="split-card">
+    <h3>Operator actions</h3>
+    <div class="bullet-stack">
+      <div class="bullet-item"><span class="bullet-mark">01</span><span>Rework provider cost models by region, not globally.</span></div>
+      <div class="bullet-item"><span class="bullet-mark">02</span><span>Check any Gemini preview usage for deprecation risk now.</span></div>
+      <div class="bullet-item"><span class="bullet-mark">03</span><span>Update pricing talk tracks because Anthropic and Google moved closer.</span></div>
+      <div class="bullet-item"><span class="bullet-mark">04</span><span>Treat model migration as a recurring program, not a surprise event.</span></div>
+    </div>
+  </div>
+  <div class="split-card">
+    <h3>Risk to watch</h3>
+    <p>Provider pricing is diverging while model release cadence is accelerating. Teams comparing providers now need region-aware cost models plus active migration tracking, not static spreadsheets.</p>
+  </div>
+</div>
+<p class="note">Shortened March 2026 reference example. It shows Meridian's alert shape and source discipline, not a claim that this exact alert is being sent by the public host right now.</p>
 
 <!-- ─────────────── STEP 3: WEEKLY BRIEF ─────────────── -->
 <span class="step-label">Step 3</span>
 <h2>Weekly Intelligence Brief</h2>
-<p>At the end of each week, Meridian curates the most important competitive moves into a single brief. Below is a representative weekly summary shown as a reference example rather than a claim of today's automated public distribution state.</p>
+<p class="section-intro compact-copy">The weekly brief is the slower, calmer layer: less notification pressure, more direction. It compresses the week into a few moves worth carrying into pricing, PMM, and exec conversations.</p>
 
-<div class="brief-box">
-  <h4>Weekly Competitive Brief &mdash; Week of March 11&ndash;17, 2026</h4>
-  <p><em>Competitors tracked: OpenAI, Anthropic, Google</em></p>
-
-  <h4 class="brief-label-accent">Top Competitive Moves This Week</h4>
-
-  <div class="finding">
-    <div class="finding-title">1. OpenAI introduces geography-based API pricing (first in industry)</div>
-    <div class="finding-body">GPT-5.4 now carries a 10% regional surcharge. Combined with the 50% batch discount, OpenAI is segmenting its pricing more aggressively than before. This is a strategic shift from flat global pricing.</div>
+<div class="feature-grid">
+  <div class="feature-card">
+    <h3>Pricing pressure</h3>
+    <p>OpenAI added regional surcharge logic while Google pushed aggressive Flash pricing.</p>
   </div>
-
-  <div class="finding">
-    <div class="finding-title">2. Google deprecates Gemini 3 Pro Preview after less than 8 weeks</div>
-    <div class="finding-body">Fastest deprecation cycle among major providers. Signals Google's willingness to iterate quickly at the cost of API stability. Migration burden falls on developers.</div>
+  <div class="feature-card">
+    <h3>Migration risk</h3>
+    <p>Google's preview shutdown cadence stayed faster than the rest of the field.</p>
   </div>
-
-  <div class="finding">
-    <div class="finding-title">3. Context window convergence at 1M tokens across all three providers</div>
-    <div class="finding-body">OpenAI (GPT-5.4), Anthropic (Opus/Sonnet 4.6), and Google (Gemini Flash) all now offer 1M-token context. Context window is no longer a differentiator &mdash; pricing, reliability, and tooling are.</div>
+  <div class="feature-card">
+    <h3>Context parity</h3>
+    <p>At 1M tokens across the field, context size stopped being the clean differentiator.</p>
   </div>
-
-  <div class="finding">
-    <div class="finding-title">4. Anthropic maintains price stability while competitors adjust</div>
-    <div class="finding-body">No pricing changes from Anthropic since initial launch. In a week where OpenAI added surcharges and Google pushed aggressive Flash pricing, Anthropic's stability is itself a competitive signal.</div>
+  <div class="feature-card">
+    <h3>Stable counter-signal</h3>
+    <p>Anthropic's price stability became a signal in its own right while others moved.</p>
   </div>
+</div>
 
-  <h4 class="brief-label">Takeaway</h4>
-  <p>The LLM provider market is shifting from capability competition to pricing and deployment model competition. Teams should update their vendor comparison matrices and revisit total cost of ownership by region.</p>
+<div class="card">
+  <div class="card-header">Weekly takeaway</div>
+  <p>The provider race is shifting away from pure capability bragging and toward pricing shape, migration risk, and deployment trust. Meridian's job is to keep that readable, cited, and decision-ready.</p>
 </div>
 
 <!-- ─────────────── STEP 4: BATTLECARD ─────────────── -->
 <span class="step-label">Step 4</span>
 <h2>Battlecard: On-Demand Competitor Snapshot</h2>
-<p>Request a battlecard for any tracked competitor. The layout below is a reference battlecard example, structured for sales enablement, exec briefings, or product planning.</p>
+<p class="section-intro compact-copy">A battlecard is a compact sales or exec snapshot, not a novel. The reference layout below shows the shape Meridian is aiming for when a team asks for one competitor fast.</p>
 
-<div class="battlecard">
-  <div class="battlecard-header">
-    <h4>Battlecard: OpenAI</h4>
-    <div class="battlecard-meta">Generated March 18, 2026 | Data from pipeline findings | <span class="confidence confidence-high">HIGH CONFIDENCE</span> (5 findings, 3 from last 7 days)</div>
+<div class="scoreboard-grid">
+  <div class="score-card">
+    <span class="score-kicker">OpenAI snapshot</span>
+    <h3>Recent moves</h3>
+    <div class="bullet-stack">
+      <div class="bullet-item"><span class="bullet-mark">01</span><span>GPT-5.4 launched with a 1M-token context window and coding-heavy posture.</span></div>
+      <div class="bullet-item"><span class="bullet-mark">02</span><span>Older GPT-5.1 traffic was pushed forward quickly, signaling migration churn.</span></div>
+      <div class="bullet-item"><span class="bullet-mark">03</span><span>Regional surcharges and batch discounts changed deployment economics.</span></div>
+    </div>
   </div>
-  <div class="battlecard-body">
-    <div class="battlecard-section">
-      <h5>Recent Moves</h5>
-      <div class="battlecard-item">Launched GPT-5.4 on March 5 with 1M-token context, coding focus, and tool-search capabilities</div>
-      <div class="battlecard-item">Migrated existing GPT-5.1 users to GPT-5.3/5.4 by March 11 (fast forced migration)</div>
-      <div class="battlecard-item">Introduced regional processing surcharges (10%) &mdash; first geography-based API pricing in the industry</div>
-      <div class="battlecard-item">Added 50% Batch API discount for high-volume workloads</div>
+  <div class="score-card">
+    <span class="score-kicker">Pricing</span>
+    <h3>What changed</h3>
+    <div class="bullet-stack">
+      <div class="bullet-item"><span class="bullet-mark">A</span><span>Cost now depends more on region and workload type than before.</span></div>
+      <div class="bullet-item"><span class="bullet-mark">B</span><span>Batch discounts help offline work but do not erase real-time cost concerns.</span></div>
     </div>
-
-    <div class="battlecard-section">
-      <h5>Pricing Intelligence</h5>
-      <div class="battlecard-item">GPT-5.4: standard pricing under 270K context; 10% surcharge for regional processing</div>
-      <div class="battlecard-item">Batch API: 50% reduction on both input and output &mdash; significant for high-volume users</div>
-      <div class="battlecard-item">Pricing is now more complex than Anthropic's flat model; comparison requires region-aware calculation</div>
+  </div>
+  <div class="score-card">
+    <span class="score-kicker">Product</span>
+    <h3>Competitive reading</h3>
+    <div class="bullet-stack">
+      <div class="bullet-item"><span class="bullet-mark">01</span><span>Context parity means pricing, tooling, and reliability matter more.</span></div>
+      <div class="bullet-item"><span class="bullet-mark">02</span><span>Release cadence is fast enough to become an operator burden.</span></div>
     </div>
-
-    <div class="battlecard-section">
-      <h5>Product Updates</h5>
-      <div class="battlecard-item">GPT-5.4 positioned as coding + agentic work model (competing directly with Claude Opus 4.6)</div>
-      <div class="battlecard-item">1M-token context matches Anthropic and Google offerings</div>
-      <div class="battlecard-item">Monthly release cadence (5.1 -> 5.3 -> 5.4 in 6 weeks) shows accelerating iteration</div>
-    </div>
-
-    <div class="battlecard-section">
-      <h5>Talking Points</h5>
-      <div class="battlecard-item">OpenAI is the first provider to add regional surcharges &mdash; ask customers if they've modeled the impact</div>
-      <div class="battlecard-item">Batch discount is compelling for offline workloads but does not apply to real-time use cases</div>
-      <div class="battlecard-item">Fast model migration (5.1 -> 5.4) means customers face integration churn; position stability as a selling point</div>
-      <div class="battlecard-item">Context window parity at 1M tokens means the differentiator is now pricing, tooling, and reliability</div>
+  </div>
+  <div class="score-card">
+    <span class="score-kicker">Talking points</span>
+    <h3>What sales should ask</h3>
+    <div class="bullet-stack">
+      <div class="bullet-item"><span class="bullet-mark">01</span><span>Have you modeled regional surcharge impact yet?</span></div>
+      <div class="bullet-item"><span class="bullet-mark">02</span><span>How much migration churn can your team tolerate this quarter?</span></div>
     </div>
   </div>
 </div>
 
+<p class="note">Reference battlecard layout only. The point is fast, reusable shape: recent moves, pricing implications, product reading, and buyer-facing questions.</p>
+
 <!-- ─────────────── STEP 5: DELIVERY ─────────────── -->
 <span class="step-label">Step 5</span>
 <h2>Delivery</h2>
-<p>Meridian routes outputs into the channels a team actually uses. In this demo, competitor intelligence is the first reference workload running on top of the constitutional kernel, the Commitment-aware platform layer, and the live Loom runtime. The workload is the wedge; the platform boundary is the durable thing.</p>
+<p class="section-intro compact-copy">Delivery matters because a workflow is only real once it reaches an operator. Meridian keeps the workload honest: what is live, what is founder-led, and what is still waiting for broader automation stays explicit.</p>
 
 <div class="delivery-visual">
   <div class="delivery-node">
@@ -286,37 +332,52 @@
   </div>
 </div>
 
-<div class="card">
-  <div class="card-header">Current Delivery Channels</div>
-  <table class="data-table">
-    <thead>
-      <tr><th>Channel</th><th>Cadence</th><th>Status</th></tr>
-    </thead>
-    <tbody>
-      <tr><td data-label="Channel"><strong>Telegram</strong> (daily alert)</td><td data-label="Cadence">Founder-delivered during the current pilot; no automatic public customer send is claimed here</td><td data-label="Status" class="status-warn">Manual pilot</td></tr>
-      <tr><td data-label="Channel"><strong>Telegram Channel</strong> (preview)</td><td data-label="Cadence">Preview surface, posted explicitly when a brief is ready</td><td data-label="Status" class="status-warn">Standby</td></tr>
-      <tr><td data-label="Channel"><strong>MCP Protocol</strong> (developer API)</td><td data-label="Cadence">On demand on the public host</td><td data-label="Status" class="status-active">Live</td></tr>
-      <tr><td data-label="Channel"><strong>Email</strong></td><td data-label="Cadence">Daily / weekly</td><td data-label="Status" class="status-warn">Planned</td></tr>
-      <tr><td data-label="Channel"><strong>Slack</strong></td><td data-label="Cadence">Daily / weekly</td><td data-label="Status" class="status-warn">Planned</td></tr>
-    </tbody>
-  </table>
+<div class="lane-grid">
+  <div class="lane-card">
+    <span class="lane-kicker">Founder route</span>
+    <h3>Telegram alert</h3>
+    <p>Current pilot path. Real delivery exists, but public customer automation is not overclaimed.</p>
+    <div class="lane-tags"><span class="lane-tag">manual pilot</span></div>
+  </div>
+  <div class="lane-card">
+    <span class="lane-kicker">Preview surface</span>
+    <h3>Telegram channel</h3>
+    <p>Useful for visible preview drops when a brief is explicitly ready.</p>
+    <div class="lane-tags"><span class="lane-tag">standby</span></div>
+  </div>
+  <div class="lane-card">
+    <span class="lane-kicker">Developer path</span>
+    <h3>MCP protocol</h3>
+    <p>Live on demand today for teams that want the proof surface and runtime route directly.</p>
+    <div class="lane-tags"><span class="lane-tag">live</span></div>
+  </div>
 </div>
 
 <!-- ─────────────── HOW IT WORKS BEHIND THE SCENES ─────────────── -->
 <h2>How the Pipeline Works</h2>
-<div class="card">
-  <p class="mb-md">Meridian is built to run governed workflows like this one on a nightly cadence:</p>
-  <table class="data-table">
-    <thead><tr><th>Phase</th><th>What Happens</th><th>Output</th></tr></thead>
-    <tbody>
-      <tr><td data-label="Phase"><strong>1. Research</strong></td><td data-label="What Happens">Fetch 30+ sources: provider blogs, changelogs, pricing pages, tech news, community feeds. Watchlist competitors get priority.</td><td data-label="Output">8&ndash;12 sourced findings</td></tr>
-      <tr><td data-label="Phase"><strong>2. Write</strong></td><td data-label="What Happens">Draft competitor intelligence alert from findings. Frame each finding as competitive intelligence with source citation.</td><td data-label="Output">400+ word alert</td></tr>
-      <tr><td data-label="Phase"><strong>3. QA</strong></td><td data-label="What Happens">Multi-agent verification: check source freshness, citation accuracy, minimum quality bar (200+ words, 5+ sources).</td><td data-label="Output">PASS / FAIL decision</td></tr>
-      <tr><td data-label="Phase"><strong>4. Deliver</strong></td><td data-label="What Happens">Route the approved alert through the currently honest delivery path: live host automation on verified Meridian routes, founder-led delivery for the current public pilot, and broader customer automation only after treasury-cleared phase progression.</td><td data-label="Output">Telegram/manual delivery log</td></tr>
-    </tbody>
-  </table>
-  <p class="note mt-md">This is the workflow Meridian is built to run every night. The host runtime and bounded delivery routes are live today; the public customer path stays founder-led until treasury-cleared phase progression supports a broader automation promise. The kernel matters precisely because it keeps that distinction explicit.</p>
+<div class="process-rail">
+  <div class="process-step">
+    <span class="process-number">01</span>
+    <h3>Research</h3>
+    <p>Fetch cited changes from provider blogs, changelogs, pricing pages, and trust-relevant sources.</p>
+  </div>
+  <div class="process-step">
+    <span class="process-number">02</span>
+    <h3>Write</h3>
+    <p>Compress findings into one alert, one brief, or one battlecard instead of a long raw dump.</p>
+  </div>
+  <div class="process-step">
+    <span class="process-number">03</span>
+    <h3>QA</h3>
+    <p>Check freshness, source discipline, and whether the output is safe enough to ship.</p>
+  </div>
+  <div class="process-step">
+    <span class="process-number">04</span>
+    <h3>Deliver</h3>
+    <p>Route approved output through the current honest path and log what was actually sent.</p>
+  </div>
 </div>
+<p class="note mt-md">This is the workflow Meridian is built to run every night. The runtime is live on this host; the broader customer delivery promise stays bounded until the operator path is genuinely ready.</p>
 
 <!-- ─────────────── CTA ─────────────── -->
 <div class="cta-section">
