@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 128" role="img" aria-labelledby="title desc">
   <title id="title">Meridian wordmark</title>
-  <desc id="desc">The Meridian wordmark in Space Grotesk with constitutional operating system subtitle.</desc>
+  <desc id="desc">The Meridian wordmark in Space Grotesk with governed trust ops subtitle.</desc>
   <defs>
     <style>
       .word { fill: #e6edf5; font: 700 72px/1 'Space Grotesk', Inter, sans-serif; letter-spacing: 5.8px; }
@@ -8,5 +8,5 @@
     </style>
   </defs>
   <text x="0" y="78" class="word">Meridian</text>
-  <text x="4" y="112" class="accent">Constitutional OS</text>
+  <text x="4" y="112" class="accent">Governed Trust Ops</text>
 </svg>
