@@ -794,6 +794,85 @@ class GatewayTeamRouteTests(unittest.TestCase):
         self.assertEqual(reviewed['question']['answer_state'], 'revoked')
         self.assertEqual(evidence_state['entries']['trust/questionnaire/demo']['approval_status'], 'revoked')
 
+    def test_build_trust_ops_operator_snapshot_defaults_to_actionable_queue(self):
+        state = {
+            'questionnaires': {
+                'tq_pending': {
+                    'questionnaire_id': 'tq_pending',
+                    'approval_gate_status': 'pending_approval',
+                    'pending_approval_count': 1,
+                    'critical_count': 1,
+                    'source_session_key': 'web_api:pending',
+                    'final_delivery_allowed': False,
+                    'questions': [
+                        {
+                            'question_id': 'tqq_pending',
+                            'text': 'What retention guarantees exist?',
+                            'critical': True,
+                            'answer_state': 'stale',
+                            'approval_required': True,
+                            'evidence_key': 'trust/questionnaire/pending',
+                            'evidence_status': 'stale',
+                            'best_evidence_origin_agent': 'quill',
+                        }
+                    ],
+                },
+                'tq_ready': {
+                    'questionnaire_id': 'tq_ready',
+                    'approval_gate_status': 'ready_for_final_delivery',
+                    'pending_approval_count': 0,
+                    'critical_count': 1,
+                    'source_session_key': 'web_api:ready',
+                    'final_delivery_allowed': True,
+                    'questions': [
+                        {
+                            'question_id': 'tqq_ready',
+                            'text': 'What AI governance controls are documented?',
+                            'critical': True,
+                            'answer_state': 'approved',
+                            'approval_required': False,
+                            'evidence_key': 'trust/questionnaire/ready',
+                            'evidence_status': 'approved',
+                            'best_evidence_origin_agent': 'quill',
+                        }
+                    ],
+                },
+            },
+            'approval_queue': {
+                'tqa_pending': {
+                    'queue_id': 'tqa_pending',
+                    'questionnaire_id': 'tq_pending',
+                    'question_id': 'tqq_pending',
+                    'question_text': 'What retention guarantees exist?',
+                    'critical': True,
+                    'status': 'stale',
+                    'approval_required': True,
+                    'evidence_key': 'trust/questionnaire/pending',
+                    'evidence_status': 'stale',
+                },
+                'tqa_ready': {
+                    'queue_id': 'tqa_ready',
+                    'questionnaire_id': 'tq_ready',
+                    'question_id': 'tqq_ready',
+                    'question_text': 'What AI governance controls are documented?',
+                    'critical': True,
+                    'status': 'cleared',
+                    'approval_required': False,
+                    'evidence_key': 'trust/questionnaire/ready',
+                    'evidence_status': 'approved',
+                },
+            },
+        }
+        with mock.patch.object(meridian_gateway, '_load_trust_evidence_state', return_value={'entries': {}, 'session_packets': {}}):
+            snapshot = meridian_gateway._build_trust_ops_operator_snapshot(state)
+            all_snapshot = meridian_gateway._build_trust_ops_operator_snapshot(state, status_filter='all', include_cleared=True)
+        self.assertEqual(snapshot['counts']['actionable'], 1)
+        self.assertEqual(len(snapshot['queue']), 1)
+        self.assertEqual(snapshot['queue'][0]['queue_id'], 'tqa_pending')
+        self.assertEqual(snapshot['queue'][0]['bucket'], 'pending')
+        self.assertEqual(snapshot['selected_questionnaire']['questionnaire_id'], 'tq_pending')
+        self.assertEqual(len(all_snapshot['queue']), 2)
+
     def test_normalize_memory_entries_decays_stale_successful_output_value(self):
         state = {
             'entries': {

@@ -22,7 +22,7 @@ import time
 import unicodedata
 import urllib.error
 import urllib.request
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 from abc import ABC, abstractmethod
 from html import unescape
 from html.parser import HTMLParser
@@ -5838,6 +5838,183 @@ def _build_trust_assurance_summary(state: dict[str, Any] | None = None) -> dict[
     }
 
 
+def _trust_ops_queue_bucket(entry: dict[str, Any]) -> str:
+    if bool(entry.get("approval_required")):
+        return "pending"
+    answer_state = str(entry.get("answer_state") or "").strip().lower()
+    if answer_state in {"approved", "stale", "revoked", "unresolved", "draft"}:
+        return answer_state
+    status = str(entry.get("status") or "").strip().lower()
+    if status in {"approve", "cleared"}:
+        return "approved"
+    return status or answer_state or "unknown"
+
+
+def _build_trust_ops_operator_snapshot(
+    state: dict[str, Any] | None = None,
+    *,
+    questionnaire_id: str = "",
+    status_filter: str = "actionable",
+    include_cleared: bool = False,
+) -> dict[str, Any]:
+    payload = state if isinstance(state, dict) else _load_trust_assurance_state()
+    questionnaires_map = {
+        str(item.get("questionnaire_id") or "").strip(): dict(item)
+        for item in list((payload.get("questionnaires") or {}).values())
+        if isinstance(item, dict) and str(item.get("questionnaire_id") or "").strip()
+    }
+    normalized_questionnaire_id = str(questionnaire_id or "").strip()
+    normalized_filter = str(status_filter or "actionable").strip().lower()
+    if normalized_filter not in {"actionable", "all", "pending", "approved", "stale", "revoked", "unresolved", "draft"}:
+        normalized_filter = "actionable"
+    queue_entries: list[dict[str, Any]] = []
+    counts = {
+        "total": 0,
+        "actionable": 0,
+        "pending": 0,
+        "approved": 0,
+        "stale": 0,
+        "revoked": 0,
+        "unresolved": 0,
+        "draft": 0,
+    }
+    for item in list((payload.get("approval_queue") or {}).values()):
+        if not isinstance(item, dict):
+            continue
+        queue_id = str(item.get("queue_id") or "").strip()
+        qid = str(item.get("questionnaire_id") or "").strip()
+        questionnaire = dict(questionnaires_map.get(qid) or {})
+        if normalized_questionnaire_id and qid != normalized_questionnaire_id:
+            continue
+        questions = [dict(question) for question in list(questionnaire.get("questions") or []) if isinstance(question, dict)]
+        question_id = str(item.get("question_id") or "").strip()
+        question = next(
+            (question for question in questions if str(question.get("question_id") or "").strip() == question_id),
+            {},
+        )
+        projection = {
+            "queue_id": queue_id,
+            "questionnaire_id": qid,
+            "question_id": question_id,
+            "question_text": str(item.get("question_text") or question.get("text") or "").strip(),
+            "critical": bool(item.get("critical") or question.get("critical")),
+            "status": str(item.get("status") or "").strip().lower(),
+            "approval_required": bool(item.get("approval_required") or question.get("approval_required")),
+            "evidence_key": str(item.get("evidence_key") or question.get("evidence_key") or "").strip(),
+            "evidence_status": str(item.get("evidence_status") or question.get("evidence_status") or "").strip().lower(),
+            "answer_state": str(item.get("answer_state") or question.get("answer_state") or "").strip().lower(),
+            "origin_agent": str(question.get("best_evidence_origin_agent") or "").strip().lower(),
+            "reviewed_by": str(item.get("reviewed_by") or "").strip().lower(),
+            "reviewed_at": str(item.get("reviewed_at") or "").strip(),
+            "review_note": str(item.get("review_note") or "").strip(),
+            "court_violation_id": str(item.get("court_violation_id") or "").strip(),
+            "approval_gate_status": str(questionnaire.get("approval_gate_status") or "").strip(),
+            "final_delivery_allowed": bool(questionnaire.get("final_delivery_allowed")),
+            "pending_approval_count": int(questionnaire.get("pending_approval_count") or 0),
+            "source_session_key": str(questionnaire.get("source_session_key") or "").strip(),
+        }
+        projection["bucket"] = _trust_ops_queue_bucket(projection)
+        counts["total"] += 1
+        if projection["bucket"] in counts:
+            counts[projection["bucket"]] = int(counts.get(projection["bucket"]) or 0) + 1
+        if projection["bucket"] in {"pending", "stale", "revoked", "unresolved", "draft"}:
+            counts["actionable"] = int(counts.get("actionable") or 0) + 1
+        queue_entries.append(projection)
+
+    def _include_projection(projection: dict[str, Any]) -> bool:
+        bucket = str(projection.get("bucket") or "").strip().lower()
+        if normalized_filter == "actionable":
+            return bucket in {"pending", "stale", "revoked", "unresolved", "draft"}
+        if normalized_filter == "all":
+            if include_cleared:
+                return True
+            return bucket != "approved" or bool(projection.get("approval_required"))
+        return bucket == normalized_filter
+
+    filtered_queue = [projection for projection in queue_entries if _include_projection(projection)]
+    filtered_queue.sort(
+        key=lambda projection: (
+            1 if str(projection.get("bucket") or "") in {"pending", "stale", "revoked", "unresolved", "draft"} else 0,
+            1 if bool(projection.get("critical")) else 0,
+            str(projection.get("reviewed_at") or ""),
+            str(projection.get("queue_id") or ""),
+        ),
+        reverse=True,
+    )
+    questionnaire_summaries = sorted(
+        (
+            {
+                "questionnaire_id": str(item.get("questionnaire_id") or "").strip(),
+                "approval_gate_status": str(item.get("approval_gate_status") or "").strip(),
+                "pending_approval_count": int(item.get("pending_approval_count") or 0),
+                "critical_count": int(item.get("critical_count") or 0),
+                "source_session_key": str(item.get("source_session_key") or "").strip(),
+                "question_count": len([question for question in list(item.get("questions") or []) if isinstance(question, dict)]),
+                "final_delivery_allowed": bool(item.get("final_delivery_allowed")),
+            }
+            for item in questionnaires_map.values()
+        ),
+        key=lambda item: (
+            int(item.get("pending_approval_count") or 0),
+            int(item.get("critical_count") or 0),
+            str(item.get("questionnaire_id") or ""),
+        ),
+        reverse=True,
+    )
+    selected_questionnaire_id = normalized_questionnaire_id
+    if not selected_questionnaire_id and filtered_queue:
+        selected_questionnaire_id = str(filtered_queue[0].get("questionnaire_id") or "").strip()
+    if not selected_questionnaire_id and questionnaire_summaries:
+        selected_questionnaire_id = str(questionnaire_summaries[0].get("questionnaire_id") or "").strip()
+    selected_questionnaire = dict(questionnaires_map.get(selected_questionnaire_id) or {})
+    selected_projection: dict[str, Any] | None = None
+    if selected_questionnaire:
+        selected_projection = {
+            "questionnaire_id": str(selected_questionnaire.get("questionnaire_id") or "").strip(),
+            "approval_gate_status": str(selected_questionnaire.get("approval_gate_status") or "").strip(),
+            "final_delivery_allowed": bool(selected_questionnaire.get("final_delivery_allowed")),
+            "pending_approval_count": int(selected_questionnaire.get("pending_approval_count") or 0),
+            "critical_count": int(selected_questionnaire.get("critical_count") or 0),
+            "source_session_key": str(selected_questionnaire.get("source_session_key") or "").strip(),
+            "questions": [],
+            "approval_queue_entries": [
+                dict(entry)
+                for entry in queue_entries
+                if str(entry.get("questionnaire_id") or "").strip()
+                == str(selected_questionnaire.get("questionnaire_id") or "").strip()
+            ],
+        }
+        for question in [dict(item) for item in list(selected_questionnaire.get("questions") or []) if isinstance(item, dict)]:
+            selected_projection["questions"].append(
+                {
+                    "question_id": str(question.get("question_id") or "").strip(),
+                    "text": str(question.get("text") or "").strip(),
+                    "critical": bool(question.get("critical")),
+                    "answer_state": str(question.get("answer_state") or "").strip().lower(),
+                    "approval_required": bool(question.get("approval_required")),
+                    "evidence_key": str(question.get("evidence_key") or "").strip(),
+                    "evidence_status": str(question.get("evidence_status") or "").strip().lower(),
+                    "origin_agent": str(question.get("best_evidence_origin_agent") or "").strip().lower(),
+                    "last_review_decision": str(question.get("last_review_decision") or "").strip().lower(),
+                    "last_reviewed_at": str(question.get("last_reviewed_at") or "").strip(),
+                    "resolution_note": str(question.get("resolution_note") or "").strip(),
+                }
+            )
+    return {
+        "summary": _build_trust_assurance_summary(payload),
+        "filters": {
+            "status": normalized_filter,
+            "questionnaire_id": selected_questionnaire_id,
+            "include_cleared": bool(include_cleared),
+            "status_options": ["actionable", "all", "pending", "approved", "stale", "revoked", "unresolved", "draft"],
+        },
+        "counts": counts,
+        "questionnaires": questionnaire_summaries,
+        "queue": filtered_queue[:50],
+        "selected_questionnaire": selected_projection,
+    }
+
+
 def _review_trust_approval_queue(
     queue_id: str,
     decision: str,
@@ -9864,7 +10041,10 @@ class WebAPIAdapter(ChannelAdapter):
                 return self.headers.get("Origin") == adapter.allowed_origin
 
             def _public_read_allowed(self, request_path: str) -> bool:
-                return str(request_path or "").strip() == "/api/trust-ops/status"
+                return str(request_path or "").strip() in {
+                    "/api/trust-ops/status",
+                    "/api/trust-ops/queue",
+                }
 
             def _send_cors_headers(self) -> None:
                 self.send_header("Access-Control-Allow-Origin", adapter.allowed_origin)
@@ -9927,6 +10107,28 @@ class WebAPIAdapter(ChannelAdapter):
                     return
                 if request_path == "/api/trust-ops/status":
                     self._send_json(200, {"status": "success", "trust_ops": _build_trust_assurance_summary()})
+                    return
+                if request_path == "/api/trust-ops/queue":
+                    query = parse_qs(parsed.query or "")
+                    status_filter = str((query.get("status") or ["actionable"])[0] or "actionable").strip().lower()
+                    questionnaire_id = str((query.get("questionnaire_id") or [""])[0] or "").strip()
+                    include_cleared = str((query.get("include_cleared") or ["false"])[0] or "").strip().lower() in {
+                        "1",
+                        "true",
+                        "yes",
+                        "on",
+                    }
+                    self._send_json(
+                        200,
+                        {
+                            "status": "success",
+                            "operator": _build_trust_ops_operator_snapshot(
+                                questionnaire_id=questionnaire_id,
+                                status_filter=status_filter,
+                                include_cleared=include_cleared,
+                            ),
+                        },
+                    )
                     return
                 if request_path in {
                     "/api/context",

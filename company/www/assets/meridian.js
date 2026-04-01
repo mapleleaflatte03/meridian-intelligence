@@ -176,3 +176,268 @@
     });
   }
 })();
+
+(function () {
+  'use strict';
+  var shell = document.querySelector('[data-trust-ops-shell]');
+  if (!shell) {
+    return;
+  }
+
+  var filterForm = shell.querySelector('[data-trust-ops-filter-form]');
+  var statusNode = shell.querySelector('[data-trust-ops-status]');
+  var queueBody = shell.querySelector('[data-trust-ops-queue-body]');
+  var questionnaireDetail = shell.querySelector('[data-trust-ops-questionnaire-detail]');
+  var questionnaireSelect = shell.querySelector('[name="questionnaire_id"]');
+  var summaryActionable = shell.querySelector('[data-summary-actionable]');
+  var summaryPending = shell.querySelector('[data-summary-pending]');
+  var summaryReady = shell.querySelector('[data-summary-ready]');
+  var summaryEvidence = shell.querySelector('[data-summary-evidence]');
+  var currentSnapshot = null;
+
+  function setOperatorStatus(message, isError) {
+    if (!statusNode) {
+      return;
+    }
+    statusNode.textContent = message;
+    statusNode.style.color = isError ? '#ff9b9b' : '';
+  }
+
+  function safeText(value) {
+    return value == null ? '' : String(value);
+  }
+
+  function escapeHtml(value) {
+    return safeText(value)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  function formatTimestamp(value) {
+    if (!value) {
+      return 'Not reviewed yet';
+    }
+    var date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+      return safeText(value);
+    }
+    return date.toLocaleString();
+  }
+
+  function badgeClass(bucket) {
+    if (bucket === 'pending' || bucket === 'stale') {
+      return 'status-warn';
+    }
+    if (bucket === 'revoked') {
+      return 'status-bad';
+    }
+    if (bucket === 'approved') {
+      return 'status-good';
+    }
+    return 'status-neutral';
+  }
+
+  function renderQuestionnaireOptions(operator) {
+    if (!questionnaireSelect) {
+      return;
+    }
+    var selected = operator && operator.filters ? operator.filters.questionnaire_id || '' : '';
+    var options = ['<option value="">All questionnaires</option>'];
+    (operator && operator.questionnaires ? operator.questionnaires : []).forEach(function (item) {
+      var qid = safeText(item.questionnaire_id);
+      var selectedAttr = qid === selected ? ' selected' : '';
+      options.push('<option value="' + escapeHtml(qid) + '"' + selectedAttr + '>' + escapeHtml(qid) + '</option>');
+    });
+    questionnaireSelect.innerHTML = options.join('');
+  }
+
+  function renderSummary(operator) {
+    var summary = operator && operator.summary ? operator.summary : {};
+    var counts = operator && operator.counts ? operator.counts : {};
+    var evidenceCounts = summary && summary.evidence && summary.evidence.counts ? summary.evidence.counts : {};
+    if (summaryActionable) {
+      summaryActionable.textContent = String(counts.actionable || 0);
+    }
+    if (summaryPending) {
+      summaryPending.textContent = String(counts.pending || summary.pending_queue_count || 0);
+    }
+    if (summaryReady) {
+      summaryReady.textContent = String(summary.ready_questionnaire_count || 0);
+    }
+    if (summaryEvidence) {
+      summaryEvidence.textContent = [
+        evidenceCounts.approved || 0,
+        evidenceCounts.draft || 0,
+        evidenceCounts.stale || 0,
+        evidenceCounts.revoked || 0
+      ].join(' / ');
+    }
+  }
+
+  function renderQueue(operator) {
+    var rows = operator && operator.queue ? operator.queue : [];
+    if (!queueBody) {
+      return;
+    }
+    if (!rows.length) {
+      queueBody.innerHTML = '<tr><td colspan="6">No queue items match the current filter.</td></tr>';
+      return;
+    }
+    queueBody.innerHTML = rows.map(function (item) {
+      var bucket = safeText(item.bucket);
+      var reviewMeta = item.reviewed_at
+        ? '<div class="operator-meta">Reviewed by ' + escapeHtml(item.reviewed_by || 'operator') + ' · ' + escapeHtml(formatTimestamp(item.reviewed_at)) + '</div>'
+        : '<div class="operator-meta">No explicit review recorded yet.</div>';
+      var noteMeta = item.review_note
+        ? '<div class="operator-meta">' + escapeHtml(item.review_note) + '</div>'
+        : '';
+      var questionMeta = [
+        item.critical ? '<span class="operator-chip operator-chip-critical">Critical</span>' : '<span class="operator-chip">Standard</span>',
+        item.approval_required ? '<span class="operator-chip operator-chip-action">Approval required</span>' : '<span class="operator-chip">Delivery allowed</span>'
+      ].join(' ');
+      var actionButtons = ['approve', 'stale', 'revoke', 'unresolved'].map(function (decision) {
+        return '<button type="button" class="operator-action" data-queue-id="' + escapeHtml(item.queue_id) + '" data-decision="' + decision + '">' + escapeHtml(decision) + '</button>';
+      }).join('');
+      return '<tr>' +
+        '<td data-label="Question"><strong>' + escapeHtml(item.question_text || item.question_id) + '</strong><div class="operator-meta">' + questionMeta + '</div>' + noteMeta + '</td>' +
+        '<td data-label="State"><span class="' + badgeClass(bucket) + '">' + escapeHtml(bucket) + '</span><div class="operator-meta">Gate: ' + escapeHtml(item.approval_gate_status || 'unknown') + '</div></td>' +
+        '<td data-label="Evidence"><code>' + escapeHtml(item.evidence_key || 'none') + '</code><div class="operator-meta">Status: ' + escapeHtml(item.evidence_status || 'none') + '</div></td>' +
+        '<td data-label="Owner"><strong>' + escapeHtml(item.origin_agent || 'main') + '</strong>' + reviewMeta + '</td>' +
+        '<td data-label="Questionnaire"><button type="button" class="operator-link" data-select-questionnaire="' + escapeHtml(item.questionnaire_id) + '">' + escapeHtml(item.questionnaire_id) + '</button><div class="operator-meta">' + escapeHtml(item.source_session_key || '') + '</div></td>' +
+        '<td data-label="Action"><div class="operator-actions">' + actionButtons + '</div></td>' +
+      '</tr>';
+    }).join('');
+  }
+
+  function renderQuestionnaireDetail(operator) {
+    if (!questionnaireDetail) {
+      return;
+    }
+    var selected = operator ? operator.selected_questionnaire : null;
+    if (!selected) {
+      questionnaireDetail.innerHTML = '<p class="dim">No questionnaire selected yet.</p>';
+      return;
+    }
+    var questions = selected.questions || [];
+    var questionItems = questions.map(function (item) {
+      var bucket = item.approval_required ? 'pending' : (item.answer_state || 'unknown');
+      var evidenceLine = item.evidence_key
+        ? '<div class="operator-meta">Evidence: <code>' + escapeHtml(item.evidence_key) + '</code> · ' + escapeHtml(item.evidence_status || 'unknown') + '</div>'
+        : '<div class="operator-meta">No evidence key linked.</div>';
+      var reviewLine = item.last_reviewed_at
+        ? '<div class="operator-meta">Last review: ' + escapeHtml(item.last_review_decision || 'reviewed') + ' · ' + escapeHtml(formatTimestamp(item.last_reviewed_at)) + '</div>'
+        : '';
+      var resolutionLine = item.resolution_note
+        ? '<div class="operator-meta">' + escapeHtml(item.resolution_note) + '</div>'
+        : '';
+      return '<article class="operator-question-card">' +
+        '<div class="operator-question-head"><strong>' + escapeHtml(item.text || item.question_id) + '</strong><span class="' + badgeClass(bucket) + '">' + escapeHtml(bucket) + '</span></div>' +
+        '<div class="operator-meta">Owner: ' + escapeHtml(item.origin_agent || 'main') + (item.critical ? ' · Critical' : '') + '</div>' +
+        evidenceLine + reviewLine + resolutionLine +
+      '</article>';
+    }).join('');
+    questionnaireDetail.innerHTML =
+      '<div class="operator-detail-head">' +
+        '<div><strong>' + escapeHtml(selected.questionnaire_id) + '</strong><div class="operator-meta">' + escapeHtml(selected.source_session_key || '') + '</div></div>' +
+        '<div class="operator-detail-metrics">' +
+          '<span class="' + badgeClass(selected.pending_approval_count ? 'pending' : 'approved') + '">' + escapeHtml(selected.approval_gate_status || 'unknown') + '</span>' +
+          '<span class="operator-chip">' + escapeHtml(String(selected.pending_approval_count || 0)) + ' pending</span>' +
+          '<span class="operator-chip">' + escapeHtml(String(selected.critical_count || 0)) + ' critical</span>' +
+        '</div>' +
+      '</div>' +
+      '<div class="operator-question-grid">' + questionItems + '</div>';
+  }
+
+  async function loadOperatorSnapshot() {
+    var params = new URLSearchParams();
+    var formData = new FormData(filterForm);
+    formData.forEach(function (value, key) {
+      if (key === 'include_cleared') {
+        return;
+      }
+      if (value) {
+        params.set(key, value);
+      }
+    });
+    var includeCleared = filterForm.querySelector('[name="include_cleared"]');
+    if (includeCleared && includeCleared.checked) {
+      params.set('include_cleared', 'true');
+    }
+    setOperatorStatus('Refreshing Trust Ops queue…', false);
+    try {
+      var response = await fetch('/api/trust-ops/queue?' + params.toString());
+      var payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload && payload.output ? payload.output : 'Failed to load Trust Ops queue');
+      }
+      currentSnapshot = payload.operator || null;
+      renderQuestionnaireOptions(currentSnapshot);
+      renderSummary(currentSnapshot);
+      renderQueue(currentSnapshot);
+      renderQuestionnaireDetail(currentSnapshot);
+      setOperatorStatus('Trust Ops queue loaded. Actionable items are shown first.', false);
+    } catch (error) {
+      setOperatorStatus(error.message || 'Failed to load Trust Ops queue', true);
+      if (queueBody) {
+        queueBody.innerHTML = '<tr><td colspan="6">Could not load queue.</td></tr>';
+      }
+      if (questionnaireDetail) {
+        questionnaireDetail.innerHTML = '<p class="dim">Could not load questionnaire detail.</p>';
+      }
+    }
+  }
+
+  async function reviewQueueItem(queueId, decision) {
+    var note = window.prompt('Review note for ' + decision + ' on ' + queueId + ':', '');
+    if (note === null) {
+      return;
+    }
+    setOperatorStatus('Submitting ' + decision + ' review for ' + queueId + '…', false);
+    try {
+      var response = await fetch('/api/trust-ops/queue/review', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          queue_id: queueId,
+          decision: decision,
+          note: note,
+          actor: 'web-operator'
+        })
+      });
+      var payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload && payload.output ? payload.output : 'Queue review failed');
+      }
+      setOperatorStatus('Queue item ' + queueId + ' reviewed as ' + decision + '.', false);
+      await loadOperatorSnapshot();
+    } catch (error) {
+      setOperatorStatus(error.message || 'Queue review failed', true);
+    }
+  }
+
+  filterForm.addEventListener('submit', function (event) {
+    event.preventDefault();
+    loadOperatorSnapshot();
+  });
+
+  shell.addEventListener('click', function (event) {
+    var selectButton = event.target.closest('[data-select-questionnaire]');
+    if (selectButton && questionnaireSelect) {
+      questionnaireSelect.value = selectButton.getAttribute('data-select-questionnaire') || '';
+      loadOperatorSnapshot();
+      return;
+    }
+    var actionButton = event.target.closest('[data-queue-id][data-decision]');
+    if (actionButton) {
+      reviewQueueItem(
+        actionButton.getAttribute('data-queue-id') || '',
+        actionButton.getAttribute('data-decision') || ''
+      );
+    }
+  });
+
+  loadOperatorSnapshot();
+})();
