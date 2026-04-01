@@ -3,13 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Meridian vs OpenClaw, OpenFang, and TEMM1E</title>
-<meta name="description" content="A sharp but bounded comparison of Meridian against OpenClaw, OpenFang, and TEMM1E based on public repo/docs as of March 31, 2026.">
+<title>Meridian vs the strongest open agent stacks</title>
+<meta name="description" content="A sharp but bounded comparison of Meridian against OpenClaw, OpenFang, TEMM1E, Goose, CrewAI, LangGraph, and OpenHands based on public repo/docs as of April 1, 2026.">
 <link rel="icon" type="image/svg+xml" href="/assets/meridian_mark_flat.svg">
 <link rel="alternate icon" type="image/png" href="/assets/logo_favicon_64.png">
 <link rel="apple-touch-icon" sizes="192x192" href="/assets/logo_avatar_192.png">
-<meta property="og:title" content="Meridian vs OpenClaw, OpenFang, and TEMM1E">
-<meta property="og:description" content="A sharp but bounded comparison of Meridian against OpenClaw, OpenFang, and TEMM1E based on public repo/docs as of March 31, 2026.">
+<meta property="og:title" content="Meridian vs the strongest open agent stacks">
+<meta property="og:description" content="A sharp but bounded comparison of Meridian against OpenClaw, OpenFang, TEMM1E, Goose, CrewAI, LangGraph, and OpenHands based on public repo/docs as of April 1, 2026.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://app.welliam.codes/compare.html">
 <meta property="og:image" content="https://app.welliam.codes/assets/logo_banner_1200x630.jpg">
@@ -17,8 +17,8 @@
 <meta property="og:image:height" content="630">
 <meta property="og:site_name" content="Meridian">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="Meridian vs OpenClaw, OpenFang, and TEMM1E">
-<meta name="twitter:description" content="A sharp but bounded comparison of Meridian against OpenClaw, OpenFang, and TEMM1E based on public repo/docs as of March 31, 2026.">
+<meta name="twitter:title" content="Meridian vs the strongest open agent stacks">
+<meta name="twitter:description" content="A sharp but bounded comparison of Meridian against OpenClaw, OpenFang, TEMM1E, Goose, CrewAI, LangGraph, and OpenHands based on public repo/docs as of April 1, 2026.">
 <meta name="twitter:image" content="https://app.welliam.codes/assets/logo_banner_1200x630.jpg">
 <link rel="stylesheet" href="/assets/meridian.css">
 </head>
@@ -47,17 +47,17 @@
       <img src="/assets/meridian_wordmark.svg" alt="Meridian — Constitutional OS" class="page-wordmark">
       <div class="eyebrow">
         <span class="eyebrow-dot"></span>
-        <span>Public comparison &middot; boundary-safe &middot; March 31, 2026</span>
+        <span>Public comparison &middot; boundary-safe &middot; April 1, 2026</span>
       </div>
-      <h1>Meridian vs OpenClaw, OpenFang, and TEMM1E</h1>
-      <p class="subtitle">This page compares Meridian with three of the strongest open agent runtimes people are likely to mention first. It uses public repo/docs only. It is sharp on purpose, but it does not pretend Meridian already wins every category.</p>
+      <h1>Meridian vs the strongest open agent stacks</h1>
+      <p class="subtitle">This page compares Meridian with the systems serious builders are most likely to bring up in the same conversation: OpenClaw, OpenFang, TEMM1E, Goose, CrewAI, LangGraph, and OpenHands. It uses public repo/docs only. It is sharp on purpose, but it does not pretend Meridian already wins every category.</p>
     </div>
     <aside class="page-rail">
       <div class="rail-kicker">Comparison boundary</div>
       <div class="rail-item">
         <span>Sources</span>
         <strong>Public repo/docs only.</strong>
-        <p><a href="https://github.com/openclaw/openclaw" target="_blank" rel="noopener">OpenClaw</a>, <a href="https://github.com/RightNow-AI/openfang" target="_blank" rel="noopener">OpenFang</a>, <a href="https://github.com/temm1e-labs/temm1e" target="_blank" rel="noopener">TEMM1E</a>, and Meridian's own public repos/pages.</p>
+        <p><a href="https://github.com/openclaw/openclaw" target="_blank" rel="noopener">OpenClaw</a>, <a href="https://github.com/RightNow-AI/openfang" target="_blank" rel="noopener">OpenFang</a>, <a href="https://github.com/temm1e-labs/temm1e" target="_blank" rel="noopener">TEMM1E</a>, <a href="https://github.com/block/goose" target="_blank" rel="noopener">Goose</a>, <a href="https://github.com/crewAIInc/crewAI" target="_blank" rel="noopener">CrewAI</a>, <a href="https://github.com/langchain-ai/langgraph" target="_blank" rel="noopener">LangGraph</a>, <a href="https://github.com/All-Hands-AI/OpenHands" target="_blank" rel="noopener">OpenHands</a>, and Meridian's own public repos/pages.</p>
       </div>
       <div class="rail-item">
         <span>What Meridian is trying to win</span>
@@ -71,103 +71,178 @@
 <div class="container">
 
   <div class="notice mb-xl">
-    <strong>Meridian is not trying to be the cutest assistant runtime.</strong>
-    <span class="dim">OpenClaw is broader on channels and onboarding. OpenFang is denser on one-binary autonomous packaging. TEMM1E is bolder on single-agent memory and computer use. Meridian is sharper where agent work must be governed, budgeted, approved, audited, and sanctioned.</span>
+    <strong>Meridian is not trying to win the entire agent internet on breadth.</strong>
+    <span class="dim">OpenClaw is broader on channels. OpenFang is denser on one-box autonomous packaging. TEMM1E is bolder on persistent memory and full computer use. Goose and OpenHands are stronger on developer-facing coding-agent UX. CrewAI and LangGraph are stronger on framework mindshare. Meridian is sharper where work must be approved, budgeted, audited, sanctioned, and delivered with an honest boundary.</span>
   </div>
 
-  <h2>The Short Version</h2>
-  <div class="card">
-    <table class="offer-table">
+  <h2>Category Map</h2>
+  <p class="section-intro">These systems are adjacent, not identical. The most useful comparison starts by naming what each one is actually trying to win.</p>
+  <table class="data-table">
+    <thead>
       <tr>
-        <td>OpenClaw</td>
-        <td><strong>Clearly ahead</strong><br>Multi-channel breadth, onboarding, companion apps, voice, and personal-assistant polish.</td>
-        <td><strong>Meridian is sharper</strong><br>Institution-level governance, treasury constraints, sanctions, proof routes, and truthful paid-work boundary.</td>
+        <th>System</th>
+        <th>Public center of gravity</th>
+        <th>Why it matters in this comparison</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td data-label="System"><strong>OpenClaw</strong></td>
+        <td data-label="Public center of gravity">Personal AI assistant with extreme channel breadth</td>
+        <td data-label="Why it matters">Benchmark for multi-channel presence, onboarding, and companion-app polish.</td>
       </tr>
       <tr>
-        <td>OpenFang</td>
-        <td><strong>Clearly ahead</strong><br>One-binary packaging, bundled autonomous Hands, security/performance density, and dashboard-first runtime story.</td>
-        <td><strong>Meridian is sharper</strong><br>Authority/Treasury/Court as first-class operating primitives instead of only runtime features and guardrails.</td>
+        <td data-label="System"><strong>OpenFang</strong></td>
+        <td data-label="Public center of gravity">Rust agent operating system with autonomous Hands</td>
+        <td data-label="Why it matters">Benchmark for dense one-binary runtime packaging and scheduled agent execution.</td>
       </tr>
       <tr>
-        <td>TEMM1E</td>
-        <td><strong>Clearly ahead</strong><br>Persistent single-agent runtime, blueprint/procedural memory, full computer use, and many chat channels.</td>
-        <td><strong>Meridian is sharper</strong><br>Governed multi-agent institution with user-path scoring, warrants, sanctions, and treasury-aware work instead of a brilliant but looser immortal assistant story.</td>
+        <td data-label="System"><strong>TEMM1E</strong></td>
+        <td data-label="Public center of gravity">Persistent single agent with memory and full computer use</td>
+        <td data-label="Why it matters">Benchmark for memory ambition, always-on identity, and tool self-extension.</td>
       </tr>
-    </table>
-  </div>
+      <tr>
+        <td data-label="System"><strong>Goose</strong></td>
+        <td data-label="Public center of gravity">Local extensible engineering agent</td>
+        <td data-label="Why it matters">Benchmark for practical developer workflow, MCP friendliness, and desktop-plus-CLI ergonomics.</td>
+      </tr>
+      <tr>
+        <td data-label="System"><strong>OpenHands</strong></td>
+        <td data-label="Public center of gravity">AI-driven development stack with SDK, CLI, GUI, cloud, and enterprise</td>
+        <td data-label="Why it matters">Benchmark for coding-agent product surface and enterprise packaging around development work.</td>
+      </tr>
+      <tr>
+        <td data-label="System"><strong>CrewAI</strong></td>
+        <td data-label="Public center of gravity">Multi-agent orchestration framework with crews and flows</td>
+        <td data-label="Why it matters">Benchmark for developer mindshare around production multi-agent orchestration.</td>
+      </tr>
+      <tr>
+        <td data-label="System"><strong>LangGraph</strong></td>
+        <td data-label="Public center of gravity">Low-level framework for long-running stateful agents</td>
+        <td data-label="Why it matters">Benchmark for durable execution, memory, and stateful orchestration infrastructure.</td>
+      </tr>
+      <tr>
+        <td data-label="System"><strong>Meridian</strong></td>
+        <td data-label="Public center of gravity">Governed paid AI agent work</td>
+        <td data-label="Why it matters">Meridian is strongest where approvals, budgets, sanctions, and trust matter more than raw breadth.</td>
+      </tr>
+    </tbody>
+  </table>
 
-  <span class="step-label">OpenClaw</span>
-  <h2>What OpenClaw Clearly Does Better</h2>
-  <p class="section-intro">OpenClaw publicly positions itself as a personal AI assistant that already reaches a very wide set of channels, companion apps, and onboarding/documentation surfaces. If someone wants a polished personal assistant that feels local, always-on, and broad, OpenClaw is the obvious benchmark Meridian should not pretend to have already beaten.</p>
+  <h2>The Fast Read</h2>
   <div class="feature-grid">
     <div class="feature-card">
-      <h3>Where OpenClaw is ahead</h3>
-      <p>Channel breadth, pairing/onboarding, docs depth, voice/canvas/mobile surfaces, and consumer-facing polish are all ahead of Meridian today.</p>
+      <h3>Meridian leads on governance</h3>
+      <p>Authority, Treasury, Court, warrants, sanctions, proof routes, and honest public boundaries are Meridian's real edge.</p>
     </div>
     <div class="feature-card">
-      <h3>Where Meridian is ahead</h3>
-      <p>Meridian has a clearer answer for governed paid work: authority queues, treasury reserve logic, court/sanctions, proof routes, and a commercial truth boundary that says exactly what is live and what is not.</p>
+      <h3>Meridian loses on breadth today</h3>
+      <p>It does not beat the strongest field systems on channels, developer polish, packaging density, or fame.</p>
+    </div>
+    <div class="feature-card">
+      <h3>Meridian should copy discipline, not hype</h3>
+      <p>Packaging, onboarding, memory quality, and developer ergonomics are learnable. Inflated category claims are not worth copying.</p>
+    </div>
+    <div class="feature-card">
+      <h3>The real bet is different</h3>
+      <p>If institutions start caring more about trusted governed work than agent novelty, Meridian has chosen the harder lane earlier than most of the field.</p>
     </div>
   </div>
-  <p class="note">Best public source for OpenClaw's claim set: its README and docs hub at <a href="https://github.com/openclaw/openclaw" target="_blank" rel="noopener">openclaw/openclaw</a>.</p>
 
-  <span class="step-label">OpenFang</span>
-  <h2>What OpenFang Clearly Does Better</h2>
-  <p class="section-intro">OpenFang is making a strong runtime/productization play: one binary, seven bundled autonomous Hands, a dashboard, aggressive Rust packaging, and a public story built around density, speed, and security systems. It is the strongest public benchmark here on one-box autonomous packaging.</p>
+  <h2>Battle Table</h2>
+  <p class="section-intro">This is the useful short version: what each system is clearly stronger at today, and where Meridian is sharper without pretending they are the same product.</p>
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>System</th>
+        <th>Built for</th>
+        <th>Stronger today on</th>
+        <th>Where Meridian is sharper</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td data-label="System"><strong>OpenClaw</strong></td>
+        <td data-label="Built for">Personal assistant breadth</td>
+        <td data-label="Stronger today on">Channel reach, onboarding, companion surfaces, voice, canvas, and local-assistant polish.</td>
+        <td data-label="Where Meridian is sharper">Institution-level governance, treasury constraints, sanctions, proof routes, and a truthful paid-work boundary.</td>
+      </tr>
+      <tr>
+        <td data-label="System"><strong>OpenFang</strong></td>
+        <td data-label="Built for">Autonomous agent OS</td>
+        <td data-label="Stronger today on">One-binary Rust packaging, bundled autonomous Hands, scheduled execution, dashboard density, and security/performance posture.</td>
+        <td data-label="Where Meridian is sharper">Authority, Treasury, Court, user-path scoring, and an explicit answer to who is allowed to act under what constraints.</td>
+      </tr>
+      <tr>
+        <td data-label="System"><strong>TEMM1E</strong></td>
+        <td data-label="Built for">Persistent immortal-style single agent</td>
+        <td data-label="Stronger today on">Memory ambition, full computer use, runtime self-extension, and always-on identity.</td>
+        <td data-label="Where Meridian is sharper">Governed multi-agent work with sanctions, warrants, approval state, and commercial proof boundaries instead of a looser sovereign-agent story.</td>
+      </tr>
+      <tr>
+        <td data-label="System"><strong>Goose</strong></td>
+        <td data-label="Built for">Developer engineering assistant</td>
+        <td data-label="Stronger today on">Desktop-plus-CLI experience, local extensibility, MCP friendliness, and immediate engineering-task usability.</td>
+        <td data-label="Where Meridian is sharper">Buyer-facing governed workflows tied to money, approvals, queue state, and trust-sensitive delivery.</td>
+      </tr>
+      <tr>
+        <td data-label="System"><strong>OpenHands</strong></td>
+        <td data-label="Built for">AI-driven development platform</td>
+        <td data-label="Stronger today on">SDK/CLI/GUI/cloud surface, enterprise packaging, RBAC, and software-development-specific workflow depth.</td>
+        <td data-label="Where Meridian is sharper">Constitutional control for non-coding paid work where evidence, treasury, and institutional trust have to stay explicit.</td>
+      </tr>
+      <tr>
+        <td data-label="System"><strong>CrewAI</strong></td>
+        <td data-label="Built for">Multi-agent orchestration for developers</td>
+        <td data-label="Stronger today on">Framework mindshare, production orchestration language, crews/flows framing, and generalized automation adoption.</td>
+        <td data-label="Where Meridian is sharper">Policy, settlement, warranting, court logic, and public proof for governed work rather than just orchestration power.</td>
+      </tr>
+      <tr>
+        <td data-label="System"><strong>LangGraph</strong></td>
+        <td data-label="Built for">Stateful agent infrastructure</td>
+        <td data-label="Stronger today on">Durable execution, long-running stateful agents, human-in-the-loop patterns, and infrastructure credibility for builders.</td>
+        <td data-label="Where Meridian is sharper">Institution semantics and the economic/governance layer around shipped work, not only stateful runtime mechanics.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>Where Meridian Still Has To Earn It</h2>
   <div class="feature-grid">
     <div class="feature-card">
-      <h3>Where OpenFang is ahead</h3>
-      <p>One-binary install, autonomous scheduled Hands, dense security/performance claims, and strong out-of-the-box runtime packaging are ahead of Meridian.</p>
+      <h3>Memory sophistication</h3>
+      <p>Meridian now has live retrieval and memory-capital logic, but it still does not match the best public memory-first systems on fame or density.</p>
     </div>
     <div class="feature-card">
-      <h3>Where Meridian is ahead</h3>
-      <p>Meridian's edge is not raw runtime density. It is constitutional control over work: who is allowed to act, under what budget, with what sanction path, and with what public proof boundary.</p>
-    </div>
-  </div>
-  <p class="note">Best public source for OpenFang's claim set: its README at <a href="https://github.com/RightNow-AI/openfang" target="_blank" rel="noopener">RightNow-AI/openfang</a>.</p>
-
-  <span class="step-label">TEMM1E</span>
-  <h2>What TEMM1E Clearly Does Better</h2>
-  <p class="section-intro">TEMM1E is the strongest public benchmark here for a single persistent agent with procedural memory, budget-aware cognition, direct computer use, and ambitious runtime design. Meridian should not pretend its memory/computer-use story is already stronger.</p>
-  <div class="feature-grid">
-    <div class="feature-card">
-      <h3>Where TEMM1E is ahead</h3>
-      <p>Single-agent persistence, blueprint/procedural memory, full computer use, and a bolder "lives on your server forever" runtime identity are all stronger than Meridian today.</p>
+      <h3>Self-extension density</h3>
+      <p>Governed dynamic skill synthesis exists, but Meridian still needs more obviously first-class tool-synthesis power before it beats the field on raw autonomy feel.</p>
     </div>
     <div class="feature-card">
-      <h3>Where Meridian is ahead</h3>
-      <p>Meridian is building an institution, not only a brilliant immortal assistant. That gives it a sharper path for paid work: warrants, approval, treasury control, sanctions, and public proof tied to the work that was shipped.</p>
+      <h3>Packaging and onboarding</h3>
+      <p>Meridian is more coherent than before, but it still does not beat the fastest install, desktop, or framework onboarding loops in the field.</p>
     </div>
-  </div>
-  <p class="note">Best public source for TEMM1E's claim set: its README at <a href="https://github.com/temm1e-labs/temm1e" target="_blank" rel="noopener">temm1e-labs/temm1e</a>.</p>
-
-  <h2>What Meridian Still Has To Earn</h2>
-  <div class="card">
-    <table class="offer-table">
-      <tr><td>Memory sophistication</td><td>Meridian has bounded persistent-memory proof and a live retrieval economy surface, but it is not yet as mature or as famous as the strongest memory-first runtimes.</td></tr>
-      <tr><td>Self-extension density</td><td>Meridian now has governed dynamic skill synthesis, but it still needs more obvious first-class dynamic tool synthesis and extension density before it clearly beats the field here.</td></tr>
-      <tr><td>Channel breadth</td><td>Meridian's bounded live proof today is strongest on web and Telegram. It is nowhere near OpenClaw's channel surface yet.</td></tr>
-      <tr><td>Packaging and onboarding</td><td>Meridian is more coherent than before, but it still does not beat the fastest install/onboarding experiences in the field.</td></tr>
-    </table>
+    <div class="feature-card">
+      <h3>Public mindshare</h3>
+      <p>Many of these systems are easier to explain in one sentence. Meridian still has to earn faster recognition without betraying its truth boundary.</p>
+    </div>
   </div>
 
   <h2>What Meridian Should Not Copy</h2>
   <div class="feature-grid">
     <div class="feature-card">
-      <h3>Do not copy vague breadth</h3>
-      <p>Meridian should not inflate its channel or product claims just to sound as broad as the assistants above. That would destroy the truth boundary that makes it credible.</p>
+      <h3>Do not fake breadth</h3>
+      <p>Meridian should not inflate channel count, delivery claims, or self-serve status just to sound broader than the field. That would destroy the one thing it already does better: truth.</p>
     </div>
     <div class="feature-card">
-      <h3>Do copy operational discipline</h3>
-      <p>Packaging, onboarding, runtime ergonomics, and memory quality can be copied. Hype and benchmark theater should not be.</p>
+      <h3>Do copy operator quality</h3>
+      <p>Meridian should copy what strong systems do well on packaging, onboarding, memory ergonomics, and workflow polish, then route that quality through governance instead of marketing theater.</p>
     </div>
   </div>
 
   <h2>Why Meridian Can Still Win</h2>
-  <p class="section-intro">If the market ends up caring only about broader assistants, Meridian loses. If the market ends up caring about governed paid work, Meridian is aimed at the hard part of the problem earlier than most of the field.</p>
+  <p class="section-intro">If the market only wants ever-broader assistants, Meridian loses. If the market starts caring which agent work can be trusted enough to approve, budget, price, audit, and sanction, Meridian is aimed at the right problem earlier than most of the field.</p>
   <div class="card">
-    <p><strong>Meridian's thesis:</strong> the decisive problem is not merely "can an agent act?" The decisive problem is "can an institution trust the action enough to price it, approve it, audit it, and sanction failures honestly?"</p>
-    <p>If that thesis is right, Meridian's combination of Authority, Treasury, Court, proof routes, live paid pilot, and truthful host boundary is not an optional detail. It is the product.</p>
+    <p><strong>Meridian's thesis:</strong> the decisive problem is not merely "can an agent act?" The decisive problem is "can an institution trust the action enough to approve it, budget it, price it, audit it, and sanction failures honestly?"</p>
+    <p>If that thesis is right, Meridian's combination of Authority, Treasury, Court, proof routes, Trust Ops lanes, and truthful host boundary is not a side detail. It is the product.</p>
   </div>
 
   <div class="card text-center mt-lg">
