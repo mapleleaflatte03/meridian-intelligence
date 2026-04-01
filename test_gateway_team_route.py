@@ -930,6 +930,23 @@ Use this skill when the user gives a short prompt such as:
             )
         self.assertEqual([item['name'] for item in bundle['matches']], ['safe-web-research'])
 
+    def test_skill_bundle_isolates_customer_research_from_protocol_like_skill(self):
+        with mock.patch.object(
+            meridian_gateway.TEAM_SKILLS,
+            'search',
+            return_value=[
+                {'name': 'research-khach-hang', 'description': 'customer research', 'score': 19},
+                {'name': 'khach-hay-tao', 'description': 'protocol builder', 'score': 18},
+            ],
+        ):
+            bundle = meridian_gateway._skill_bundle_for_request(
+                'research khách hàng trả tiền cho Meridian, tập trung trigger mua hàng và willingness to pay',
+                'web_api:test-customer-research-isolated',
+                manager_brief='research khách hàng trả tiền cho Meridian, tập trung trigger mua hàng và willingness to pay',
+                allow_create=True,
+            )
+        self.assertEqual([item['name'] for item in bundle['matches']], ['research-khach-hang'])
+
     def test_salvaged_competitor_scan_names_follow_up_targets_and_narrower_query(self):
         artifact = meridian_gateway._salvage_competitor_scan_artifact('scan đối thủ openai tuần này')
         self.assertIn('Official-source', artifact)

@@ -6509,6 +6509,15 @@ def _skill_bundle_for_request(
             if meeting_matches:
                 matches = meeting_matches
                 names = {"book-meeting"}
+        if "research-khach-hang" in names and _request_is_customer_research(request, list(names)):
+            filtered = [
+                item
+                for item in matches
+                if str(item.get("name") or "").strip().lower() == "research-khach-hang"
+            ]
+            if filtered:
+                matches = filtered
+                names = {"research-khach-hang"}
         if "follow-demo-soan" in names and not any(
             term in lowered for term in ("follow up", "follow-up", "followup", "sau demo", "demo hôm qua", "demo hom qua")
         ):
