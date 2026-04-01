@@ -277,17 +277,38 @@
 
   <!-- Meridian Constitutional Model -->
   <h2 id="platform" class="reveal">The Platform Behind It</h2>
-  <p class="section-intro compact-copy">The shortest visual read: Meridian separates governance, commitments, and runtime instead of hiding them in one generic agent blob.</p>
-  <div class="layer-stack">
-    <div class="layer"><span class="layer-name">Institution</span> <span><span class="tag-live">LIVE</span> &nbsp;Charter, policy defaults, lifecycle, settings</span></div>
-    <div class="layer"><span class="layer-name">Agent</span> <span><span class="tag-live">LIVE</span> &nbsp;Identity, scopes, budget, risk state, economy participation</span></div>
-    <div class="layer"><span class="layer-name">Authority</span> <span><span class="tag-live">LIVE</span> &nbsp;Approval queues, delegations, kill switch</span></div>
-    <div class="layer"><span class="layer-name">Treasury</span> <span><span class="tag-live">LIVE</span> &nbsp;Balance, runway, reserve floor, spend tracking</span></div>
-    <div class="layer"><span class="layer-name">Court</span> <span><span class="tag-live">LIVE</span> &nbsp;Violations, sanctions, appeals, enforcement</span></div>
-    <div class="layer"><span class="layer-name">Commitment</span> <span><span class="tag-live">LIVE</span> &nbsp;Capsule-backed obligations, lifecycle transitions, and settlement references</span></div>
-    <div class="layer"><span class="layer-name">Loom Runtime</span> <span><span class="tag-live">LIVE</span> &nbsp;Execution, sessions, channels, tools, memory/context</span></div>
+  <p class="section-intro compact-copy">The short visual read is three layers, not a wall of doctrine: governance core, commitment layer, and Loom runtime.</p>
+  <div class="split-grid reveal">
+    <div class="split-card">
+      <h3>Governance core</h3>
+      <div class="bullet-stack">
+        <div class="bullet-item"><span class="bullet-mark">01</span><span>Institution, Agent, Authority, Treasury, Court.</span></div>
+        <div class="bullet-item"><span class="bullet-mark">02</span><span>This is where approval, budget, sanctions, and ownership live.</span></div>
+      </div>
+    </div>
+    <div class="split-card">
+      <h3>Commitment layer</h3>
+      <div class="bullet-stack">
+        <div class="bullet-item"><span class="bullet-mark">01</span><span>Commitment is the sixth platform primitive on top of the kernel.</span></div>
+        <div class="bullet-item"><span class="bullet-mark">02</span><span>It turns promises and obligations into governed state instead of chat history.</span></div>
+      </div>
+    </div>
+    <div class="split-card">
+      <h3>Loom runtime</h3>
+      <div class="bullet-stack">
+        <div class="bullet-item"><span class="bullet-mark">01</span><span>Loom executes sessions, channels, tools, and memory on the live host.</span></div>
+        <div class="bullet-item"><span class="bullet-mark">02</span><span>Proof routes show what this host actually runs today.</span></div>
+      </div>
+    </div>
+    <div class="split-card">
+      <h3>Open and bounded</h3>
+      <div class="bullet-stack">
+        <div class="bullet-item"><span class="bullet-mark">01</span><span>The kernel is open source.</span></div>
+        <div class="bullet-item"><span class="bullet-mark">02</span><span>The live host still keeps a narrower truth boundary than the whole architecture.</span></div>
+      </div>
+    </div>
   </div>
-  <p class="dim small mt-md">The kernel is open-source. <a href="https://github.com/mapleleaflatte03/meridian-kernel" target="_blank" rel="noopener">Meridian Constitutional Kernel →</a> The current runtime-core surfaces explicitly say which boundaries are institution-routable today and which remain founding-service-only.</p>
+  <p class="dim small mt-md"><a href="https://github.com/mapleleaflatte03/meridian-kernel" target="_blank" rel="noopener">Read the open kernel</a> and use the proof routes to see what is actually live on this host.</p>
 
   <h2 class="reveal">Against The Field</h2>
   <p class="section-intro compact-copy">The quick visual read is simpler than the full table: Meridian wins on governance; the field still wins on breadth, packaging, and mindshare.</p>
@@ -400,19 +421,46 @@
 
   <!-- Agent Team -->
   <h2 class="reveal">Managed Agent Team</h2>
-  <div class="card">
-    <p class="section-intro small">Every agent is a registered entity with identity, scopes, budget, and reputation scores. Agents earn and lose standing based on accepted output.</p>
-    <table class="roster">
-      <tr><td><span class="agent-name">Leviathann</span></td><td class="agent-role">Manager — orchestrates pipeline, routes work</td></tr>
-      <tr><td><span class="agent-name">Atlas</span></td><td class="agent-role">Research — sourced findings, competitive analysis</td></tr>
-      <tr><td><span class="agent-name">Quill</span></td><td class="agent-role">Writer — structured briefs and deliverables</td></tr>
-      <tr><td><span class="agent-name">Aegis</span></td><td class="agent-role">QA gate — PASS/FAIL acceptance with evidence</td></tr>
-      <tr><td><span class="agent-name">Sentinel</span></td><td class="agent-role">Verifier — contradiction detection, risk review</td></tr>
-      <tr><td><span class="agent-name">Forge</span></td><td class="agent-role">Executor — operational steps, implementation</td></tr>
-      <tr><td><span class="agent-name">Pulse</span></td><td class="agent-role">Compressor — triage, context optimization</td></tr>
-    </table>
-    <p class="dim small mt-md">Agents earn REP (reputation) and AUTH (authority) from accepted output. Sanctions apply for failures. Scores are tracked in the economy ledger and surfaced through the governed workspace.</p>
+  <p class="section-intro compact-copy">The team is easier to read in operating bands than in a roster table. Each band is still governed by REP and AUTH.</p>
+  <div class="lane-grid reveal">
+    <div class="lane-card">
+      <span class="lane-kicker">Control</span>
+      <h3>Leviathann</h3>
+      <p>Routes work, chooses final output, and owns the managerial boundary.</p>
+      <div class="lane-tags">
+        <span class="lane-tag">manager</span>
+        <span class="lane-tag">orchestration</span>
+      </div>
+    </div>
+    <div class="lane-card">
+      <span class="lane-kicker">Research + writing</span>
+      <h3>Atlas + Quill</h3>
+      <p>Atlas finds signal and reusable research patterns; Quill shapes customer-facing output.</p>
+      <div class="lane-tags">
+        <span class="lane-tag">research</span>
+        <span class="lane-tag">writing</span>
+      </div>
+    </div>
+    <div class="lane-card">
+      <span class="lane-kicker">Quality gates</span>
+      <h3>Aegis + Sentinel</h3>
+      <p>Aegis gates acceptance; Sentinel verifies contradictions and risk when allowed.</p>
+      <div class="lane-tags">
+        <span class="lane-tag">qa</span>
+        <span class="lane-tag">verification</span>
+      </div>
+    </div>
+    <div class="lane-card">
+      <span class="lane-kicker">Execution + compression</span>
+      <h3>Forge + Pulse</h3>
+      <p>Forge runs bounded operational steps; Pulse compresses and packages context for delivery.</p>
+      <div class="lane-tags">
+        <span class="lane-tag">execution</span>
+        <span class="lane-tag">compression</span>
+      </div>
+    </div>
   </div>
+  <p class="dim small mt-md">Every band still lives inside the economy ledger: accepted output raises REP and AUTH, failures can trigger sanctions or reduced authority.</p>
 
   <!-- Pricing -->
   <h2 id="pricing">Pricing</h2>

@@ -782,8 +782,8 @@
 
 (function () {
   'use strict';
-  var shell = document.querySelector('[data-live-snapshot]');
-  if (!shell) {
+  var shells = document.querySelectorAll('[data-live-snapshot]');
+  if (!shells.length) {
     return;
   }
 
@@ -842,22 +842,135 @@
     target.innerHTML = lines.join('');
   }
 
-  function setCaption(name, text) {
+  function setCaption(shell, name, text) {
     var node = shell.querySelector('[data-live-caption="' + name + '"]');
     if (node) {
       node.textContent = text;
     }
   }
 
-  function setLoadingState(message) {
+  function setLoadingState(shell, message) {
     ['runtime', 'queue', 'proof'].forEach(function (name) {
-      setCaption(name, message);
+      setCaption(shell, name, message);
       renderChart(shell.querySelector('[data-live-chart="' + name + '"]'), []);
     });
   }
 
+  function renderSnapshotIntoShell(shell, status, proof) {
+    var runtimeItems = [
+      {
+        label: 'agents',
+        value: safeNumber(proof && proof.health ? proof.health.agent_count : 0),
+        max: 10,
+        display: String(safeNumber(proof && proof.health ? proof.health.agent_count : 0))
+      },
+      {
+        label: 'sessions',
+        value: safeNumber(proof && proof.health ? proof.health.session_total : 0),
+        max: Math.max(140, safeNumber(proof && proof.health ? proof.health.session_total : 0)),
+        display: String(safeNumber(proof && proof.health ? proof.health.session_total : 0))
+      },
+      {
+        label: 'channels',
+        value: safeNumber(proof && proof.runtime_surfaces && proof.runtime_surfaces.channel_runtime ? proof.runtime_surfaces.channel_runtime.total_count : 0),
+        max: 4,
+        display: String(safeNumber(proof && proof.runtime_surfaces && proof.runtime_surfaces.channel_runtime ? proof.runtime_surfaces.channel_runtime.total_count : 0))
+      }
+    ];
+    renderChart(shell.querySelector('[data-live-chart="runtime"]'), runtimeItems);
+    setCaption(
+      shell,
+      'runtime',
+      'Live runtime reports ' +
+        String(runtimeItems[0].value) +
+        ' governed agents, ' +
+        String(runtimeItems[1].value) +
+        ' sessions, and ' +
+        String(runtimeItems[2].value) +
+        ' active channels.'
+    );
+
+    var queueMax = Math.max(6, safeNumber(status.queue_count), safeNumber(status.pending_delivery_count), safeNumber(status.delivered_count));
+    var queueItems = [
+      {
+        label: 'queue',
+        value: safeNumber(status.queue_count),
+        max: queueMax,
+        display: String(safeNumber(status.queue_count)),
+        warn: safeNumber(status.queue_count) > 0
+      },
+      {
+        label: 'pending',
+        value: safeNumber(status.pending_delivery_count),
+        max: queueMax,
+        display: String(safeNumber(status.pending_delivery_count)),
+        warn: safeNumber(status.pending_delivery_count) > 0
+      },
+      {
+        label: 'delivered',
+        value: safeNumber(status.delivered_count),
+        max: queueMax,
+        display: String(safeNumber(status.delivered_count))
+      }
+    ];
+    renderChart(shell.querySelector('[data-live-chart="queue"]'), queueItems);
+    setCaption(
+      shell,
+      'queue',
+      'Current queue snapshot: ' +
+        String(queueItems[0].value) +
+        ' queued, ' +
+        String(queueItems[1].value) +
+        ' pending deliveries, ' +
+        String(queueItems[2].value) +
+        ' delivered.'
+    );
+
+    var sloStatus = status && status.slo ? status.slo.status : 'unknown';
+    var proofItems = [
+      {
+        label: 'runtime',
+        value: metricStatusScore(proof && proof.health ? proof.health.status : 'unknown'),
+        max: 100,
+        display: proof && proof.health ? String(proof.health.status || 'unknown') : 'unknown',
+        warn: proof && proof.health && proof.health.status !== 'healthy'
+      },
+      {
+        label: 'service',
+        value: metricStatusScore(proof && proof.runtime_health ? proof.runtime_health.status : 'unknown'),
+        max: 100,
+        display: proof && proof.runtime_health ? String(proof.runtime_health.status || 'unknown') : 'unknown',
+        warn: proof && proof.runtime_health && proof.runtime_health.status !== 'healthy'
+      },
+      {
+        label: 'slo',
+        value: metricStatusScore(sloStatus),
+        max: 100,
+        display: String(sloStatus),
+        warn: sloStatus !== 'healthy'
+      }
+    ];
+    renderChart(shell.querySelector('[data-live-chart="proof"]'), proofItems);
+    var alerts = safeNumber(status && status.slo ? status.slo.alert_count : 0);
+    setCaption(
+      shell,
+      'proof',
+      'Proof boundary is ' +
+        (proof && proof.health ? String(proof.health.status || 'unknown') : 'unknown') +
+        '; SLO is ' +
+        String(sloStatus) +
+        ' with ' +
+        String(alerts) +
+        ' active alert' +
+        (alerts === 1 ? '' : 's') +
+        '.'
+    );
+  }
+
   async function loadLiveSnapshot() {
-    setLoadingState('Loading live host data…');
+    shells.forEach(function (shell) {
+      setLoadingState(shell, 'Loading live host data…');
+    });
     try {
       var responses = await Promise.all([
         fetch('/api/status'),
@@ -868,118 +981,18 @@
       }
       var status = await responses[0].json();
       var proof = await responses[1].json();
-
-      var runtimeItems = [
-        {
-          label: 'agents',
-          value: safeNumber(proof && proof.health ? proof.health.agent_count : 0),
-          max: 10,
-          display: String(safeNumber(proof && proof.health ? proof.health.agent_count : 0))
-        },
-        {
-          label: 'sessions',
-          value: safeNumber(proof && proof.health ? proof.health.session_total : 0),
-          max: Math.max(140, safeNumber(proof && proof.health ? proof.health.session_total : 0)),
-          display: String(safeNumber(proof && proof.health ? proof.health.session_total : 0))
-        },
-        {
-          label: 'channels',
-          value: safeNumber(proof && proof.runtime_surfaces && proof.runtime_surfaces.channel_runtime ? proof.runtime_surfaces.channel_runtime.total_count : 0),
-          max: 4,
-          display: String(safeNumber(proof && proof.runtime_surfaces && proof.runtime_surfaces.channel_runtime ? proof.runtime_surfaces.channel_runtime.total_count : 0))
-        }
-      ];
-      renderChart(shell.querySelector('[data-live-chart="runtime"]'), runtimeItems);
-      setCaption(
-        'runtime',
-        'Live runtime reports ' +
-          String(runtimeItems[0].value) +
-          ' governed agents, ' +
-          String(runtimeItems[1].value) +
-          ' sessions, and ' +
-          String(runtimeItems[2].value) +
-          ' active channels.'
-      );
-
-      var queueItems = [
-        {
-          label: 'queue',
-          value: safeNumber(status.queue_count),
-          max: Math.max(6, safeNumber(status.queue_count), safeNumber(status.pending_delivery_count), safeNumber(status.delivered_count)),
-          display: String(safeNumber(status.queue_count)),
-          warn: safeNumber(status.queue_count) > 0
-        },
-        {
-          label: 'pending',
-          value: safeNumber(status.pending_delivery_count),
-          max: Math.max(6, safeNumber(status.queue_count), safeNumber(status.pending_delivery_count), safeNumber(status.delivered_count)),
-          display: String(safeNumber(status.pending_delivery_count)),
-          warn: safeNumber(status.pending_delivery_count) > 0
-        },
-        {
-          label: 'delivered',
-          value: safeNumber(status.delivered_count),
-          max: Math.max(6, safeNumber(status.queue_count), safeNumber(status.pending_delivery_count), safeNumber(status.delivered_count)),
-          display: String(safeNumber(status.delivered_count))
-        }
-      ];
-      renderChart(shell.querySelector('[data-live-chart="queue"]'), queueItems);
-      setCaption(
-        'queue',
-        'Current queue snapshot: ' +
-          String(queueItems[0].value) +
-          ' queued, ' +
-          String(queueItems[1].value) +
-          ' pending deliveries, ' +
-          String(queueItems[2].value) +
-          ' delivered.'
-      );
-
-      var sloStatus = status && status.slo ? status.slo.status : 'unknown';
-      var proofItems = [
-        {
-          label: 'runtime',
-          value: metricStatusScore(proof && proof.health ? proof.health.status : 'unknown'),
-          max: 100,
-          display: proof && proof.health ? String(proof.health.status || 'unknown') : 'unknown',
-          warn: proof && proof.health && proof.health.status !== 'healthy'
-        },
-        {
-          label: 'service',
-          value: metricStatusScore(proof && proof.runtime_health ? proof.runtime_health.status : 'unknown'),
-          max: 100,
-          display: proof && proof.runtime_health ? String(proof.runtime_health.status || 'unknown') : 'unknown',
-          warn: proof && proof.runtime_health && proof.runtime_health.status !== 'healthy'
-        },
-        {
-          label: 'slo',
-          value: metricStatusScore(sloStatus),
-          max: 100,
-          display: String(sloStatus),
-          warn: sloStatus !== 'healthy'
-        }
-      ];
-      renderChart(shell.querySelector('[data-live-chart="proof"]'), proofItems);
-      var alerts = safeNumber(status && status.slo ? status.slo.alert_count : 0);
-      setCaption(
-        'proof',
-        'Proof boundary is ' +
-          (proof && proof.health ? String(proof.health.status || 'unknown') : 'unknown') +
-          '; SLO is ' +
-          String(sloStatus) +
-          ' with ' +
-          String(alerts) +
-          ' active alert' +
-          (alerts === 1 ? '' : 's') +
-          '.'
-      );
-    } catch (error) {
-      ['runtime', 'queue', 'proof'].forEach(function (name) {
-        setCaption(name, error.message || 'Unable to load live host data.');
+      shells.forEach(function (shell) {
+        renderSnapshotIntoShell(shell, status, proof);
       });
-      renderChart(shell.querySelector('[data-live-chart="runtime"]'), []);
-      renderChart(shell.querySelector('[data-live-chart="queue"]'), []);
-      renderChart(shell.querySelector('[data-live-chart="proof"]'), []);
+    } catch (error) {
+      shells.forEach(function (shell) {
+        ['runtime', 'queue', 'proof'].forEach(function (name) {
+          setCaption(shell, name, error.message || 'Unable to load live host data.');
+        });
+        renderChart(shell.querySelector('[data-live-chart="runtime"]'), []);
+        renderChart(shell.querySelector('[data-live-chart="queue"]'), []);
+        renderChart(shell.querySelector('[data-live-chart="proof"]'), []);
+      });
     }
   }
 
