@@ -119,6 +119,7 @@ SKILL_QUALITY_STATE_PATH = Path(LOOM_ROOT) / "state" / "skill-quality" / "qualit
 USER_SESSION_SCORE_STATE_PATH = Path(os.path.realpath(capsule_ledger_path())).with_name("user_session_scores.json")
 TELEGRAM_DEDUP_STATE_PATH = Path(LOOM_ROOT) / "state" / "gateway" / "telegram_dedup.json"
 MEMORY_RECALL_STATE_PATH = Path(LOOM_ROOT) / "state" / "gateway" / "memory_recall.json"
+TRUST_EVIDENCE_STATE_PATH = Path(LOOM_ROOT) / "state" / "gateway" / "trust_evidence.json"
 TELEGRAM_INBOUND_DEDUP_WINDOW_SECONDS = int(os.environ.get("MERIDIAN_TELEGRAM_INBOUND_DEDUP_WINDOW_SECONDS", "120"))
 TELEGRAM_OUTBOUND_DEDUP_WINDOW_SECONDS = int(os.environ.get("MERIDIAN_TELEGRAM_OUTBOUND_DEDUP_WINDOW_SECONDS", "900"))
 SKILL_AUTONOMY_LOCK = threading.RLock()
@@ -175,6 +176,10 @@ MEMORY_USER_FACT_LIMIT = int(os.environ.get("MERIDIAN_MEMORY_USER_FACT_LIMIT", "
 MEMORY_DELIVERY_CONTENT_LIMIT = int(os.environ.get("MERIDIAN_MEMORY_DELIVERY_CONTENT_LIMIT", "1200"))
 MEMORY_FACT_CONTENT_LIMIT = int(os.environ.get("MERIDIAN_MEMORY_FACT_CONTENT_LIMIT", "240"))
 MEMORY_COMPRESSED_OUTPUT_LIMIT = int(os.environ.get("MERIDIAN_MEMORY_COMPRESSED_OUTPUT_LIMIT", "420"))
+TRUST_EVIDENCE_LIMIT = int(os.environ.get("MERIDIAN_TRUST_EVIDENCE_LIMIT", "4"))
+TRUST_EVIDENCE_COMPRESSED_LIMIT = int(os.environ.get("MERIDIAN_TRUST_EVIDENCE_COMPRESSED_LIMIT", "520"))
+TRUST_EVIDENCE_WATCH_FRESHNESS_DAYS = int(os.environ.get("MERIDIAN_TRUST_EVIDENCE_WATCH_FRESHNESS_DAYS", "14"))
+TRUST_EVIDENCE_QUESTIONNAIRE_FRESHNESS_DAYS = int(os.environ.get("MERIDIAN_TRUST_EVIDENCE_QUESTIONNAIRE_FRESHNESS_DAYS", "30"))
 MEMORY_SUCCESSFUL_OUTPUT_DECAY_AFTER_DAYS = int(os.environ.get("MERIDIAN_MEMORY_SUCCESSFUL_OUTPUT_DECAY_AFTER_DAYS", "3"))
 MEMORY_USER_FACT_DECAY_AFTER_DAYS = int(os.environ.get("MERIDIAN_MEMORY_USER_FACT_DECAY_AFTER_DAYS", "21"))
 MEMORY_SUCCESSFUL_OUTPUT_EVICT_AFTER_DAYS = int(os.environ.get("MERIDIAN_MEMORY_SUCCESSFUL_OUTPUT_EVICT_AFTER_DAYS", "21"))
@@ -219,6 +224,7 @@ SKILL_STOPWORDS = {
 }
 SKILL_WORKER_HINTS = {
     "ai-intelligence": ["ATLAS", "QUILL", "AEGIS"],
+    "ai-stack-watch": ["ATLAS", "AEGIS"],
     "council-meeting": ["ATLAS", "SENTINEL", "QUILL", "AEGIS", "FORGE", "PULSE"],
     "download-quarantine": ["FORGE", "SENTINEL"],
     "founder-update": ["QUILL", "AEGIS"],
@@ -227,6 +233,7 @@ SKILL_WORKER_HINTS = {
     "night-shift-ops": ["FORGE", "PULSE", "QUILL"],
     "ops-snapshot": ["FORGE", "PULSE"],
     "safe-web-research": ["ATLAS", "QUILL", "AEGIS"],
+    "security-questionnaire": ["ATLAS", "QUILL", "AEGIS"],
     "skill-lab": ["FORGE", "QUILL"],
     "staff-training-loop": ["SENTINEL", "FORGE", "PULSE"],
     "subscribe": ["FORGE", "QUILL", "AEGIS"],
@@ -234,6 +241,20 @@ SKILL_WORKER_HINTS = {
 GENERIC_AUTONOMY_SKILLS = {"ai-intelligence", "safe-web-research"}
 SKILL_ALIAS_HINTS = {
     "ai-intelligence": {"brief", "digest", "competitor", "intelligence", "latest", "research", "snapshot", "weekly"},
+    "ai-stack-watch": {
+        "ai stack",
+        "api change",
+        "deprecation",
+        "model watch",
+        "policy change",
+        "pricing change",
+        "provider watch",
+        "regulation",
+        "regulatory",
+        "trust risk",
+        "vendor watch",
+        "watch",
+    },
     "council-meeting": {
         "board",
         "buyable",
@@ -286,6 +307,20 @@ SKILL_ALIAS_HINTS = {
         "nguon",
         "nguồn",
         "trang",
+    },
+    "security-questionnaire": {
+        "ai governance",
+        "answer library",
+        "customer assurance",
+        "data retention",
+        "due diligence",
+        "evidence pack",
+        "questionnaire",
+        "security review",
+        "soc2",
+        "subprocessor",
+        "trust center",
+        "vendor risk",
     },
     "skill-lab": {"automate", "playbook", "repeat", "reusable", "skill", "workflow"},
     "staff-training-loop": {"coach", "failure", "improve", "lesson", "prompt", "training", "worker"},
@@ -346,6 +381,22 @@ AUTONOMY_ACTION_TERMS = {
     "write",
 }
 AUTONOMY_CATEGORY_KEYWORDS = {
+    "assurance": {
+        "assurance",
+        "audit",
+        "customer assurance",
+        "data retention",
+        "diligence",
+        "evidence",
+        "governance",
+        "iso27001",
+        "questionnaire",
+        "review",
+        "risk",
+        "soc2",
+        "subprocessor",
+        "trust",
+    },
     "communication": {"email", "mail", "message", "notify", "send", "gửi", "gui", "follow", "followup"},
     "writing": {"announce", "brief", "copy", "demo", "draft", "soan", "summarize", "update", "viet", "viết", "write"},
     "operations": {"debug", "fix", "health", "incident", "ops", "repair", "snapshot", "status", "triage"},
@@ -355,6 +406,7 @@ AUTONOMY_CATEGORY_KEYWORDS = {
     "planning": {"book", "build", "demo", "plan", "playbook", "prepare", "protocol", "schedule", "ship", "scope", "sprint"},
 }
 AUTONOMY_WORKER_PROFILES = {
+    "assurance": ["ATLAS", "QUILL", "AEGIS"],
     "communication": ["QUILL", "AEGIS"],
     "writing": ["QUILL", "AEGIS"],
     "operations": ["FORGE", "PULSE", "AEGIS"],
@@ -365,6 +417,11 @@ AUTONOMY_WORKER_PROFILES = {
     "general": ["FORGE", "QUILL", "AEGIS"],
 }
 AUTONOMY_CAPABILITY_HINTS = {
+    "assurance": [
+        "Atlas should retrieve the strongest relevant evidence and trust signals.",
+        "Quill should draft buyer-facing answers and evidence packs without overstating proof.",
+        "Aegis should reject unsupported claims, stale evidence, and missing approval state.",
+    ],
     "communication": [
         "Quill can draft a send-ready message or email.",
         "Aegis must reject any claim that an external mail transport succeeded without proof.",
@@ -1695,6 +1752,12 @@ def _refine_skill_routed_workers(request: str, matched_skills: list[dict[str, An
     selected = _normalize_worker_selection(workers, request)
     if _request_wants_protocol_artifact(request) or any("protocol" in name for name in lowered_skills):
         return _normalize_worker_selection(["QUILL", "AEGIS"], request)
+    if "security-questionnaire" in lowered_skills or _request_is_security_questionnaire(request, list(lowered_skills)):
+        return _normalize_worker_selection(["ATLAS", "QUILL", "AEGIS"], request)
+    if "ai-stack-watch" in lowered_skills or _request_is_ai_stack_watch(request, list(lowered_skills)):
+        if not _request_wants_research_writer(request):
+            return _normalize_worker_selection(["ATLAS", "AEGIS"], request)
+        return _normalize_worker_selection(["ATLAS", "QUILL", "AEGIS"], request)
     if "book-meeting" in lowered_skills and not _request_has_meeting_execution_details(request):
         return _normalize_worker_selection(["QUILL", "AEGIS"], request)
     if "safe-web-research" in lowered_skills or _request_prefers_safe_web_research(request):
@@ -1712,6 +1775,10 @@ def _refine_skill_routed_workers(request: str, matched_skills: list[dict[str, An
 
 def _specialist_timeout_for_request(agent_key: str, request: str, skills_used: list[str]) -> int:
     lowered_skills = {str(item or "").strip().lower() for item in skills_used}
+    if agent_key == "ATLAS" and _request_is_ai_stack_watch(request, skills_used):
+        return 28
+    if agent_key == "ATLAS" and _request_is_security_questionnaire(request, skills_used):
+        return 22
     if agent_key == "ATLAS" and "scan-doi-thu" in lowered_skills:
         return 25
     if agent_key == "ATLAS" and _request_is_customer_research(request, skills_used):
@@ -1731,12 +1798,15 @@ def _specialist_timeout_for_request(agent_key: str, request: str, skills_used: l
     if agent_key == "QUILL" and (
         lowered_skills.intersection({"mail-gui", "book-meeting"})
         or any("follow" in name for name in lowered_skills)
+        or _request_is_security_questionnaire(request, skills_used)
         or _request_is_customer_research(request, skills_used)
     ):
         return 30
     if agent_key == "AEGIS" and (
         lowered_skills.intersection({"mail-gui", "book-meeting"})
         or any("follow" in name for name in lowered_skills)
+        or _request_is_security_questionnaire(request, skills_used)
+        or _request_is_ai_stack_watch(request, skills_used)
         or _request_is_customer_research(request, skills_used)
     ):
         return 25
@@ -1749,16 +1819,18 @@ def _specialist_timeout_for_request(agent_key: str, request: str, skills_used: l
 
 def _prefer_direct_provider_first(agent_key: str, request: str, skills_used: list[str]) -> bool:
     lowered_skills = {str(item or "").strip().lower() for item in skills_used}
-    fast_lane_skills = {"mail-gui", "book-meeting", "safe-web-research"}
+    fast_lane_skills = {"mail-gui", "book-meeting", "safe-web-research", "security-questionnaire"}
     protocol_lane = _request_wants_protocol_artifact(request) or any("protocol" in name for name in lowered_skills)
     customer_research_lane = any(
         "research" in name and any(token in name for token in ("khach", "customer", "persona", "jtbd", "icp"))
         for name in lowered_skills
     )
+    assurance_lane = _request_is_security_questionnaire(request, skills_used)
     return agent_key in {"QUILL", "AEGIS"} and (
         bool(lowered_skills.intersection(fast_lane_skills))
         or any("follow" in name for name in lowered_skills)
         or customer_research_lane
+        or assurance_lane
         or protocol_lane
     )
 
@@ -1779,6 +1851,8 @@ def _direct_provider_timeout_for_request(
         or any("follow" in name for name in lowered_skills)
     ):
         return min(12, max(8, specialist_timeout // 2))
+    if _request_is_security_questionnaire(request, skills_used):
+        return min(13, max(9, specialist_timeout // 2))
     if "safe-web-research" in lowered_skills or _request_is_customer_research(request, skills_used):
         return min(14, max(10, specialist_timeout // 2))
     return min(15, max(8, specialist_timeout // 2))
@@ -1973,6 +2047,7 @@ def _manager_direct_response(goal: str, session_key: str, plan: dict[str, Any] |
     manager = _loom_manager_defaults()
     history_context = imported_history_context(session_key, loom_root=LOOM_ROOT, limit=24)
     memory_context = _memory_context_block(dict(plan or {}).get("memory_packet"))
+    trust_evidence_context = _trust_evidence_context_block(dict(plan or {}).get("trust_evidence_packet"))
     result = _run_codex_exec(
         system_prompt=(
             "You are Leviathann, Meridian's manager. "
@@ -1982,6 +2057,7 @@ def _manager_direct_response(goal: str, session_key: str, plan: dict[str, Any] |
         ),
         user_prompt=(
             f"Governed memory recall:\n{memory_context or '(none)'}\n\n"
+            f"Governed trust evidence:\n{trust_evidence_context or '(none)'}\n\n"
             f"Imported conversation continuity:\n{history_context or '(none)'}\n\n"
             f"User request:\n{goal.strip()}"
         ),
@@ -2031,6 +2107,7 @@ def _run_specialist_step(agent_key: str, request: str, session_key: str, plan: d
     skill_execution_addendum = _skill_specific_execution_addendum(request, matched_skills)
     skills_used = [str(item.get("name") or "").strip() for item in matched_skills if str(item.get("name") or "").strip()]
     memory_context_block = _memory_context_block(dict(plan or {}).get("memory_packet"))
+    trust_evidence_context_block = _trust_evidence_context_block(dict(plan or {}).get("trust_evidence_packet"))
     council_context_block = _load_council_context() if str(plan.get("reason") or "").strip() == "meridian_council_meeting" else ""
     council_role_block = _council_role_instruction(agent_key) if council_context_block else ""
     if _verified_fact_mode_enabled(request, skills_used, verified_facts) and agent_key != "ATLAS":
@@ -2118,6 +2195,13 @@ def _run_specialist_step(agent_key: str, request: str, session_key: str, plan: d
         research_sections = [atlas_research_brief]
         if atlas_memory_block:
             research_sections.append(atlas_memory_block)
+        if trust_evidence_context_block and trust_evidence_context_block != "(none)":
+            research_sections.append(
+                "Governed trust evidence shortlist:\n"
+                "Use this only as approved/draft context for trust-facing answers. "
+                "Do not invent approvals beyond what is shown.\n"
+                f"{trust_evidence_context_block}"
+            )
         if skill_guidance_block:
             research_sections.append(skill_guidance_block)
         result = mcp_server.do_on_demand_research_route(
@@ -2228,6 +2312,14 @@ def _run_specialist_step(agent_key: str, request: str, session_key: str, plan: d
             qa_sections.append(
                 "For safe web research, PASS is acceptable when the artifact names the fetched public URL, reports the bounded fetch status or blocked reason truthfully, includes a normalized text excerpt or clearly says none was recovered, and does not claim JS-rendered or hidden content was inspected."
             )
+        if _request_is_security_questionnaire(request, skills_used):
+            qa_sections.append(
+                "For questionnaire packs, PASS is acceptable only when approved evidence, draft answers, and open gaps are clearly separated and no unsupported certification, retention, privacy, or subprocessor claim is presented as fact."
+            )
+        if _request_is_ai_stack_watch(request, skills_used):
+            qa_sections.append(
+                "For AI stack watch, PASS is acceptable only when watched changes are bounded to provider/model/pricing/policy/regulatory signals and the trust-answer impact is stated explicitly."
+            )
         if _request_is_customer_research(request, skills_used):
             qa_sections.append(
                 "For customer research starter packs, PASS is acceptable when the artifact is explicitly labeled hypothesis-led, avoids quantified market claims without verified sources, and ends with concrete interview or validation next steps."
@@ -2298,6 +2390,8 @@ def _run_specialist_step(agent_key: str, request: str, session_key: str, plan: d
         {context_block or '(none)'}
         Governed memory recall:
         {memory_context_block or '(none)'}
+        Governed trust evidence:
+        {trust_evidence_context_block or '(none)'}
 
         User request:
         {request.strip()}
@@ -2506,6 +2600,12 @@ def _manager_fastpath_artifact(
         if best_worker_artifact and _artifact_matches_skill_shape(best_worker_artifact, goal, skill_names):
             return best_worker_artifact, "manager_synthesis_fastpathed_to_best_worker_artifact"
         return _salvage_customer_research_artifact(goal), "manager_synthesis_fastpathed_to_customer_research_starter"
+    if (
+        _request_is_security_questionnaire(goal, skill_names)
+        or _request_is_ai_stack_watch(goal, skill_names)
+    ) and best_worker_artifact:
+        if _artifact_matches_skill_shape(best_worker_artifact, goal, skill_names):
+            return best_worker_artifact, "manager_synthesis_fastpathed_to_best_worker_artifact"
     if not _qa_gate_allows_manager_fastpath(steps):
         return "", ""
     if ("scan-doi-thu" in lowered_skill_names or "safe-web-research" in lowered_skill_names) and best_worker_artifact:
@@ -2546,6 +2646,7 @@ def _manager_synthesis(goal: str, session_key: str, steps: list[dict[str, Any]],
     council_context_block = _load_council_context() if isinstance(plan, dict) and str(plan.get("reason") or "").strip() == "meridian_council_meeting" else ""
     response_shape = _manager_response_shape(goal, plan)
     memory_context = _memory_context_block(dict(plan or {}).get("memory_packet"))
+    trust_evidence_context = _trust_evidence_context_block(dict(plan or {}).get("trust_evidence_packet"))
     result = _run_codex_exec(
         system_prompt=(
             "You are Leviathann, Meridian's manager. "
@@ -2563,6 +2664,7 @@ def _manager_synthesis(goal: str, session_key: str, steps: list[dict[str, Any]],
             f"Required response shape:\n{response_shape}\n\n"
             f"Verified Meridian host facts:\n{json.dumps(verified_facts, indent=2, ensure_ascii=False) or '{}'}\n\n"
             f"Governed memory recall:\n{memory_context or '(none)'}\n\n"
+            f"Governed trust evidence:\n{trust_evidence_context or '(none)'}\n\n"
             f"Shared council context pack:\n{council_context_block or '(none)'}\n\n"
             f"Imported conversation continuity:\n{history_context or '(none)'}\n\n"
             f"Specialist outputs:\n{json.dumps(cleaned_steps, indent=2, ensure_ascii=False)}"
@@ -2657,6 +2759,7 @@ def _run_team_route(text: str, session_key: str, runtime: AgentRuntime) -> tuple
         if isinstance(item, dict) and str(item.get("name") or "").strip()
     ]
     plan["memory_packet"] = _build_memory_packet(request, session_key, skill_names)
+    plan["trust_evidence_packet"] = _build_trust_evidence_packet(request, session_key, skill_names)
     append_session_event(session_key, {
         "history_type": "manager_plan",
         "status": "planned",
@@ -2674,6 +2777,7 @@ def _run_team_route(text: str, session_key: str, runtime: AgentRuntime) -> tuple
         "execution_owner": "meridian",
         "skills_used": skill_names,
         "memory_keys": _memory_packet_keys(plan.get("memory_packet")),
+        "evidence_keys": _trust_evidence_packet_keys(plan.get("trust_evidence_packet")),
     }, loom_root=LOOM_ROOT)
     if plan.get("mode") == "direct":
         answer = _manager_direct_response(request, session_key, plan=plan)
@@ -2754,6 +2858,8 @@ def _run_team_route(text: str, session_key: str, runtime: AgentRuntime) -> tuple
             "final_artifact_usable": _final_artifact_is_usable(answer, skill_names),
             "memory_entries": _memory_packet_delivery_entries(plan.get("memory_packet")),
             "memory_retrieval_mode": str(dict(plan.get("memory_packet") or {}).get("retrieval_mode") or "").strip(),
+            "evidence_entries": _trust_evidence_packet_delivery_entries(plan.get("trust_evidence_packet")),
+            "evidence_retrieval_mode": str(dict(plan.get("trust_evidence_packet") or {}).get("retrieval_mode") or "").strip(),
             "contributors": _delivery_contributors_snapshot(
                 steps,
                 request_text=request,
@@ -2768,6 +2874,21 @@ def _run_team_route(text: str, session_key: str, runtime: AgentRuntime) -> tuple
         },
         loom_root=LOOM_ROOT,
     )
+    evidence_outcome = _remember_trust_evidence(delivery_event)
+    if evidence_outcome:
+        append_session_event(
+            session_key,
+            {
+                "history_type": "trust_evidence_update",
+                "status": quality_status,
+                "agent_id": TEAM_MANAGER_AGENT_ID,
+                "speaker": "manager",
+                "text": "Updated governed trust evidence from this managed session.",
+                "evidence_entries": evidence_outcome,
+                "source_label": "governed_trust_evidence",
+            },
+            loom_root=LOOM_ROOT,
+        )
     _remember_successful_delivery_memory(delivery_event)
     memory_outcome = _record_memory_recall_outcome(
         session_key,
@@ -4702,6 +4823,389 @@ def _memory_context_block(memory_packet: dict[str, Any] | None) -> str:
     return context
 
 
+def _load_trust_evidence_state() -> dict[str, Any]:
+    path = TRUST_EVIDENCE_STATE_PATH
+    if not path.exists():
+        return {"version": 1, "entries": {}, "session_packets": {}}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return {"version": 1, "entries": {}, "session_packets": {}}
+    if not isinstance(payload, dict):
+        return {"version": 1, "entries": {}, "session_packets": {}}
+    payload.setdefault("version", 1)
+    payload.setdefault("entries", {})
+    payload.setdefault("session_packets", {})
+    if not isinstance(payload.get("entries"), dict):
+        payload["entries"] = {}
+    if not isinstance(payload.get("session_packets"), dict):
+        payload["session_packets"] = {}
+    return payload
+
+
+def _save_trust_evidence_state(state: dict[str, Any]) -> None:
+    TRUST_EVIDENCE_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    TRUST_EVIDENCE_STATE_PATH.write_text(
+        json.dumps(state, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+
+
+def _compress_trust_evidence_content(content: str) -> str:
+    compressed = _compress_successful_output_memory(content)
+    if compressed:
+        return compressed[:TRUST_EVIDENCE_COMPRESSED_LIMIT].strip()
+    return _memory_inline_digest(content, limit=TRUST_EVIDENCE_COMPRESSED_LIMIT)
+
+
+def _trust_evidence_effective_status(entry: dict[str, Any], *, now_epoch: int | None = None) -> str:
+    status = str(entry.get("approval_status") or "draft").strip().lower() or "draft"
+    if status == "revoked":
+        return "revoked"
+    current_epoch = int(now_epoch if now_epoch is not None else time.time())
+    freshness_days = max(0, int(entry.get("freshness_days") or 0))
+    recorded_epoch = _memory_timestamp_epoch(
+        entry.get("source_recorded_at") or entry.get("updated_at") or entry.get("approved_at")
+    )
+    if freshness_days > 0 and recorded_epoch > 0 and current_epoch - recorded_epoch > freshness_days * 86400:
+        return "stale"
+    if status not in {"approved", "draft", "stale", "revoked"}:
+        return "draft"
+    return status
+
+
+def _trust_evidence_topics_from_text(*parts: str) -> list[str]:
+    lowered = _ascii_fold("\n".join(str(part or "") for part in parts)).lower()
+    topic_map = {
+        "ai_governance": ("ai governance", "governance", "model risk"),
+        "data_retention": ("data retention", "retention", "delete data"),
+        "subprocessors": ("subprocessor", "subprocessors", "third-party processor"),
+        "security_controls": ("security control", "security review", "soc2", "iso27001"),
+        "privacy": ("privacy", "pii", "personal data", "gdpr"),
+        "trust_center": ("trust center", "customer assurance", "due diligence"),
+        "model_vendor_changes": ("pricing", "policy", "deprecation", "provider", "model", "api"),
+        "regulatory": ("regulation", "regulatory", "compliance", "policy update"),
+    }
+    topics: list[str] = []
+    for topic, keywords in topic_map.items():
+        if any(keyword in lowered for keyword in keywords):
+            topics.append(topic)
+    return topics[:6]
+
+
+def _trust_evidence_entry_score(
+    entry: dict[str, Any],
+    request: str,
+    skill_names: list[str] | None = None,
+    *,
+    session_key: str = "",
+) -> int:
+    request_tokens = set(_request_tokens(request))
+    entry_tokens = {str(item).strip().lower() for item in list(entry.get("tokens") or []) if str(item).strip()}
+    topic_tags = {str(item).strip().lower() for item in list(entry.get("topic_tags") or []) if str(item).strip()}
+    source_skills = {
+        str(item).strip().lower()
+        for item in list(entry.get("source_skill_names") or [])
+        if str(item).strip()
+    }
+    lowered_skills = {
+        str(item).strip().lower()
+        for item in list(skill_names or [])
+        if str(item).strip()
+    }
+    kind = str(entry.get("kind") or "").strip().lower()
+    status = _trust_evidence_effective_status(entry)
+    score = len(request_tokens & entry_tokens) * 6
+    score += len(request_tokens & topic_tags) * 5
+    if lowered_skills and source_skills.intersection(lowered_skills):
+        score += 12
+    if session_key and str(entry.get("source_session_key") or "").strip() == str(session_key or "").strip():
+        score += 4
+    if status == "approved":
+        score += 18
+    elif status == "draft":
+        score += 6
+    elif status == "stale":
+        score -= 4
+    elif status == "revoked":
+        score -= 100
+    if _request_is_security_questionnaire(request, list(skill_names or [])) and kind == "questionnaire_answer_pack":
+        score += 12
+    if _request_is_ai_stack_watch(request, list(skill_names or [])) and kind == "watch_brief":
+        score += 12
+    score += min(int(entry.get("accepted_count") or 0), 4)
+    score += _memory_entry_recency_bonus(entry)
+    return score
+
+
+def _trust_evidence_packet_delivery_entries(trust_packet: dict[str, Any] | None) -> list[dict[str, Any]]:
+    packet = dict(trust_packet or {})
+    entries: list[dict[str, Any]] = []
+    for item in list(packet.get("entries") or []):
+        if not isinstance(item, dict):
+            continue
+        entries.append(
+            {
+                "key": str(item.get("key") or "").strip(),
+                "heading": str(item.get("heading") or "").strip(),
+                "kind": str(item.get("kind") or "").strip(),
+                "fit_score": int(item.get("fit_score") or 0),
+                "approval_status": str(item.get("approval_status") or "").strip().lower(),
+                "origin_agent": str(item.get("origin_agent") or "").strip().lower(),
+                "origin_task_kind": str(item.get("origin_task_kind") or "").strip().lower(),
+                "topic_tags": [
+                    str(tag).strip().lower()
+                    for tag in list(item.get("topic_tags") or [])
+                    if str(tag).strip()
+                ],
+                "source_skill_names": [
+                    str(skill).strip().lower()
+                    for skill in list(item.get("source_skill_names") or [])
+                    if str(skill).strip()
+                ],
+            }
+        )
+    return entries
+
+
+def _trust_evidence_packet_keys(trust_packet: dict[str, Any] | None) -> list[str]:
+    return [
+        str(item.get("key") or "").strip()
+        for item in list(dict(trust_packet or {}).get("entries") or [])
+        if isinstance(item, dict) and str(item.get("key") or "").strip()
+    ]
+
+
+def _build_trust_evidence_packet(
+    request: str,
+    session_key: str,
+    skill_names: list[str] | None = None,
+    *,
+    limit: int = TRUST_EVIDENCE_LIMIT,
+) -> dict[str, Any]:
+    state = _load_trust_evidence_state()
+    entries = [
+        dict(item)
+        for item in list((state.get("entries") or {}).values())
+        if isinstance(item, dict) and str(item.get("content") or "").strip()
+    ]
+    if not entries:
+        return {"entries": [], "context": "", "retrieval_mode": "scored_governed_trust_evidence"}
+    ranked = sorted(
+        (
+            {
+                **entry,
+                "fit_score": _trust_evidence_entry_score(entry, request, skill_names, session_key=session_key),
+                "approval_status": _trust_evidence_effective_status(entry),
+            }
+            for entry in entries
+        ),
+        key=lambda item: (
+            int(item.get("fit_score") or 0),
+            1 if str(item.get("approval_status") or "").strip().lower() == "approved" else 0,
+            str(item.get("heading") or ""),
+        ),
+        reverse=True,
+    )
+    selected = [
+        item
+        for item in ranked
+        if int(item.get("fit_score") or 0) > 0 and str(item.get("approval_status") or "").strip().lower() != "revoked"
+    ][: max(1, int(limit or 0))]
+    packet_entries = [
+        {
+            "key": str(item.get("key") or "").strip(),
+            "heading": str(item.get("heading") or "").strip(),
+            "kind": str(item.get("kind") or "").strip(),
+            "fit_score": int(item.get("fit_score") or 0),
+            "approval_status": str(item.get("approval_status") or "").strip().lower(),
+            "origin_agent": str(item.get("origin_agent") or "").strip().lower(),
+            "origin_task_kind": str(item.get("origin_task_kind") or "").strip().lower(),
+            "topic_tags": [
+                str(tag).strip().lower()
+                for tag in list(item.get("topic_tags") or [])
+                if str(tag).strip()
+            ],
+            "source_skill_names": [
+                str(skill).strip().lower()
+                for skill in list(item.get("source_skill_names") or [])
+                if str(skill).strip()
+            ],
+            "content": str(item.get("content") or "").strip(),
+        }
+        for item in selected
+    ]
+    context = "\n\n".join(
+        f"[{item['heading']}] ({item['approval_status']}; topics={', '.join(item['topic_tags']) or 'general'})\n{item['content']}"
+        for item in packet_entries
+        if str(item.get("content") or "").strip()
+    ).strip()
+    state.setdefault("session_packets", {})[session_key] = {
+        "keys": _trust_evidence_packet_keys({"entries": packet_entries}),
+        "entries": _trust_evidence_packet_delivery_entries({"entries": packet_entries}),
+        "created_at": _memory_now_iso(),
+        "request_hash": hashlib.sha256(str(request or "").encode("utf-8")).hexdigest(),
+        "retrieval_mode": "scored_governed_trust_evidence",
+    }
+    _save_trust_evidence_state(state)
+    return {
+        "entries": packet_entries,
+        "context": context,
+        "retrieval_mode": "scored_governed_trust_evidence",
+    }
+
+
+def _trust_evidence_context_block(trust_packet: dict[str, Any] | None) -> str:
+    packet = dict(trust_packet or {})
+    context = str(packet.get("context") or "").strip()
+    if not context:
+        return "(none)"
+    return context
+
+
+def _delivery_trust_evidence_entry_from_event(delivery_event: dict[str, Any]) -> dict[str, Any] | None:
+    quality_status = str(delivery_event.get("status") or "").strip().lower()
+    if quality_status not in {"success", "partial"}:
+        return None
+    if not bool(delivery_event.get("final_artifact_usable")):
+        return None
+    request_text = str(delivery_event.get("request_text") or "").strip()
+    skill_names = [
+        str(item).strip().lower()
+        for item in list(delivery_event.get("skills_used") or [])
+        if str(item).strip()
+    ]
+    lowered_skills = set(skill_names)
+    kind = ""
+    heading = ""
+    freshness_days = 0
+    if "security-questionnaire" in lowered_skills:
+        kind = "questionnaire_answer_pack"
+        heading = "Approved questionnaire answer pack"
+        freshness_days = TRUST_EVIDENCE_QUESTIONNAIRE_FRESHNESS_DAYS
+    elif "ai-stack-watch" in lowered_skills:
+        kind = "watch_brief"
+        heading = "AI stack watch brief"
+        freshness_days = TRUST_EVIDENCE_WATCH_FRESHNESS_DAYS
+    if not kind:
+        return None
+    raw_text = str(delivery_event.get("text") or "").strip()
+    if not raw_text:
+        return None
+    artifact = _coerce_request_specific_artifact(raw_text, request_text) if request_text else raw_text
+    if not artifact or not _artifact_matches_skill_shape(artifact, request_text, skill_names):
+        return None
+    delivery_fingerprint = str(delivery_event.get("delivery_fingerprint") or "").strip()
+    if not delivery_fingerprint:
+        return None
+    approval_status = "approved" if quality_status == "success" else "draft"
+    origin_agent, origin_task_kind = _memory_delivery_origin_details(delivery_event)
+    content = _compress_trust_evidence_content(artifact)
+    if not content:
+        return None
+    topic_tags = _trust_evidence_topics_from_text(request_text, artifact, " ".join(skill_names))
+    return {
+        "key": f"trust/{kind}/{delivery_fingerprint}",
+        "heading": heading,
+        "kind": kind,
+        "content": content,
+        "tokens": _request_tokens(f"{request_text}\n{artifact}\n{' '.join(skill_names)}"),
+        "approval_status": approval_status,
+        "topic_tags": topic_tags,
+        "source_skill_names": skill_names,
+        "source_session_key": str(delivery_event.get("session_key") or "").strip(),
+        "source_event_id": str(delivery_event.get("event_id") or "").strip(),
+        "source_quality_status": quality_status,
+        "source_recorded_at": str(delivery_event.get("recorded_at") or "").strip(),
+        "origin_agent": origin_agent,
+        "origin_task_kind": origin_task_kind,
+        "origin_delivery_fingerprint": delivery_fingerprint,
+        "freshness_days": freshness_days,
+    }
+
+
+def _upsert_trust_evidence_entry(state: dict[str, Any], entry: dict[str, Any]) -> tuple[dict[str, Any] | None, bool]:
+    key = str(entry.get("key") or "").strip()
+    content = str(entry.get("content") or "").strip()
+    if not key or not content:
+        return None, False
+    entries_state = state.setdefault("entries", {})
+    record = dict(entries_state.get(key) or {})
+    if not isinstance(record, dict):
+        record = {}
+    previous_hash = str(record.get("content_hash") or "").strip()
+    record.setdefault("accepted_count", 0)
+    record.setdefault("failure_count", 0)
+    record["key"] = key
+    record["heading"] = str(entry.get("heading") or record.get("heading") or "Trust evidence").strip()
+    record["kind"] = str(entry.get("kind") or record.get("kind") or "").strip()
+    record["content"] = content[:TRUST_EVIDENCE_COMPRESSED_LIMIT].strip()
+    record["tokens"] = list(entry.get("tokens") or [])
+    record["approval_status"] = str(entry.get("approval_status") or record.get("approval_status") or "draft").strip().lower()
+    record["topic_tags"] = [
+        str(tag).strip().lower()
+        for tag in list(entry.get("topic_tags") or record.get("topic_tags") or [])
+        if str(tag).strip()
+    ]
+    record["source_skill_names"] = [
+        str(skill).strip().lower()
+        for skill in list(entry.get("source_skill_names") or record.get("source_skill_names") or [])
+        if str(skill).strip()
+    ]
+    record["source_session_key"] = str(entry.get("source_session_key") or record.get("source_session_key") or "").strip()
+    record["source_event_id"] = str(entry.get("source_event_id") or record.get("source_event_id") or "").strip()
+    record["source_quality_status"] = str(entry.get("source_quality_status") or record.get("source_quality_status") or "").strip().lower()
+    record["source_recorded_at"] = str(entry.get("source_recorded_at") or record.get("source_recorded_at") or "").strip()
+    record["origin_agent"] = str(entry.get("origin_agent") or record.get("origin_agent") or "").strip().lower()
+    record["origin_task_kind"] = str(entry.get("origin_task_kind") or record.get("origin_task_kind") or "").strip().lower()
+    record["origin_delivery_fingerprint"] = str(
+        entry.get("origin_delivery_fingerprint") or record.get("origin_delivery_fingerprint") or ""
+    ).strip()
+    record["freshness_days"] = int(entry.get("freshness_days") or record.get("freshness_days") or 0)
+    if record["approval_status"] == "approved":
+        record["accepted_count"] = int(record.get("accepted_count") or 0) + 1
+        record["approved_at"] = _memory_now_iso()
+    elif record["approval_status"] == "draft":
+        record["failure_count"] = int(record.get("failure_count") or 0)
+    record["updated_at"] = _memory_now_iso()
+    record["content_hash"] = hashlib.sha256(record["content"].encode("utf-8")).hexdigest()
+    entries_state[key] = record
+    changed = previous_hash != str(record.get("content_hash") or "").strip()
+    return record, changed
+
+
+def _remember_trust_evidence(delivery_event: dict[str, Any]) -> list[dict[str, Any]]:
+    entry = _delivery_trust_evidence_entry_from_event(delivery_event)
+    if not entry:
+        return []
+    state = _load_trust_evidence_state()
+    record, changed = _upsert_trust_evidence_entry(state, entry)
+    _save_trust_evidence_state(state)
+    if not record:
+        return []
+    return [
+        {
+            "key": str(record.get("key") or "").strip(),
+            "heading": str(record.get("heading") or "").strip(),
+            "kind": str(record.get("kind") or "").strip(),
+            "approval_status": _trust_evidence_effective_status(record),
+            "origin_agent": str(record.get("origin_agent") or "").strip().lower(),
+            "origin_task_kind": str(record.get("origin_task_kind") or "").strip().lower(),
+            "topic_tags": [
+                str(tag).strip().lower()
+                for tag in list(record.get("topic_tags") or [])
+                if str(tag).strip()
+            ],
+            "source_skill_names": [
+                str(skill).strip().lower()
+                for skill in list(record.get("source_skill_names") or [])
+                if str(skill).strip()
+            ],
+            "content_updated": bool(changed),
+        }
+    ]
+
+
 def _atlas_memory_research_block(
     memory_packet: dict[str, Any] | None,
     request: str,
@@ -5580,6 +6084,57 @@ def _score_user_session_delivery(session_key: str, delivery_event_id: str) -> di
                 auth_penalty = max(auth_penalty, -1)
             add_delta(origin_agent, rep_penalty, auth_penalty, "memory_recall_failed_delivery")
 
+    evidence_entries = [item for item in list(delivery_event.get("evidence_entries") or []) if isinstance(item, dict)]
+    for evidence_entry in evidence_entries:
+        origin_agent = str(evidence_entry.get("origin_agent") or "").strip().lower()
+        if not origin_agent or origin_agent not in agents:
+            continue
+        fit_score = int(evidence_entry.get("fit_score") or 0)
+        approval_status = str(evidence_entry.get("approval_status") or "").strip().lower()
+        source_skill_names = {
+            str(item or "").strip().lower()
+            for item in list(evidence_entry.get("source_skill_names") or [])
+            if str(item or "").strip()
+        }
+        same_skill = bool(lowered_skill_names.intersection(source_skill_names))
+        if quality_status == "success" and approval_status == "approved" and fit_score >= 18:
+            support_tier = "weak"
+            if same_skill and fit_score >= 60:
+                support_tier = "primary"
+            elif same_skill or fit_score >= 36:
+                support_tier = "supporting"
+            if support_tier == "primary":
+                add_delta(origin_agent, 4, 3, "trust_evidence_supported_delivery_primary")
+            elif support_tier == "supporting":
+                add_delta(origin_agent, 2, 1, "trust_evidence_supported_delivery_supporting")
+            else:
+                add_delta(origin_agent, 1, 0, "trust_evidence_supported_delivery_weak")
+        elif quality_status == "partial" and approval_status in {"draft", "stale"} and fit_score >= 24:
+            add_delta(origin_agent, 0, -1, "trust_evidence_dragged_partial_delivery")
+
+    evidence_update_event = next(
+        (
+            event for event in reversed(events)
+            if str(event.get("history_type") or "").strip() == "trust_evidence_update"
+        ),
+        None,
+    )
+    if isinstance(evidence_update_event, dict):
+        for evidence_entry in list(evidence_update_event.get("evidence_entries") or []):
+            if not isinstance(evidence_entry, dict):
+                continue
+            origin_agent = str(evidence_entry.get("origin_agent") or "").strip().lower()
+            if not origin_agent or origin_agent not in agents:
+                continue
+            approval_status = str(evidence_entry.get("approval_status") or "").strip().lower()
+            kind = str(evidence_entry.get("kind") or "").strip().lower()
+            if approval_status == "approved":
+                rep_delta = 3 if kind == "watch_brief" else 4
+                auth_delta = 2 if kind == "watch_brief" else 3
+                add_delta(origin_agent, rep_delta, auth_delta, f"trust_evidence_written_{kind}")
+            elif approval_status == "draft":
+                add_delta(origin_agent, 1, 0, f"trust_evidence_drafted_{kind or 'entry'}")
+
     applied: dict[str, dict[str, Any]] = {}
     for agent_key, delta in deltas.items():
         agent = agents.get(agent_key)
@@ -6034,6 +6589,16 @@ def _artifact_matches_skill_shape(text: str, request: str, skill_names: list[str
         return False
     if _artifact_matches_protocol_request_shape(artifact, request):
         return True
+    if "security-questionnaire" in lowered_skills or _request_is_security_questionnaire(request, list(skill_names or [])):
+        return all(
+            section in lowered
+            for section in ("status", "approved evidence", "draft answers", "open gaps", "next move")
+        )
+    if "ai-stack-watch" in lowered_skills or _request_is_ai_stack_watch(request, list(skill_names or [])):
+        return all(
+            section in lowered
+            for section in ("status", "watched changes", "impact on trust answers", "next move")
+        )
     if "scan-doi-thu" in lowered_skills:
         return not _competitor_scan_artifact_needs_salvage(artifact)
     if "safe-web-research" in lowered_skills:
@@ -6117,6 +6682,12 @@ def _final_artifact_is_usable(final_artifact: str, skill_names: list[str] | None
         return False
     if _artifact_looks_like_protocol_answer(text):
         return True
+    if "security-questionnaire" in lowered_skills:
+        lowered = text.lower()
+        return all(section in lowered for section in ("status", "approved evidence", "draft answers", "open gaps", "next move"))
+    if "ai-stack-watch" in lowered_skills:
+        lowered = text.lower()
+        return all(section in lowered for section in ("status", "watched changes", "impact on trust answers", "next move"))
     if "scan-doi-thu" in lowered_skills:
         return not _competitor_scan_artifact_needs_salvage(text)
     if "mail-gui" in lowered_skills:
@@ -6144,6 +6715,8 @@ def _placeholder_completion_is_success(skill_names: list[str]) -> bool:
     lowered_skills = {str(item or "").strip().lower() for item in skill_names}
     return (
         bool(lowered_skills.intersection({"mail-gui", "book-meeting"}))
+        or "security-questionnaire" in lowered_skills
+        or "ai-stack-watch" in lowered_skills
         or "safe-web-research" in lowered_skills
         or any("follow" in name for name in lowered_skills)
         or "scan-doi-thu" in lowered_skills
@@ -6341,6 +6914,22 @@ def _skill_bundle_for_request(
         ]
         if filtered:
             matches = filtered
+    if matches and _request_is_security_questionnaire(request):
+        questionnaire_matches = [
+            item
+            for item in matches
+            if str(item.get("name") or "").strip().lower() == "security-questionnaire"
+        ]
+        if questionnaire_matches:
+            matches = questionnaire_matches
+    if matches and _request_is_ai_stack_watch(request):
+        watch_matches = [
+            item
+            for item in matches
+            if str(item.get("name") or "").strip().lower() == "ai-stack-watch"
+        ]
+        if watch_matches:
+            matches = watch_matches
     if matches and _request_prefers_safe_web_research(request):
         safe_matches = [
             item
@@ -7168,11 +7757,69 @@ def _salvage_meeting_artifact(request: str) -> str:
     ).strip()
 
 
+def _request_is_security_questionnaire(request: str, skills_used: list[str] | None = None) -> bool:
+    lowered = str(request or "").strip().lower()
+    if not lowered:
+        return False
+    lowered_skills = {str(item or "").strip().lower() for item in list(skills_used or [])}
+    if "security-questionnaire" in lowered_skills:
+        return True
+    if _request_wants_protocol_artifact(request):
+        return False
+    keywords = (
+        "ai governance",
+        "customer assurance",
+        "data retention",
+        "due diligence",
+        "evidence pack",
+        "questionnaire",
+        "security review",
+        "soc2",
+        "subprocessor",
+        "trust center",
+        "vendor risk",
+    )
+    return any(token in lowered for token in keywords)
+
+
+def _request_is_ai_stack_watch(request: str, skills_used: list[str] | None = None) -> bool:
+    lowered = str(request or "").strip().lower()
+    if not lowered:
+        return False
+    lowered_skills = {str(item or "").strip().lower() for item in list(skills_used or [])}
+    if "ai-stack-watch" in lowered_skills:
+        return True
+    if _request_wants_protocol_artifact(request):
+        return False
+    keywords = (
+        "ai stack",
+        "api change",
+        "deprecation",
+        "model watch",
+        "monitor",
+        "policy change",
+        "pricing change",
+        "provider watch",
+        "regulation",
+        "regulatory",
+        "vendor watch",
+        "watch",
+    )
+    if any(token in lowered for token in keywords):
+        return True
+    tokens = set(_request_tokens(request))
+    return bool(tokens.intersection({"watch", "monitor"})) and bool(
+        tokens.intersection({"model", "provider", "pricing", "policy", "regulation", "vendor"})
+    )
+
+
 def _request_is_customer_research(request: str, skills_used: list[str] | None = None) -> bool:
     lowered = str(request or "").strip().lower()
     tokens = set(_request_tokens(request))
     lowered_skills = {str(item or "").strip().lower() for item in list(skills_used or [])}
     if _request_wants_protocol_artifact(request):
+        return False
+    if _request_is_security_questionnaire(request, list(lowered_skills)) or _request_is_ai_stack_watch(request, list(lowered_skills)):
         return False
     if "book-meeting" in lowered_skills or "mail-gui" in lowered_skills or any("follow" in name for name in lowered_skills):
         return False
@@ -7249,10 +7896,71 @@ def _salvage_customer_research_artifact(request: str) -> str:
     ).strip()
 
 
+def _salvage_ai_stack_watch_artifact(request: str) -> str:
+    return textwrap.dedent(
+        """
+        **Status**
+
+        Đây là watch brief dạng bounded, chỉ nêu thay đổi cần theo dõi tiếp chứ không khẳng định mọi thay đổi đã được xác minh đầy đủ.
+
+        **Watched changes**
+
+        - Cần theo dõi thay đổi về model/provider, pricing, policy, deprecation, và regulatory signals.
+        - Chưa có gói thay đổi đã phê duyệt để dùng như trust answer chính thức trong lần chạy này.
+
+        **Impact on trust answers**
+
+        - Mọi câu trả lời customer assurance liên quan provider/model/policy phải được rà lại trước khi ship.
+        - Nếu không có approved evidence mới, giữ câu trả lời ở trạng thái draft hoặc escalation.
+
+        **Next move**
+
+        1. Xác minh changelog / pricing / policy page chính thức của vendor hoặc model liên quan.
+        2. Cập nhật approved evidence nếu thay đổi làm ảnh hưởng security, privacy, retention, hoặc governance answers.
+        3. Chỉ ship trust answer mới sau khi Aegis pass và evidence được approve.
+        """
+    ).strip()
+
+
+def _salvage_security_questionnaire_artifact(request: str) -> str:
+    return textwrap.dedent(
+        """
+        **Status**
+
+        Đây là questionnaire draft có governance boundary, không phải final answer pack đã đủ proof cho mọi câu.
+
+        **Approved evidence**
+
+        - Chưa có approved evidence đủ mạnh cho toàn bộ câu hỏi trong lần chạy này.
+        - Chỉ được tái sử dụng evidence đã được xác minh hoặc approve rõ ràng.
+
+        **Draft answers**
+
+        - Trả lời từng câu dưới dạng draft nếu evidence hiện có còn yếu hoặc đang thiếu.
+        - Không được tự khẳng định SOC 2 / ISO 27001 / retention / subprocessors nếu chưa có proof.
+
+        **Open gaps**
+
+        - Cần xác nhận câu nào đã có approved evidence.
+        - Cần escalations cho các claim security, privacy, retention, AI governance còn thiếu proof.
+
+        **Next move**
+
+        1. Đánh dấu câu nào answerable from approved evidence ngay bây giờ.
+        2. Với câu còn thiếu proof, tạo escalation thay vì bịa câu trả lời chắc chắn.
+        3. Ship final pack chỉ sau khi các câu critical đã được approve hoặc gắn cờ unresolved rõ ràng.
+        """
+    ).strip()
+
+
 def _salvage_user_artifact(request: str, skills_used: list[str]) -> str:
     lowered_skills = {str(item or "").strip().lower() for item in skills_used}
     if _request_wants_protocol_artifact(request):
         return _salvage_protocol_artifact(request)
+    if "security-questionnaire" in lowered_skills or _request_is_security_questionnaire(request, list(lowered_skills)):
+        return _salvage_security_questionnaire_artifact(request)
+    if "ai-stack-watch" in lowered_skills or _request_is_ai_stack_watch(request, list(lowered_skills)):
+        return _salvage_ai_stack_watch_artifact(request)
     if "mail-gui" in lowered_skills:
         return _salvage_mail_artifact(request)
     if any("follow" in name for name in lowered_skills):
@@ -7276,6 +7984,18 @@ def _manager_response_shape(goal: str, plan: dict[str, Any] | None = None) -> st
         return (
             "Do not write council minutes, internal analysis, or generic advice. "
             "Return the structured protocol the user asked for directly, with explicit sections for hypotheses, questions, follow-up message, and stop rule."
+        )
+    if "security-questionnaire" in skill_names:
+        return (
+            "Do not write generic policy prose or internal notes. "
+            "Return a bounded questionnaire answer pack with sections: Status, Approved evidence, Draft answers, Open gaps, Next move. "
+            "Never claim a certification, retention promise, subprocessor fact, or AI-governance fact without clear evidence."
+        )
+    if "ai-stack-watch" in skill_names:
+        return (
+            "Do not write a broad market report. "
+            "Return a bounded watch brief with sections: Status, Watched changes, Impact on trust answers, Next move. "
+            "Keep it focused on provider/model/policy/regulatory changes that affect trust answers."
         )
     if "safe-web-research" in skill_names:
         return (
@@ -7348,6 +8068,22 @@ def _skill_specific_execution_addendum(request: str, matched_skills: list[dict[s
                 "The expected artifact is a bounded source check or summary of a public URL using safe text-only fetch behavior.",
                 "If a public URL is present, report the fetched URL, fetch status or blocked reason, and a normalized text excerpt or summary based only on that text.",
                 "Do not claim JavaScript-rendered, hidden, authenticated, or private content was inspected.",
+            ]
+        )
+    if "security-questionnaire" in names or _request_is_security_questionnaire(request, list(names)):
+        lines.extend(
+            [
+                "The expected artifact is a governed questionnaire answer pack, not generic compliance marketing copy.",
+                "Separate approved evidence from draft answers and open gaps.",
+                "Never assert certifications, retention guarantees, privacy guarantees, or subprocessor details without explicit proof.",
+            ]
+        )
+    if "ai-stack-watch" in names or _request_is_ai_stack_watch(request, list(names)):
+        lines.extend(
+            [
+                "The expected artifact is a bounded watch brief for AI stack risk, not a competitor battlecard or generic market scan.",
+                "Focus on provider, model, pricing, policy, deprecation, or regulatory changes that could change trust answers.",
+                "Make the impact on trust answers explicit and name the next verification step.",
             ]
         )
     if _request_is_customer_research(request, [str(item.get("name") or "").strip() for item in matched_skills]):

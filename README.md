@@ -4,7 +4,7 @@
 
 <p align="center">
   <strong>Meridian — The Governed Runtime for Paid AI Agent Work</strong><br>
-  Competitor intelligence is the first commercial wedge proving governed digital labor.<br>
+  Competitor intelligence is the first commercial wedge; AI Stack Watch and Customer Assurance are the next bounded Trust Ops lanes.<br>
   Loom is the live execution runtime on this host.
 </p>
 
@@ -27,7 +27,7 @@
 
 # Meridian Intelligence
 
-This repo is the public intelligence surface for Meridian's first commercial wedge: competitor intelligence that proves governed digital labor in a concrete market. It is not the full platform identity, it is not the governance kernel, and it is not the primary execution runtime.
+This repo is the public product surface for Meridian's first commercial wedge: competitor intelligence that proves governed digital labor in a concrete market. It now also carries the first bounded Trust Ops slice: AI Stack Watch and governed Customer Assurance workflows. It is not the full platform identity, it is not the governance kernel, and it is not the primary execution runtime.
 
 ## Launch Positioning
 
@@ -35,6 +35,7 @@ Meridian currently presents a premium public surface around four ideas:
 
 - Meridian as the governed runtime for paid AI agent work.
 - Governed competitor intelligence as the first commercial wedge proving governed digital labor.
+- AI Stack Watch plus governed Customer Assurance as the bounded Trust Ops expansion path.
 - Meridian Loom as the live execution runtime on this host and the installable local runtime.
 - A truthful constitutional and host boundary that separates verified live routes from future deployment claims.
 
@@ -68,6 +69,7 @@ Loom carries execution, sessions, channels, skills, and memory/context. Commitme
 
 - The public web surface, pilot flow, support path, and live host truth pages.
 - Competitor intelligence as the first managed vertical.
+- Bounded Trust Ops primitives: AI Stack Watch and governed questionnaire / customer-assurance workflows on the live gateway path.
 - Loom as both the live execution runtime on this host and the installable local runtime.
 - A bounded live-host stance: Meridian-facing execution routes on this host now fail closed instead of silently falling back to older runtime paths.
 - Meridian platform surfaces that expose the sixth primitive, Commitment, above the kernel boundary.

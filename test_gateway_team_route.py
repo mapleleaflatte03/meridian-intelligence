@@ -436,6 +436,142 @@ class GatewayTeamRouteTests(unittest.TestCase):
         self.assertNotIn('delivery/udf_mail', keys)
         self.assertIn('section/mission', keys)
 
+    def test_skill_registry_finds_trust_ops_skills(self):
+        matches = meridian_gateway.TEAM_SKILLS.search('security questionnaire for AI governance review', limit=3)
+        self.assertTrue(any(item['name'] == 'security-questionnaire' for item in matches))
+        matches = meridian_gateway.TEAM_SKILLS.search('watch model pricing and policy changes this week', limit=3)
+        self.assertTrue(any(item['name'] == 'ai-stack-watch' for item in matches))
+
+    def test_skill_bundle_isolates_security_questionnaire_from_generic_matches(self):
+        bundle = meridian_gateway._skill_bundle_for_request(
+            'soạn security questionnaire cho Meridian về AI governance và data retention',
+            'web_api:test-questionnaire-bundle',
+            manager_brief='security questionnaire',
+            allow_create=False,
+        )
+        self.assertTrue(bundle['matches'])
+        self.assertEqual([item['name'] for item in bundle['matches']], ['security-questionnaire'])
+
+    def test_skill_bundle_isolates_ai_stack_watch_from_safe_web_research(self):
+        bundle = meridian_gateway._skill_bundle_for_request(
+            'watch thay đổi provider model pricing policy tuần này cho AI stack của Meridian',
+            'web_api:test-watch-bundle',
+            manager_brief='ai stack watch',
+            allow_create=False,
+        )
+        self.assertTrue(bundle['matches'])
+        self.assertEqual([item['name'] for item in bundle['matches']], ['ai-stack-watch'])
+
+    def test_artifact_matches_trust_ops_shapes(self):
+        questionnaire = (
+            '**Status**\nDraft.\n\n'
+            '**Approved evidence**\n- SOC 2 answer pending.\n\n'
+            '**Draft answers**\n- Retention answer draft.\n\n'
+            '**Open gaps**\n- Missing subprocessor proof.\n\n'
+            '**Next move**\n- Escalate retention owner.'
+        )
+        watch = (
+            '**Status**\nBounded watch.\n\n'
+            '**Watched changes**\n- Provider pricing update.\n\n'
+            '**Impact on trust answers**\n- Recheck pricing references.\n\n'
+            '**Next move**\n- Verify official pricing page.'
+        )
+        self.assertTrue(
+            meridian_gateway._artifact_matches_skill_shape(
+                questionnaire,
+                'soạn security questionnaire cho trust center',
+                ['security-questionnaire'],
+            )
+        )
+        self.assertTrue(
+            meridian_gateway._artifact_matches_skill_shape(
+                watch,
+                'watch provider pricing and policy changes',
+                ['ai-stack-watch'],
+            )
+        )
+
+    def test_delivery_trust_evidence_entry_from_questionnaire_delivery(self):
+        delivery_event = {
+            'status': 'success',
+            'artifact_source': 'manager_response',
+            'final_artifact_usable': True,
+            'request_text': 'soạn security questionnaire cho khách enterprise về Meridian AI governance và data retention',
+            'text': (
+                '**Status**\nDraft.\n\n'
+                '**Approved evidence**\n- Existing approved AI governance note.\n\n'
+                '**Draft answers**\n- Data retention answer needs confirmation.\n\n'
+                '**Open gaps**\n- Missing subprocessor list.\n\n'
+                '**Next move**\n- Escalate missing proof.'
+            ),
+            'skills_used': ['security-questionnaire'],
+            'session_key': 'web_api:test-trust-evidence',
+            'event_id': 'evt-trust-evidence',
+            'delivery_fingerprint': 'udf_trust_evidence',
+            'recorded_at': '2026-04-01T06:10:00Z',
+            'contributors': [
+                {
+                    'economy_key': 'quill',
+                    'task_kind': 'write',
+                    'status': 'ok',
+                    'usable_artifact': True,
+                    'artifact_fit_score': 62,
+                    'matches_final_artifact': True,
+                    'best_fit_contributor': True,
+                }
+            ],
+        }
+        entry = meridian_gateway._delivery_trust_evidence_entry_from_event(delivery_event)
+        self.assertIsNotNone(entry)
+        self.assertEqual(entry['kind'], 'questionnaire_answer_pack')
+        self.assertEqual(entry['approval_status'], 'approved')
+        self.assertEqual(entry['origin_agent'], 'quill')
+        self.assertIn('ai_governance', entry['topic_tags'])
+        self.assertIn('data_retention', entry['topic_tags'])
+
+    def test_build_trust_evidence_packet_prefers_approved_questionnaire_evidence(self):
+        state = {
+            'entries': {
+                'trust/questionnaire/approved': {
+                    'key': 'trust/questionnaire/approved',
+                    'heading': 'Approved questionnaire answer pack',
+                    'kind': 'questionnaire_answer_pack',
+                    'content': '- Approved governance answer',
+                    'tokens': ['security', 'questionnaire', 'governance'],
+                    'approval_status': 'approved',
+                    'topic_tags': ['ai_governance'],
+                    'source_skill_names': ['security-questionnaire'],
+                    'origin_agent': 'quill',
+                    'source_recorded_at': '2026-04-01T06:00:00Z',
+                    'accepted_count': 1,
+                },
+                'trust/watch/draft': {
+                    'key': 'trust/watch/draft',
+                    'heading': 'AI stack watch brief',
+                    'kind': 'watch_brief',
+                    'content': '- Draft provider watch note',
+                    'tokens': ['watch', 'provider', 'policy'],
+                    'approval_status': 'draft',
+                    'topic_tags': ['model_vendor_changes'],
+                    'source_skill_names': ['ai-stack-watch'],
+                    'origin_agent': 'atlas',
+                    'source_recorded_at': '2026-04-01T05:00:00Z',
+                    'accepted_count': 0,
+                },
+            },
+            'session_packets': {},
+        }
+        with mock.patch.object(meridian_gateway, '_load_trust_evidence_state', return_value=state):
+            with mock.patch.object(meridian_gateway, '_save_trust_evidence_state'):
+                packet = meridian_gateway._build_trust_evidence_packet(
+                    'help me answer a security questionnaire about AI governance',
+                    'web_api:test-trust-packet',
+                    ['security-questionnaire'],
+                )
+        self.assertTrue(packet['entries'])
+        self.assertEqual(packet['entries'][0]['key'], 'trust/questionnaire/approved')
+        self.assertEqual(packet['entries'][0]['approval_status'], 'approved')
+
     def test_normalize_memory_entries_decays_stale_successful_output_value(self):
         state = {
             'entries': {
@@ -1832,6 +1968,116 @@ Use this skill when the user gives a short prompt such as:
         self.assertGreaterEqual(summary['agents']['atlas']['rep_delta'], 5)
         self.assertGreaterEqual(summary['agents']['atlas']['auth_delta'], 3)
         self.assertIn('memory_recall_supported_delivery_primary', summary['agents']['atlas']['reasons'])
+
+    def test_score_user_session_delivery_rewards_trust_evidence_support_and_creation(self):
+        delivery_event = {
+            'event_id': 'evt-trust-score',
+            'status': 'success',
+            'artifact_source': 'manager_response',
+            'request_text': 'soạn security questionnaire cho Meridian AI governance và data retention',
+            'text': (
+                '**Status**\nDraft.\n\n'
+                '**Approved evidence**\n- Existing governance note.\n\n'
+                '**Draft answers**\n- Retention answer pending.\n\n'
+                '**Open gaps**\n- Missing subprocessor list.\n\n'
+                '**Next move**\n- Escalate unresolved proof.'
+            ),
+            'skills_used': ['security-questionnaire'],
+            'evidence_entries': [
+                {
+                    'key': 'trust/questionnaire/old',
+                    'heading': 'Approved questionnaire answer pack',
+                    'kind': 'questionnaire_answer_pack',
+                    'fit_score': 82,
+                    'approval_status': 'approved',
+                    'origin_agent': 'atlas',
+                    'origin_task_kind': 'research',
+                    'topic_tags': ['ai_governance'],
+                    'source_skill_names': ['security-questionnaire'],
+                }
+            ],
+            'contributors': [
+                {
+                    'economy_key': 'quill',
+                    'task_kind': 'write',
+                    'status': 'ok',
+                    'usable_artifact': True,
+                    'qa_pass': False,
+                    'qa_fail': False,
+                    'drift_rewritten': False,
+                    'warnings': [],
+                    'artifact_fit_score': 58,
+                    'artifact_matches_shape': True,
+                    'matches_final_artifact': True,
+                    'citation_count': 0,
+                    'confidence_bonus': 2,
+                    'hard_blocker_count': 0,
+                    'runtime_failure_count': 0,
+                    'recoverable_gap_count': 0,
+                    'informational_warning_count': 0,
+                    'best_fit_contributor': True,
+                },
+                {
+                    'economy_key': 'atlas',
+                    'task_kind': 'research',
+                    'status': 'ok',
+                    'usable_artifact': True,
+                    'qa_pass': False,
+                    'qa_fail': False,
+                    'drift_rewritten': False,
+                    'warnings': [],
+                    'artifact_fit_score': 32,
+                    'artifact_matches_shape': False,
+                    'matches_final_artifact': False,
+                    'citation_count': 1,
+                    'confidence_bonus': 1,
+                    'hard_blocker_count': 0,
+                    'runtime_failure_count': 0,
+                    'recoverable_gap_count': 0,
+                    'informational_warning_count': 0,
+                    'best_fit_contributor': False,
+                },
+            ],
+        }
+        trust_update = {
+            'history_type': 'trust_evidence_update',
+            'evidence_entries': [
+                {
+                    'key': 'trust/questionnaire/new',
+                    'heading': 'Approved questionnaire answer pack',
+                    'kind': 'questionnaire_answer_pack',
+                    'approval_status': 'approved',
+                    'origin_agent': 'quill',
+                    'origin_task_kind': 'write',
+                    'topic_tags': ['data_retention'],
+                    'source_skill_names': ['security-questionnaire'],
+                }
+            ],
+        }
+        ledger = {
+            'agents': {
+                'main': {'reputation_units': 90, 'authority_units': 90},
+                'atlas': {'reputation_units': 90, 'authority_units': 90},
+                'quill': {'reputation_units': 90, 'authority_units': 90},
+            }
+        }
+        state = {'scored_events': {}, 'scored_fingerprints': {}, 'agent_outcomes': {}, 'court_actions': {}}
+        with mock.patch.object(meridian_gateway, 'load_session_events', return_value={'events': [delivery_event, trust_update]}):
+            with mock.patch.object(meridian_gateway, 'accounting_load_ledger', return_value=ledger):
+                with mock.patch.object(meridian_gateway, 'accounting_save_ledger'):
+                    with mock.patch.object(meridian_gateway, 'accounting_append_tx'):
+                        with mock.patch.object(meridian_gateway, '_load_user_session_score_state', return_value=state):
+                            with mock.patch.object(meridian_gateway, '_save_user_session_score_state'):
+                                with mock.patch.object(meridian_gateway, '_apply_user_session_court_actions', return_value=[]):
+                                    summary = meridian_gateway._score_user_session_delivery(
+                                        'web_api:trust-score',
+                                        'evt-trust-score',
+                                    )
+        self.assertIsNotNone(summary)
+        self.assertIn('atlas', summary['agents'])
+        self.assertIn('quill', summary['agents'])
+        self.assertIn('trust_evidence_supported_delivery_primary', summary['agents']['atlas']['reasons'])
+        self.assertIn('trust_evidence_written_questionnaire_answer_pack', summary['agents']['quill']['reasons'])
 
 
 if __name__ == '__main__':
