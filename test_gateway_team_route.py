@@ -873,6 +873,63 @@ class GatewayTeamRouteTests(unittest.TestCase):
         self.assertEqual(snapshot['selected_questionnaire']['questionnaire_id'], 'tq_pending')
         self.assertEqual(len(all_snapshot['queue']), 2)
 
+    def test_extract_operator_token_supports_bearer_and_header_fallback(self):
+        bearer_headers = {'Authorization': 'Bearer secret-token'}
+        header_headers = {'X-Meridian-Operator-Token': 'header-token'}
+        self.assertEqual(meridian_gateway._extract_operator_token(bearer_headers), 'secret-token')
+        self.assertEqual(meridian_gateway._extract_operator_token(header_headers), 'header-token')
+
+    def test_operator_token_valid_uses_env_token(self):
+        headers = {'Authorization': 'Bearer operator-secret'}
+        with mock.patch.dict(meridian_gateway.os.environ, {'MERIDIAN_GATEWAY_TOKEN': 'operator-secret'}, clear=False):
+            self.assertTrue(meridian_gateway._operator_token_valid(headers))
+        with mock.patch.dict(meridian_gateway.os.environ, {'MERIDIAN_GATEWAY_TOKEN': 'different'}, clear=False):
+            self.assertFalse(meridian_gateway._operator_token_valid(headers))
+
+    def test_review_trust_approval_queue_bulk_aggregates_results(self):
+        first_review = {
+            'queue': {
+                'queue_id': 'tqa_one',
+                'source_session_key': 'web_api:tq-one',
+            },
+            'questionnaire': {
+                'questionnaire_id': 'tq_one',
+            },
+            'question': {
+                'critical': True,
+            },
+        }
+        second_review = {
+            'queue': {
+                'queue_id': 'tqa_two',
+                'source_session_key': 'web_api:tq-two',
+            },
+            'questionnaire': {
+                'questionnaire_id': 'tq_two',
+            },
+            'question': {
+                'critical': False,
+            },
+        }
+        with mock.patch.object(meridian_gateway, '_review_trust_approval_queue', side_effect=[first_review, second_review]) as review_mock:
+            with mock.patch.object(meridian_gateway, '_record_gateway_audit') as audit_mock:
+                with mock.patch.object(meridian_gateway, 'accounting_append_tx') as tx_mock:
+                    with mock.patch.object(meridian_gateway, '_build_trust_assurance_summary', return_value={'queue_count': 2}):
+                        bulk = meridian_gateway._review_trust_approval_queue_bulk(
+                            ['tqa_one', 'tqa_two', 'tqa_one'],
+                            'approve',
+                            note='bulk approve',
+                            actor='owner',
+                        )
+        self.assertIsNotNone(bulk)
+        self.assertEqual(review_mock.call_count, 2)
+        self.assertEqual(bulk['summary']['requested_count'], 2)
+        self.assertEqual(bulk['summary']['reviewed_count'], 2)
+        self.assertEqual(bulk['summary']['critical_reviewed_count'], 1)
+        self.assertEqual(sorted(bulk['summary']['questionnaire_ids']), ['tq_one', 'tq_two'])
+        audit_mock.assert_called_once()
+        tx_mock.assert_called_once()
+
     def test_normalize_memory_entries_decays_stale_successful_output_value(self):
         state = {
             'entries': {

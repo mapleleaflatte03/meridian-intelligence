@@ -184,6 +184,8 @@
     return;
   }
 
+  var TOKEN_STORAGE_KEY = 'meridian.trustOps.operatorToken';
+  var TOKEN_REMEMBER_KEY = 'meridian.trustOps.rememberToken';
   var filterForm = shell.querySelector('[data-trust-ops-filter-form]');
   var statusNode = shell.querySelector('[data-trust-ops-status]');
   var queueBody = shell.querySelector('[data-trust-ops-queue-body]');
@@ -193,7 +195,17 @@
   var summaryPending = shell.querySelector('[data-summary-pending]');
   var summaryReady = shell.querySelector('[data-summary-ready]');
   var summaryEvidence = shell.querySelector('[data-summary-evidence]');
+  var authForm = shell.querySelector('[data-trust-ops-auth-form]');
+  var authStatusNode = shell.querySelector('[data-trust-ops-auth-status]');
+  var authTokenInput = shell.querySelector('[name="operator_token"]');
+  var rememberTokenInput = shell.querySelector('[name="remember_token"]');
+  var clearTokenButton = shell.querySelector('[data-trust-ops-clear-token]');
+  var bulkBar = shell.querySelector('[data-trust-ops-bulk-bar]');
+  var selectAllCheckbox = shell.querySelector('[data-trust-ops-select-all]');
+  var selectedCountNode = shell.querySelector('[data-trust-ops-selected-count]');
   var currentSnapshot = null;
+  var selectedQueueIds = new Set();
+  var operatorToken = '';
 
   function setOperatorStatus(message, isError) {
     if (!statusNode) {
@@ -201,6 +213,14 @@
     }
     statusNode.textContent = message;
     statusNode.style.color = isError ? '#ff9b9b' : '';
+  }
+
+  function setAuthStatus(message, isError) {
+    if (!authStatusNode) {
+      return;
+    }
+    authStatusNode.textContent = message;
+    authStatusNode.style.color = isError ? '#ff9b9b' : '';
   }
 
   function safeText(value) {
@@ -240,6 +260,99 @@
     return 'status-neutral';
   }
 
+  function requestHeaders(extraHeaders) {
+    var headers = extraHeaders || {};
+    if (operatorToken) {
+      headers.Authorization = 'Bearer ' + operatorToken;
+      headers['X-Meridian-Operator-Token'] = operatorToken;
+    }
+    return headers;
+  }
+
+  async function trustOpsFetch(url, options) {
+    var config = options ? Object.assign({}, options) : {};
+    var headers = {};
+    if (config.headers) {
+      Object.keys(config.headers).forEach(function (key) {
+        headers[key] = config.headers[key];
+      });
+    }
+    config.headers = requestHeaders(headers);
+    return fetch(url, config);
+  }
+
+  function persistOperatorToken(token) {
+    var normalizedToken = safeText(token).trim();
+    var remember = Boolean(rememberTokenInput && rememberTokenInput.checked);
+    operatorToken = normalizedToken;
+    try {
+      sessionStorage.removeItem(TOKEN_STORAGE_KEY);
+      localStorage.removeItem(TOKEN_STORAGE_KEY);
+      if (normalizedToken) {
+        if (remember) {
+          localStorage.setItem(TOKEN_STORAGE_KEY, normalizedToken);
+        } else {
+          sessionStorage.setItem(TOKEN_STORAGE_KEY, normalizedToken);
+        }
+      }
+      localStorage.setItem(TOKEN_REMEMBER_KEY, remember ? 'true' : 'false');
+    } catch (error) {
+      // Ignore storage errors.
+    }
+  }
+
+  function restoreOperatorToken() {
+    var storedToken = '';
+    var remember = false;
+    try {
+      storedToken = localStorage.getItem(TOKEN_STORAGE_KEY) || sessionStorage.getItem(TOKEN_STORAGE_KEY) || '';
+      remember = localStorage.getItem(TOKEN_REMEMBER_KEY) === 'true';
+    } catch (error) {
+      storedToken = '';
+      remember = false;
+    }
+    operatorToken = safeText(storedToken).trim();
+    if (rememberTokenInput) {
+      rememberTokenInput.checked = remember;
+    }
+    if (authTokenInput) {
+      authTokenInput.value = operatorToken ? '••••••••••••••••' : '';
+    }
+    if (operatorToken) {
+      setAuthStatus('Saved operator token is active for this browser session.', false);
+    } else {
+      setAuthStatus('Operator token required.', false);
+    }
+  }
+
+  function clearOperatorToken() {
+    operatorToken = '';
+    selectedQueueIds.clear();
+    try {
+      sessionStorage.removeItem(TOKEN_STORAGE_KEY);
+      localStorage.removeItem(TOKEN_STORAGE_KEY);
+      localStorage.removeItem(TOKEN_REMEMBER_KEY);
+    } catch (error) {
+      // Ignore storage errors.
+    }
+    if (authTokenInput) {
+      authTokenInput.value = '';
+    }
+    if (rememberTokenInput) {
+      rememberTokenInput.checked = false;
+    }
+    if (queueBody) {
+      queueBody.innerHTML = '<tr><td colspan="7">Operator token required to load queue data.</td></tr>';
+    }
+    if (questionnaireDetail) {
+      questionnaireDetail.innerHTML = '<p class="dim">Unlock the queue to inspect questionnaire detail.</p>';
+    }
+    currentSnapshot = null;
+    setOperatorStatus('Operator token required to read Trust Ops state.', true);
+    setAuthStatus('Operator token cleared.', false);
+    syncBulkSelectionUi();
+  }
+
   function renderQuestionnaireOptions(operator) {
     if (!questionnaireSelect) {
       return;
@@ -277,13 +390,48 @@
     }
   }
 
+  function visibleQueueIds() {
+    var queue = currentSnapshot && currentSnapshot.queue ? currentSnapshot.queue : [];
+    return queue.map(function (item) { return safeText(item.queue_id).trim(); }).filter(Boolean);
+  }
+
+  function syncBulkSelectionUi() {
+    if (!bulkBar || !selectedCountNode) {
+      return;
+    }
+    var visibleIds = visibleQueueIds();
+    var visibleSet = new Set(visibleIds);
+    Array.from(selectedQueueIds).forEach(function (queueId) {
+      if (!visibleSet.has(queueId)) {
+        selectedQueueIds.delete(queueId);
+      }
+    });
+    var selectedCount = selectedQueueIds.size;
+    selectedCountNode.textContent = String(selectedCount) + ' selected';
+    bulkBar.hidden = !visibleIds.length;
+    if (selectAllCheckbox) {
+      selectAllCheckbox.checked = Boolean(visibleIds.length) && visibleIds.every(function (queueId) {
+        return selectedQueueIds.has(queueId);
+      });
+      selectAllCheckbox.indeterminate = Boolean(selectedCount) && !selectAllCheckbox.checked;
+    }
+    Array.prototype.forEach.call(shell.querySelectorAll('[data-queue-select]'), function (checkbox) {
+      var queueId = safeText(checkbox.getAttribute('data-queue-select')).trim();
+      checkbox.checked = selectedQueueIds.has(queueId);
+    });
+    Array.prototype.forEach.call(shell.querySelectorAll('[data-bulk-decision]'), function (button) {
+      button.disabled = !selectedCount;
+    });
+  }
+
   function renderQueue(operator) {
     var rows = operator && operator.queue ? operator.queue : [];
     if (!queueBody) {
       return;
     }
     if (!rows.length) {
-      queueBody.innerHTML = '<tr><td colspan="6">No queue items match the current filter.</td></tr>';
+      queueBody.innerHTML = '<tr><td colspan="7">No queue items match the current filter.</td></tr>';
+      syncBulkSelectionUi();
       return;
     }
     queueBody.innerHTML = rows.map(function (item) {
@@ -302,6 +450,7 @@
         return '<button type="button" class="operator-action" data-queue-id="' + escapeHtml(item.queue_id) + '" data-decision="' + decision + '">' + escapeHtml(decision) + '</button>';
       }).join('');
       return '<tr>' +
+        '<td data-label="Select" class="operator-select-cell"><input type="checkbox" data-queue-select="' + escapeHtml(item.queue_id) + '"></td>' +
         '<td data-label="Question"><strong>' + escapeHtml(item.question_text || item.question_id) + '</strong><div class="operator-meta">' + questionMeta + '</div>' + noteMeta + '</td>' +
         '<td data-label="State"><span class="' + badgeClass(bucket) + '">' + escapeHtml(bucket) + '</span><div class="operator-meta">Gate: ' + escapeHtml(item.approval_gate_status || 'unknown') + '</div></td>' +
         '<td data-label="Evidence"><code>' + escapeHtml(item.evidence_key || 'none') + '</code><div class="operator-meta">Status: ' + escapeHtml(item.evidence_status || 'none') + '</div></td>' +
@@ -310,6 +459,7 @@
         '<td data-label="Action"><div class="operator-actions">' + actionButtons + '</div></td>' +
       '</tr>';
     }).join('');
+    syncBulkSelectionUi();
   }
 
   function renderQuestionnaireDetail(operator) {
@@ -383,6 +533,10 @@
   }
 
   async function loadOperatorSnapshot() {
+    if (!operatorToken) {
+      clearOperatorToken();
+      return;
+    }
     var params = new URLSearchParams();
     var formData = new FormData(filterForm);
     formData.forEach(function (value, key) {
@@ -399,8 +553,13 @@
     }
     setOperatorStatus('Refreshing Trust Ops queue…', false);
     try {
-      var response = await fetch('/api/trust-ops/queue?' + params.toString());
+      var response = await trustOpsFetch('/api/trust-ops/queue?' + params.toString());
       var payload = await response.json();
+      if (response.status === 401) {
+        clearOperatorToken();
+        setAuthStatus('Operator token was rejected. Paste a valid token to continue.', true);
+        return;
+      }
       if (!response.ok) {
         throw new Error(payload && payload.output ? payload.output : 'Failed to load Trust Ops queue');
       }
@@ -410,14 +569,16 @@
       renderQueue(currentSnapshot);
       renderQuestionnaireDetail(currentSnapshot);
       setOperatorStatus(buildOperatorStatusMessage(currentSnapshot), false);
+      setAuthStatus('Trust Ops queue unlocked.', false);
     } catch (error) {
       setOperatorStatus(error.message || 'Failed to load Trust Ops queue', true);
       if (queueBody) {
-        queueBody.innerHTML = '<tr><td colspan="6">Could not load queue.</td></tr>';
+        queueBody.innerHTML = '<tr><td colspan="7">Could not load queue.</td></tr>';
       }
       if (questionnaireDetail) {
         questionnaireDetail.innerHTML = '<p class="dim">Could not load questionnaire detail.</p>';
       }
+      syncBulkSelectionUi();
     }
   }
 
@@ -428,7 +589,7 @@
     }
     setOperatorStatus('Submitting ' + decision + ' review for ' + queueId + '…', false);
     try {
-      var response = await fetch('/api/trust-ops/queue/review', {
+      var response = await trustOpsFetch('/api/trust-ops/queue/review', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -439,6 +600,11 @@
         })
       });
       var payload = await response.json();
+      if (response.status === 401) {
+        clearOperatorToken();
+        setAuthStatus('Operator token was rejected. Paste a valid token to continue.', true);
+        return;
+      }
       if (!response.ok) {
         throw new Error(payload && payload.output ? payload.output : 'Queue review failed');
       }
@@ -449,10 +615,92 @@
     }
   }
 
+  async function bulkReviewQueue(decision) {
+    var queueIds = Array.from(selectedQueueIds);
+    if (!queueIds.length) {
+      return;
+    }
+    var note = window.prompt('Review note for bulk ' + decision + ' on ' + String(queueIds.length) + ' queue item(s):', '');
+    if (note === null) {
+      return;
+    }
+    setOperatorStatus('Submitting bulk ' + decision + ' review for ' + String(queueIds.length) + ' queue item(s)…', false);
+    try {
+      var response = await trustOpsFetch('/api/trust-ops/queue/bulk-review', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          queue_ids: queueIds,
+          decision: decision,
+          note: note,
+          actor: 'web-operator'
+        })
+      });
+      var payload = await response.json();
+      if (response.status === 401) {
+        clearOperatorToken();
+        setAuthStatus('Operator token was rejected. Paste a valid token to continue.', true);
+        return;
+      }
+      if (!response.ok) {
+        throw new Error(payload && payload.output ? payload.output : 'Bulk queue review failed');
+      }
+      selectedQueueIds.clear();
+      var summary = payload && payload.bulk_review ? payload.bulk_review.summary || {} : {};
+      setOperatorStatus(
+        'Bulk review completed: ' + String(summary.reviewed_count || 0) + ' reviewed, ' + String((summary.failed_queue_ids || []).length || 0) + ' failed.',
+        false
+      );
+      await loadOperatorSnapshot();
+    } catch (error) {
+      setOperatorStatus(error.message || 'Bulk queue review failed', true);
+    }
+  }
+
   filterForm.addEventListener('submit', function (event) {
     event.preventDefault();
     loadOperatorSnapshot();
   });
+
+  if (authForm) {
+    authForm.addEventListener('submit', function (event) {
+      event.preventDefault();
+      var submittedToken = authTokenInput ? authTokenInput.value.trim() : '';
+      if (!submittedToken || submittedToken === '••••••••••••••••') {
+        if (!operatorToken) {
+          setAuthStatus('Paste a valid operator token to unlock queue data.', true);
+          return;
+        }
+        loadOperatorSnapshot();
+        return;
+      }
+      persistOperatorToken(submittedToken);
+      if (authTokenInput) {
+        authTokenInput.value = '••••••••••••••••';
+      }
+      setAuthStatus('Operator token stored. Loading queue…', false);
+      loadOperatorSnapshot();
+    });
+  }
+
+  if (clearTokenButton) {
+    clearTokenButton.addEventListener('click', function () {
+      clearOperatorToken();
+    });
+  }
+
+  if (selectAllCheckbox) {
+    selectAllCheckbox.addEventListener('change', function () {
+      visibleQueueIds().forEach(function (queueId) {
+        if (selectAllCheckbox.checked) {
+          selectedQueueIds.add(queueId);
+        } else {
+          selectedQueueIds.delete(queueId);
+        }
+      });
+      syncBulkSelectionUi();
+    });
+  }
 
   shell.addEventListener('click', function (event) {
     var selectButton = event.target.closest('[data-select-questionnaire]');
@@ -467,8 +715,39 @@
         actionButton.getAttribute('data-queue-id') || '',
         actionButton.getAttribute('data-decision') || ''
       );
+      return;
+    }
+    var bulkButton = event.target.closest('[data-bulk-decision]');
+    if (bulkButton) {
+      bulkReviewQueue(bulkButton.getAttribute('data-bulk-decision') || '');
     }
   });
 
-  loadOperatorSnapshot();
+  shell.addEventListener('change', function (event) {
+    var queueCheckbox = event.target.closest('[data-queue-select]');
+    if (queueCheckbox) {
+      var queueId = safeText(queueCheckbox.getAttribute('data-queue-select')).trim();
+      if (queueCheckbox.checked) {
+        selectedQueueIds.add(queueId);
+      } else {
+        selectedQueueIds.delete(queueId);
+      }
+      syncBulkSelectionUi();
+    }
+  });
+
+  restoreOperatorToken();
+  if (operatorToken) {
+    loadOperatorSnapshot();
+  } else {
+    if (queueBody) {
+      queueBody.innerHTML = '<tr><td colspan="7">Operator token required to load queue data.</td></tr>';
+    }
+    if (questionnaireDetail) {
+      questionnaireDetail.innerHTML = '<p class="dim">Unlock the queue to inspect questionnaire detail.</p>';
+    }
+    setOperatorStatus('Operator token required to read Trust Ops state.', true);
+    setAuthStatus('Operator token required.', false);
+    syncBulkSelectionUi();
+  }
 })();

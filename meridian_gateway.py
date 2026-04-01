@@ -12,6 +12,7 @@ import json
 import os
 import queue
 import re
+import secrets
 import shutil
 import subprocess
 import sys
@@ -330,6 +331,32 @@ SKILL_ALIAS_HINTS = {
     "staff-training-loop": {"coach", "failure", "improve", "lesson", "prompt", "training", "worker"},
     "subscribe": {"buy", "customer", "pay", "payment", "plan", "pricing", "subscribe", "subscription", "trial"},
 }
+
+
+def _operator_access_token() -> str:
+    return str(os.environ.get("MERIDIAN_GATEWAY_TOKEN") or "").strip()
+
+
+def _extract_operator_token(headers: Any) -> str:
+    header_get = getattr(headers, "get", None)
+    if not callable(header_get):
+        return ""
+    authorization = str(header_get("Authorization", "") or "").strip()
+    if authorization:
+        lowered = authorization.lower()
+        if lowered.startswith("bearer "):
+            return authorization[7:].strip()
+        if lowered.startswith("token "):
+            return authorization[6:].strip()
+    return str(header_get("X-Meridian-Operator-Token", "") or "").strip()
+
+
+def _operator_token_valid(headers: Any) -> bool:
+    expected = _operator_access_token()
+    provided = _extract_operator_token(headers)
+    if not expected or not provided:
+        return False
+    return secrets.compare_digest(provided, expected)
 AUTONOMY_ACTION_TERMS = {
     "analyze",
     "audit",
@@ -6213,6 +6240,95 @@ def _review_trust_approval_queue(
     }
 
 
+def _review_trust_approval_queue_bulk(
+    queue_ids: list[str] | tuple[str, ...],
+    decision: str,
+    *,
+    note: str = "",
+    actor: str = "",
+) -> dict[str, Any] | None:
+    normalized_decision = str(decision or "").strip().lower()
+    if normalized_decision not in {"approve", "stale", "revoke", "unresolved"}:
+        return None
+    seen: set[str] = set()
+    normalized_ids: list[str] = []
+    for raw_queue_id in list(queue_ids or []):
+        queue_id = str(raw_queue_id or "").strip()
+        if not queue_id or queue_id in seen:
+            continue
+        seen.add(queue_id)
+        normalized_ids.append(queue_id)
+    if not normalized_ids:
+        return None
+    reviewed_results: list[dict[str, Any]] = []
+    failed_queue_ids: list[str] = []
+    questionnaire_ids: set[str] = set()
+    critical_reviewed_count = 0
+    source_session_keys: set[str] = set()
+    for queue_id in normalized_ids:
+        reviewed = _review_trust_approval_queue(
+            queue_id,
+            normalized_decision,
+            note=note,
+            actor=actor,
+        )
+        if not reviewed:
+            failed_queue_ids.append(queue_id)
+            continue
+        reviewed_results.append(reviewed)
+        questionnaire_ids.add(str(((reviewed.get("questionnaire") or {}).get("questionnaire_id") or "")).strip())
+        if bool((reviewed.get("question") or {}).get("critical")):
+            critical_reviewed_count += 1
+        source_session_key = str(((reviewed.get("queue") or {}).get("source_session_key") or "")).strip()
+        if source_session_key:
+            source_session_keys.add(source_session_key)
+    summary = {
+        "decision": normalized_decision,
+        "requested_count": len(normalized_ids),
+        "reviewed_count": len(reviewed_results),
+        "failed_queue_ids": failed_queue_ids,
+        "questionnaire_ids": sorted(item for item in questionnaire_ids if item),
+        "critical_reviewed_count": critical_reviewed_count,
+    }
+    if reviewed_results:
+        _record_gateway_audit(
+            "trust_queue_bulk_reviewed",
+            session_key=next(iter(source_session_keys), next(iter(questionnaire_ids), normalized_ids[0])),
+            channel="trust_ops",
+            text=f"Bulk reviewed {len(reviewed_results)} Trust Ops queue item(s).",
+            outcome=normalized_decision,
+            extra_details={
+                "decision": normalized_decision,
+                "requested_count": len(normalized_ids),
+                "reviewed_count": len(reviewed_results),
+                "failed_queue_ids": failed_queue_ids,
+                "questionnaire_ids": sorted(item for item in questionnaire_ids if item),
+                "critical_reviewed_count": critical_reviewed_count,
+                "actor": str(actor or "").strip().lower(),
+            },
+        )
+        try:
+            accounting_append_tx(
+                {
+                    "type": "trust_queue_bulk_review",
+                    "decision": normalized_decision,
+                    "requested_count": len(normalized_ids),
+                    "reviewed_count": len(reviewed_results),
+                    "failed_queue_ids": failed_queue_ids,
+                    "questionnaire_ids": sorted(item for item in questionnaire_ids if item),
+                    "actor": str(actor or "").strip().lower(),
+                    "note": str(note).strip(),
+                }
+            )
+        except Exception:
+            pass
+    return {
+        "summary": summary,
+        "results": reviewed_results,
+        "trust_ops": _build_trust_assurance_summary(),
+    }
+
+
 def _apply_security_questionnaire_workflow(
     request_text: str,
     session_key: str,
@@ -10040,16 +10156,28 @@ class WebAPIAdapter(ChannelAdapter):
             def _origin_allowed(self) -> bool:
                 return self.headers.get("Origin") == adapter.allowed_origin
 
-            def _public_read_allowed(self, request_path: str) -> bool:
+            def _trust_ops_route(self, request_path: str) -> bool:
                 return str(request_path or "").strip() in {
                     "/api/trust-ops/status",
                     "/api/trust-ops/queue",
+                    "/api/trust-ops/queue/review",
+                    "/api/trust-ops/queue/bulk-review",
+                    "/api/trust-ops/evidence/review",
                 }
+
+            def _operator_authorized(self) -> bool:
+                return _operator_token_valid(self.headers)
+
+            def _public_read_allowed(self, request_path: str) -> bool:
+                return False
 
             def _send_cors_headers(self) -> None:
                 self.send_header("Access-Control-Allow-Origin", adapter.allowed_origin)
                 self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-                self.send_header("Access-Control-Allow-Headers", "Content-Type, X-Meridian-Session-Id")
+                self.send_header(
+                    "Access-Control-Allow-Headers",
+                    "Authorization, Content-Type, X-Meridian-Operator-Token, X-Meridian-Session-Id",
+                )
                 self.send_header("Vary", "Origin")
 
             def _send_json(self, status_code: int, payload: dict[str, Any]) -> None:
@@ -10081,6 +10209,13 @@ class WebAPIAdapter(ChannelAdapter):
                     )
 
             def do_OPTIONS(self) -> None:  # noqa: N802
+                request_path = urlparse(self.path).path
+                if self._trust_ops_route(request_path):
+                    self.send_response(204)
+                    self._send_cors_headers()
+                    self.send_header("Content-Length", "0")
+                    self.end_headers()
+                    return
                 if not self._origin_allowed():
                     self._send_json(403, {"status": "error", "output": "origin_not_allowed"})
                     return
@@ -10093,7 +10228,11 @@ class WebAPIAdapter(ChannelAdapter):
                 parsed = urlparse(self.path)
                 request_path = parsed.path
                 proxied_path = request_path + (f"?{parsed.query}" if parsed.query else "")
-                if not self._origin_allowed() and not self._public_read_allowed(request_path):
+                if self._trust_ops_route(request_path):
+                    if not self._operator_authorized():
+                        self._send_json(401, {"status": "error", "output": "operator_auth_required"})
+                        return
+                elif not self._origin_allowed() and not self._public_read_allowed(request_path):
                     self._send_json(403, {"status": "error", "output": "origin_not_allowed"})
                     return
                 if request_path == "/api/events":
@@ -10170,12 +10309,16 @@ class WebAPIAdapter(ChannelAdapter):
                 self._send_json(404, {"status": "error", "output": "not_found"})
 
             def do_POST(self) -> None:  # noqa: N802
-                if not self._origin_allowed():
+                parsed = urlparse(self.path)
+                request_path = parsed.path
+                if self._trust_ops_route(request_path):
+                    if not self._operator_authorized():
+                        self._send_json(401, {"status": "error", "output": "operator_auth_required"})
+                        return
+                elif not self._origin_allowed():
                     self._send_json(403, {"status": "error", "output": "origin_not_allowed"})
                     return
                 self._reconcile_stale_web_deliveries()
-                parsed = urlparse(self.path)
-                request_path = parsed.path
                 try:
                     content_length = int(self.headers.get("Content-Length", "0"))
                 except ValueError:
@@ -10203,6 +10346,23 @@ class WebAPIAdapter(ChannelAdapter):
                         self._send_json(400, {"status": "error", "output": "invalid_queue_review"})
                         return
                     self._send_json(200, {"status": "success", "review": reviewed, "trust_ops": _build_trust_assurance_summary()})
+                    return
+                if request_path == "/api/trust-ops/queue/bulk-review":
+                    queue_ids = payload.get("queue_ids") or []
+                    if not isinstance(queue_ids, list):
+                        self._send_json(400, {"status": "error", "output": "queue_ids_list_required"})
+                        return
+                    decision = str(payload.get("decision") or "").strip().lower()
+                    reviewed = _review_trust_approval_queue_bulk(
+                        [str(item or "").strip() for item in queue_ids],
+                        decision,
+                        note=str(payload.get("note") or "").strip(),
+                        actor=str(payload.get("actor") or "").strip(),
+                    )
+                    if not reviewed:
+                        self._send_json(400, {"status": "error", "output": "invalid_bulk_queue_review"})
+                        return
+                    self._send_json(200, {"status": "success", "bulk_review": reviewed})
                     return
                 if request_path == "/api/trust-ops/evidence/review":
                     evidence_key = str(payload.get("evidence_key") or "").strip()

@@ -71,6 +71,30 @@
     <span class="dim">This surface is meant to make Trust Ops state usable, not to widen the public claim. If a questionnaire remains unresolved, the page keeps that visible instead of faking a final answer pack.</span>
   </div>
 
+  <div class="card operator-auth mb-lg">
+    <div>
+      <strong>Operator access</strong>
+      <p class="dim">Trust Ops data is now behind an operator token. The page shell can stay public; queue state, review actions, and final-delivery controls do not.</p>
+    </div>
+    <form class="operator-auth-form" data-trust-ops-auth-form>
+      <div class="operator-hidden-field" aria-hidden="true">
+        <label for="trust-ops-operator-username">Operator username</label>
+        <input id="trust-ops-operator-username" name="operator_username" type="text" autocomplete="username" tabindex="-1" value="meridian-operator">
+      </div>
+      <div class="field-group">
+        <label for="trust-ops-operator-token">Operator token</label>
+        <input id="trust-ops-operator-token" name="operator_token" type="password" autocomplete="current-password" placeholder="Paste Meridian operator token">
+      </div>
+      <label class="operator-checkbox">
+        <input type="checkbox" name="remember_token" value="true">
+        <span>Remember in this browser</span>
+      </label>
+      <button type="submit" class="cta">Unlock queue</button>
+      <button type="button" class="cta cta-outline" data-trust-ops-clear-token>Clear token</button>
+    </form>
+    <p class="operator-status" data-trust-ops-auth-status>Operator token required.</p>
+  </div>
+
   <div class="operator-toolbar card mb-lg">
     <form class="operator-filters" data-trust-ops-filter-form>
       <div class="field-group">
@@ -99,6 +123,22 @@
       <button type="submit" class="cta cta-outline">Refresh queue</button>
     </form>
     <p class="operator-status" data-trust-ops-status>Loading Trust Ops queue…</p>
+  </div>
+
+  <div class="card operator-bulk mb-lg" data-trust-ops-bulk-bar hidden>
+    <div class="operator-bulk-row">
+      <label class="operator-checkbox">
+        <input type="checkbox" data-trust-ops-select-all>
+        <span>Select visible items</span>
+      </label>
+      <strong class="operator-selected-count" data-trust-ops-selected-count>0 selected</strong>
+      <div class="operator-actions">
+        <button type="button" class="operator-action" data-bulk-decision="approve" disabled>approve</button>
+        <button type="button" class="operator-action" data-bulk-decision="stale" disabled>stale</button>
+        <button type="button" class="operator-action" data-bulk-decision="revoke" disabled>revoke</button>
+        <button type="button" class="operator-action" data-bulk-decision="unresolved" disabled>unresolved</button>
+      </div>
+    </div>
   </div>
 
   <div class="operator-summary-grid reveal" data-trust-ops-summary>
@@ -131,6 +171,7 @@
       <table class="data-table operator-table">
         <thead>
           <tr>
+            <th>Select</th>
             <th>Question</th>
             <th>State</th>
             <th>Evidence</th>
@@ -140,7 +181,7 @@
           </tr>
         </thead>
         <tbody data-trust-ops-queue-body>
-          <tr><td colspan="6">Loading queue…</td></tr>
+          <tr><td colspan="7">Loading queue…</td></tr>
         </tbody>
       </table>
     </div>
