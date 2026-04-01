@@ -73,13 +73,20 @@ a { color: var(--accent); }
 ul { margin: 0.5rem 0 0.5rem 1.5rem; }
 li { padding: 0.2rem 0; }
 
+/* ── Layout shell ── */
+:root {
+  --shell-max: 1120px;
+  --copy-max: 760px;
+}
+
 /* ── Container ── */
-.container { max-width: 960px; margin: 0 auto; padding: 2rem 1.5rem; }
+.container,
 .page-home .hero .container,
 .page-intro-shell,
 .footer {
-  max-width: 1120px;
+  max-width: var(--shell-max);
 }
+.container { margin: 0 auto; padding: 2.25rem 1.5rem 3rem; }
 
 /* ── Site header ── */
 .site-header {
@@ -179,7 +186,7 @@ li { padding: 0.2rem 0; }
   position: relative;
   z-index: 1;
   text-align: left;
-  max-width: 720px;
+  max-width: var(--copy-max);
 }
 .hero-home .hero-copy {
   display: flex;
@@ -466,7 +473,7 @@ details p { padding: 0 0 1rem 0; color: var(--dim); }
 
 /* ── Footer ── */
 .footer {
-  margin: 4rem auto 0; padding: 1.8rem 1.5rem 1.5rem;
+  margin: 4rem auto 0; padding: 1.9rem 1.5rem 1.6rem;
   border: 1px solid rgba(255,255,255,0.05);
   background: linear-gradient(180deg, rgba(9,12,18,0.92), rgba(5,8,13,0.96));
   color: #5c6877; font-size: 0.85rem; text-align: center;
@@ -505,14 +512,7 @@ details p { padding: 0 0 1rem 0; color: var(--dim); }
   flex-wrap: wrap; margin-bottom: 0.75rem;
 }
 
-/* ── Page width / shell variants ── */
-.page-home .container { max-width: 980px; }
-.page-compare .container,
-.page-why .container { max-width: 980px; }
-.page-demo .container { max-width: 960px; }
-.page-pilot .container { max-width: 900px; }
-.page-support .container { max-width: 900px; }
-.page-pilot .page-intro h1 { font-size: 1.8rem; }
+/* ── Page shell variants ── */
 .page-support .hero { padding: 4.25rem 0 2rem; }
 .page-pilot .card.text-center .cta { margin: 0.5rem 0.5rem 0.5rem 0; }
 
@@ -779,8 +779,8 @@ code { background: #0e0e1a; padding: 2px 6px; border-radius: 3px; font-size: 0.8
   background: radial-gradient(ellipse 500px 280px at 50% 0%, rgba(0,229,255,0.05) 0%, transparent 70%);
   pointer-events: none;
 }
-.page-intro h1 { font-family: var(--display); font-size: clamp(2rem, 4vw, 3.2rem); max-width: 680px; margin: 0 0 0.9rem; }
-.page-intro .subtitle { max-width: 680px; margin: 0; font-size: 1.06rem; line-height: 1.75; }
+.page-intro h1 { font-family: var(--display); font-size: clamp(2.2rem, 4vw, 3.2rem); max-width: var(--copy-max); margin: 0 0 0.9rem; }
+.page-intro .subtitle { max-width: var(--copy-max); margin: 0; font-size: 1.04rem; line-height: 1.75; }
 
 /* ── h3 baseline ── */
 h3 { font-family: var(--display); color: #fff; font-size: 1rem; margin: 1.1rem 0 0.4rem; }
