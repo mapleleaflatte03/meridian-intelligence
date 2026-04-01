@@ -491,6 +491,16 @@ class GatewayTeamRouteTests(unittest.TestCase):
             )
         )
 
+    def test_extract_questionnaire_items_uses_topics_when_request_is_inline(self):
+        items = meridian_gateway._extract_questionnaire_items(
+            'soạn security questionnaire cho Meridian về AI governance, data retention, subprocessors'
+        )
+        self.assertGreaterEqual(len(items), 3)
+        self.assertTrue(any('governance' in item['text'].lower() for item in items))
+        self.assertTrue(any('retention' in item['text'].lower() for item in items))
+        self.assertTrue(any('subprocessor' in item['text'].lower() for item in items))
+        self.assertTrue(all(bool(item['critical']) for item in items[:3]))
+
     def test_delivery_trust_evidence_entry_from_questionnaire_delivery(self):
         delivery_event = {
             'status': 'success',
@@ -508,6 +518,7 @@ class GatewayTeamRouteTests(unittest.TestCase):
             'session_key': 'web_api:test-trust-evidence',
             'event_id': 'evt-trust-evidence',
             'delivery_fingerprint': 'udf_trust_evidence',
+            'approval_gate_status': 'ready_for_final_delivery',
             'recorded_at': '2026-04-01T06:10:00Z',
             'contributors': [
                 {
@@ -528,6 +539,30 @@ class GatewayTeamRouteTests(unittest.TestCase):
         self.assertEqual(entry['origin_agent'], 'quill')
         self.assertIn('ai_governance', entry['topic_tags'])
         self.assertIn('data_retention', entry['topic_tags'])
+
+    def test_delivery_trust_evidence_entry_from_questionnaire_delivery_stays_draft_while_gate_pending(self):
+        delivery_event = {
+            'status': 'success',
+            'artifact_source': 'manager_response',
+            'final_artifact_usable': True,
+            'request_text': 'soạn security questionnaire cho khách enterprise về Meridian AI governance và data retention',
+            'text': (
+                '**Status**\nDraft.\n\n'
+                '**Approved evidence**\n- Existing approved AI governance note.\n\n'
+                '**Draft answers**\n- Data retention answer needs confirmation.\n\n'
+                '**Open gaps**\n- Missing subprocessor list.\n\n'
+                '**Next move**\n- Escalate missing proof.'
+            ),
+            'skills_used': ['security-questionnaire'],
+            'session_key': 'web_api:test-trust-evidence-pending',
+            'event_id': 'evt-trust-evidence-pending',
+            'delivery_fingerprint': 'udf_trust_evidence_pending',
+            'approval_gate_status': 'pending_approval',
+            'recorded_at': '2026-04-01T06:10:00Z',
+        }
+        entry = meridian_gateway._delivery_trust_evidence_entry_from_event(delivery_event)
+        self.assertIsNotNone(entry)
+        self.assertEqual(entry['approval_status'], 'draft')
 
     def test_build_trust_evidence_packet_prefers_approved_questionnaire_evidence(self):
         state = {
@@ -571,6 +606,106 @@ class GatewayTeamRouteTests(unittest.TestCase):
         self.assertTrue(packet['entries'])
         self.assertEqual(packet['entries'][0]['key'], 'trust/questionnaire/approved')
         self.assertEqual(packet['entries'][0]['approval_status'], 'approved')
+
+    def test_build_questionnaire_state_creates_pending_queue_for_unapproved_critical_questions(self):
+        evidence_state = {
+            'entries': {
+                'trust/questionnaire/approved': {
+                    'key': 'trust/questionnaire/approved',
+                    'heading': 'Approved questionnaire answer pack',
+                    'kind': 'questionnaire_answer_pack',
+                    'content': '- Approved governance answer',
+                    'tokens': ['security', 'questionnaire', 'governance'],
+                    'approval_status': 'approved',
+                    'topic_tags': ['ai_governance'],
+                    'source_skill_names': ['security-questionnaire'],
+                    'origin_agent': 'quill',
+                    'source_recorded_at': '2026-04-01T06:00:00Z',
+                    'accepted_count': 1,
+                },
+            },
+            'session_packets': {},
+        }
+        assurance_state = {'version': 1, 'questionnaires': {}, 'approval_queue': {}}
+        with mock.patch.object(meridian_gateway, '_load_trust_evidence_state', return_value=evidence_state):
+            with mock.patch.object(meridian_gateway, '_load_trust_assurance_state', return_value=assurance_state):
+                with mock.patch.object(meridian_gateway, '_save_trust_assurance_state'):
+                    questionnaire = meridian_gateway._build_questionnaire_state(
+                        'soạn security questionnaire cho Meridian về AI governance, data retention, subprocessors',
+                        'web_api:test-questionnaire-state',
+                        ['security-questionnaire'],
+                    )
+        self.assertEqual(questionnaire['approval_gate_status'], 'pending_approval')
+        self.assertGreaterEqual(questionnaire['pending_approval_count'], 1)
+        self.assertTrue(any(item['approval_required'] for item in questionnaire['approval_queue_entries']))
+
+    def test_review_trust_approval_queue_can_approve_and_clear_gate(self):
+        assurance_state = {
+            'version': 1,
+            'questionnaires': {
+                'tq_demo': {
+                    'questionnaire_id': 'tq_demo',
+                    'source_session_key': 'web_api:test-review-queue',
+                    'questions': [
+                        {
+                            'question_id': 'tqq_demo',
+                            'ordinal': 1,
+                            'text': 'What is Meridian data retention stance?',
+                            'topic_tags': ['data_retention'],
+                            'critical': True,
+                            'answer_state': 'draft',
+                            'approval_required': True,
+                            'evidence_key': 'trust/questionnaire/demo',
+                            'evidence_status': 'draft',
+                            'queue_id': 'tqa_demo',
+                        }
+                    ],
+                }
+            },
+            'approval_queue': {
+                'tqa_demo': {
+                    'queue_id': 'tqa_demo',
+                    'questionnaire_id': 'tq_demo',
+                    'question_id': 'tqq_demo',
+                    'question_text': 'What is Meridian data retention stance?',
+                    'critical': True,
+                    'approval_required': True,
+                    'evidence_key': 'trust/questionnaire/demo',
+                    'evidence_status': 'draft',
+                    'status': 'pending',
+                }
+            },
+        }
+        meridian_gateway._rollup_trust_questionnaire(assurance_state['questionnaires']['tq_demo'])
+        evidence_state = {
+            'entries': {
+                'trust/questionnaire/demo': {
+                    'key': 'trust/questionnaire/demo',
+                    'heading': 'Approved questionnaire answer pack',
+                    'kind': 'questionnaire_answer_pack',
+                    'content': '- retention answer',
+                    'approval_status': 'draft',
+                    'topic_tags': ['data_retention'],
+                }
+            },
+            'session_packets': {},
+        }
+        with mock.patch.object(meridian_gateway, '_load_trust_assurance_state', return_value=assurance_state):
+            with mock.patch.object(meridian_gateway, '_load_trust_evidence_state', return_value=evidence_state):
+                with mock.patch.object(meridian_gateway, '_save_trust_assurance_state'):
+                    with mock.patch.object(meridian_gateway, '_save_trust_evidence_state'):
+                        with mock.patch.object(meridian_gateway, 'append_session_event'):
+                            reviewed = meridian_gateway._review_trust_approval_queue(
+                                'tqa_demo',
+                                'approve',
+                                note='owner approved retention wording',
+                                actor='owner',
+                            )
+        self.assertIsNotNone(reviewed)
+        self.assertTrue(reviewed['questionnaire']['final_delivery_allowed'])
+        self.assertEqual(reviewed['queue']['status'], 'approve')
+        self.assertEqual(reviewed['question']['answer_state'], 'approved')
+        self.assertEqual(evidence_state['entries']['trust/questionnaire/demo']['approval_status'], 'approved')
 
     def test_normalize_memory_entries_decays_stale_successful_output_value(self):
         state = {

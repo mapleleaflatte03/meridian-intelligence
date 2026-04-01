@@ -120,6 +120,7 @@ USER_SESSION_SCORE_STATE_PATH = Path(os.path.realpath(capsule_ledger_path())).wi
 TELEGRAM_DEDUP_STATE_PATH = Path(LOOM_ROOT) / "state" / "gateway" / "telegram_dedup.json"
 MEMORY_RECALL_STATE_PATH = Path(LOOM_ROOT) / "state" / "gateway" / "memory_recall.json"
 TRUST_EVIDENCE_STATE_PATH = Path(LOOM_ROOT) / "state" / "gateway" / "trust_evidence.json"
+TRUST_ASSURANCE_STATE_PATH = Path(LOOM_ROOT) / "state" / "gateway" / "trust_assurance.json"
 TELEGRAM_INBOUND_DEDUP_WINDOW_SECONDS = int(os.environ.get("MERIDIAN_TELEGRAM_INBOUND_DEDUP_WINDOW_SECONDS", "120"))
 TELEGRAM_OUTBOUND_DEDUP_WINDOW_SECONDS = int(os.environ.get("MERIDIAN_TELEGRAM_OUTBOUND_DEDUP_WINDOW_SECONDS", "900"))
 SKILL_AUTONOMY_LOCK = threading.RLock()
@@ -180,6 +181,9 @@ TRUST_EVIDENCE_LIMIT = int(os.environ.get("MERIDIAN_TRUST_EVIDENCE_LIMIT", "4"))
 TRUST_EVIDENCE_COMPRESSED_LIMIT = int(os.environ.get("MERIDIAN_TRUST_EVIDENCE_COMPRESSED_LIMIT", "520"))
 TRUST_EVIDENCE_WATCH_FRESHNESS_DAYS = int(os.environ.get("MERIDIAN_TRUST_EVIDENCE_WATCH_FRESHNESS_DAYS", "14"))
 TRUST_EVIDENCE_QUESTIONNAIRE_FRESHNESS_DAYS = int(os.environ.get("MERIDIAN_TRUST_EVIDENCE_QUESTIONNAIRE_FRESHNESS_DAYS", "30"))
+TRUST_QUESTIONNAIRE_MAX_QUESTIONS = int(os.environ.get("MERIDIAN_TRUST_QUESTIONNAIRE_MAX_QUESTIONS", "8"))
+TRUST_QUESTIONNAIRE_APPROVED_FIT = int(os.environ.get("MERIDIAN_TRUST_QUESTIONNAIRE_APPROVED_FIT", "22"))
+TRUST_QUESTIONNAIRE_DRAFT_FIT = int(os.environ.get("MERIDIAN_TRUST_QUESTIONNAIRE_DRAFT_FIT", "12"))
 MEMORY_SUCCESSFUL_OUTPUT_DECAY_AFTER_DAYS = int(os.environ.get("MERIDIAN_MEMORY_SUCCESSFUL_OUTPUT_DECAY_AFTER_DAYS", "3"))
 MEMORY_USER_FACT_DECAY_AFTER_DAYS = int(os.environ.get("MERIDIAN_MEMORY_USER_FACT_DECAY_AFTER_DAYS", "21"))
 MEMORY_SUCCESSFUL_OUTPUT_EVICT_AFTER_DAYS = int(os.environ.get("MERIDIAN_MEMORY_SUCCESSFUL_OUTPUT_EVICT_AFTER_DAYS", "21"))
@@ -2824,6 +2828,15 @@ def _run_team_route(text: str, session_key: str, runtime: AgentRuntime) -> tuple
     lowered_skill_names = {item.strip().lower() for item in skill_names}
     repair_warnings: list[str] = []
     answer, repair_warnings = _repair_manager_answer(request, answer, steps, skill_names)
+    questionnaire_outcome: dict[str, Any] | None = None
+    if "security-questionnaire" in lowered_skill_names:
+        questionnaire_outcome = _apply_security_questionnaire_workflow(
+            request,
+            session_key,
+            skill_names,
+            trust_packet=plan.get("trust_evidence_packet"),
+        )
+        answer = str(dict(questionnaire_outcome).get("rendered_artifact") or answer).strip()
     if "scan-doi-thu" in lowered_skill_names and _competitor_scan_artifact_needs_salvage(answer):
         answer = _salvage_competitor_scan_artifact(request)
         repair_warnings = [*repair_warnings, "bounded_competitor_scan_salvaged_after_research_failure"]
@@ -2860,6 +2873,19 @@ def _run_team_route(text: str, session_key: str, runtime: AgentRuntime) -> tuple
             "memory_retrieval_mode": str(dict(plan.get("memory_packet") or {}).get("retrieval_mode") or "").strip(),
             "evidence_entries": _trust_evidence_packet_delivery_entries(plan.get("trust_evidence_packet")),
             "evidence_retrieval_mode": str(dict(plan.get("trust_evidence_packet") or {}).get("retrieval_mode") or "").strip(),
+            "questionnaire_id": str(dict(questionnaire_outcome or {}).get("questionnaire", {}).get("questionnaire_id") or "").strip(),
+            "questionnaire_items": [
+                dict(item)
+                for item in list(dict(questionnaire_outcome or {}).get("questionnaire", {}).get("questions") or [])
+                if isinstance(item, dict)
+            ],
+            "approval_queue_entries": [
+                dict(item)
+                for item in list(dict(questionnaire_outcome or {}).get("approval_queue_entries") or [])
+                if isinstance(item, dict)
+            ],
+            "approval_gate_status": str(dict(questionnaire_outcome or {}).get("approval_gate_status") or "").strip(),
+            "final_delivery_allowed": bool(dict(questionnaire_outcome or {}).get("final_delivery_allowed")),
             "contributors": _delivery_contributors_snapshot(
                 steps,
                 request_text=request,
@@ -5098,7 +5124,11 @@ def _delivery_trust_evidence_entry_from_event(delivery_event: dict[str, Any]) ->
     delivery_fingerprint = str(delivery_event.get("delivery_fingerprint") or "").strip()
     if not delivery_fingerprint:
         return None
-    approval_status = "approved" if quality_status == "success" else "draft"
+    approval_gate_status = str(delivery_event.get("approval_gate_status") or "").strip().lower()
+    if kind == "questionnaire_answer_pack" and approval_gate_status != "ready_for_final_delivery":
+        approval_status = "draft"
+    else:
+        approval_status = "approved" if quality_status == "success" else "draft"
     origin_agent, origin_task_kind = _memory_delivery_origin_details(delivery_event)
     content = _compress_trust_evidence_content(artifact)
     if not content:
@@ -5204,6 +5234,706 @@ def _remember_trust_evidence(delivery_event: dict[str, Any]) -> list[dict[str, A
             "content_updated": bool(changed),
         }
     ]
+
+
+def _new_trust_assurance_state() -> dict[str, Any]:
+    return {"version": 1, "questionnaires": {}, "approval_queue": {}}
+
+
+def _load_trust_assurance_state() -> dict[str, Any]:
+    path = TRUST_ASSURANCE_STATE_PATH
+    if not path.exists():
+        return _new_trust_assurance_state()
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return _new_trust_assurance_state()
+    if not isinstance(payload, dict):
+        return _new_trust_assurance_state()
+    payload.setdefault("version", 1)
+    payload.setdefault("questionnaires", {})
+    payload.setdefault("approval_queue", {})
+    if not isinstance(payload.get("questionnaires"), dict):
+        payload["questionnaires"] = {}
+    if not isinstance(payload.get("approval_queue"), dict):
+        payload["approval_queue"] = {}
+    return payload
+
+
+def _save_trust_assurance_state(state: dict[str, Any]) -> None:
+    TRUST_ASSURANCE_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    TRUST_ASSURANCE_STATE_PATH.write_text(
+        json.dumps(state, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+
+
+def _questionnaire_question_id(text: str) -> str:
+    return "tqq_" + hashlib.sha256(str(text or "").strip().encode("utf-8")).hexdigest()[:12]
+
+
+def _questionnaire_queue_id(questionnaire_id: str, question_id: str) -> str:
+    raw = f"{questionnaire_id}:{question_id}".encode("utf-8")
+    return "tqa_" + hashlib.sha256(raw).hexdigest()[:12]
+
+
+def _normalize_questionnaire_prompt_line(line: str) -> str:
+    text = str(line or "").strip()
+    text = re.sub(r"^\s*(?:[-*•]+|\d+[.)]|q\d+[.)]?)\s*", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"^\s*(?:question|cau hoi)\s*[:.-]?\s*", "", text, flags=re.IGNORECASE)
+    return text.strip()
+
+
+def _default_questionnaire_questions_from_topics(topics: list[str]) -> list[str]:
+    topic_map = {
+        "ai_governance": "What AI governance controls are currently documented for Meridian?",
+        "data_retention": "What is Meridian's current data retention stance and boundary?",
+        "subprocessors": "Which subprocessors or third-party processors are currently in scope for Meridian?",
+        "security_controls": "Which security controls or certifications can Meridian support with evidence today?",
+        "privacy": "What privacy and personal-data handling claims can Meridian support today?",
+        "trust_center": "What customer assurance materials are currently approved for Meridian?",
+        "model_vendor_changes": "Which provider or model changes could affect Meridian trust answers right now?",
+        "regulatory": "Which regulatory changes currently affect Meridian trust answers or approvals?",
+    }
+    questions: list[str] = []
+    for topic in topics:
+        question = str(topic_map.get(str(topic or "").strip().lower()) or "").strip()
+        if question and question not in questions:
+            questions.append(question)
+    return questions
+
+
+def _extract_questionnaire_items(request_text: str) -> list[dict[str, Any]]:
+    raw_request = str(request_text or "").strip()
+    lines = [_normalize_questionnaire_prompt_line(line) for line in raw_request.splitlines()]
+    explicit: list[str] = []
+    for index, line in enumerate(lines):
+        if not line or len(line) < 8:
+            continue
+        lowered = _ascii_fold(line).lower()
+        if index == 0 and all(token not in lowered for token in ("?", "retention", "privacy", "subprocessor", "governance", "security", "processor")):
+            continue
+        if "security questionnaire" in lowered and "?" not in lowered:
+            continue
+        if (
+            "?" in line
+            or re.match(r"^(what|how|which|do|does|is|are|describe|list|provide)\b", lowered)
+            or any(
+                token in lowered
+                for token in (
+                    "ai governance",
+                    "data retention",
+                    "subprocessor",
+                    "security",
+                    "privacy",
+                    "processor",
+                    "trust center",
+                    "model",
+                    "policy",
+                    "pricing",
+                )
+            )
+        ):
+            explicit.append(line.rstrip(":"))
+    if not explicit:
+        explicit = _default_questionnaire_questions_from_topics(_trust_evidence_topics_from_text(raw_request))
+    if len(explicit) == 1:
+        only_line = _ascii_fold(str(explicit[0] or "")).lower()
+        request_topics = _trust_evidence_topics_from_text(raw_request)
+        if "security questionnaire" in only_line and len(request_topics) > 1:
+            explicit = _default_questionnaire_questions_from_topics(request_topics)
+    if not explicit:
+        explicit = ["What can Meridian support today with approved evidence for this trust review?"]
+    seen: set[str] = set()
+    items: list[dict[str, Any]] = []
+    for ordinal, question in enumerate(explicit, start=1):
+        normalized = str(question or "").strip()
+        if not normalized:
+            continue
+        dedup_key = _ascii_fold(normalized).lower()
+        if dedup_key in seen:
+            continue
+        seen.add(dedup_key)
+        topic_tags = _trust_evidence_topics_from_text(normalized, raw_request)
+        critical = bool(
+            {
+                "ai_governance",
+                "data_retention",
+                "subprocessors",
+                "security_controls",
+                "privacy",
+            }.intersection(topic_tags)
+        )
+        items.append(
+            {
+                "question_id": _questionnaire_question_id(normalized),
+                "ordinal": ordinal,
+                "text": normalized,
+                "topic_tags": topic_tags,
+                "critical": critical,
+            }
+        )
+        if len(items) >= max(1, int(TRUST_QUESTIONNAIRE_MAX_QUESTIONS or 0)):
+            break
+    return items
+
+
+def _review_trust_evidence_entry(
+    evidence_key: str,
+    decision: str,
+    *,
+    note: str = "",
+    actor: str = "",
+    state: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    key = str(evidence_key or "").strip()
+    normalized_decision = str(decision or "").strip().lower()
+    if not key or normalized_decision not in {"approve", "approved", "draft", "stale", "revoke", "revoked"}:
+        return None
+    payload = state if isinstance(state, dict) else _load_trust_evidence_state()
+    entries = payload.setdefault("entries", {})
+    record = dict(entries.get(key) or {})
+    if not record:
+        return None
+    if normalized_decision in {"approve", "approved"}:
+        record["approval_status"] = "approved"
+        record["approved_at"] = _memory_now_iso()
+    elif normalized_decision in {"revoke", "revoked"}:
+        record["approval_status"] = "revoked"
+        record["revoked_at"] = _memory_now_iso()
+    elif normalized_decision == "stale":
+        record["approval_status"] = "stale"
+        record["stale_at"] = _memory_now_iso()
+    else:
+        record["approval_status"] = "draft"
+    record["reviewed_at"] = _memory_now_iso()
+    record["reviewed_by"] = str(actor or "").strip().lower()
+    if note:
+        record["review_note"] = str(note).strip()
+    record["updated_at"] = _memory_now_iso()
+    entries[key] = record
+    if payload is not state:
+        _save_trust_evidence_state(payload)
+    return dict(record)
+
+
+def _questionnaire_support_snapshot(
+    question_text: str,
+    request_text: str,
+    skill_names: list[str],
+    evidence_entries: list[dict[str, Any]],
+) -> dict[str, Any]:
+    question_topics = {
+        str(tag).strip().lower()
+        for tag in _trust_evidence_topics_from_text(question_text)
+        if str(tag).strip()
+    }
+    ranked = sorted(
+        (
+            (lambda fit_score, entry_dict: {
+                **entry_dict,
+                "fit_score": fit_score,
+                "approval_status": _trust_evidence_effective_status(entry_dict),
+            })(
+                _trust_evidence_entry_score(
+                    entry,
+                    question_text,
+                    skill_names,
+                    session_key="",
+                )
+                + (
+                    len(
+                        question_topics.intersection(
+                            {
+                                str(tag).strip().lower()
+                                for tag in list(dict(entry).get("topic_tags") or [])
+                                if str(tag).strip()
+                            }
+                        )
+                    )
+                    * 12
+                )
+                - (
+                    18
+                    if question_topics
+                    and not question_topics.intersection(
+                        {
+                            str(tag).strip().lower()
+                            for tag in list(dict(entry).get("topic_tags") or [])
+                            if str(tag).strip()
+                        }
+                    )
+                    else 0
+                ),
+                dict(entry),
+            )
+            for entry in evidence_entries
+            if isinstance(entry, dict)
+        ),
+        key=lambda item: (
+            int(item.get("fit_score") or 0),
+            1 if str(item.get("approval_status") or "").strip().lower() == "approved" else 0,
+            str(item.get("heading") or ""),
+        ),
+        reverse=True,
+    )
+    best = dict(ranked[0]) if ranked else {}
+    fit_score = int(best.get("fit_score") or 0)
+    evidence_status = str(best.get("approval_status") or "").strip().lower()
+    shared_topics = question_topics.intersection(
+        {
+            str(tag).strip().lower()
+            for tag in list(best.get("topic_tags") or [])
+            if str(tag).strip()
+        }
+    )
+    if not best or fit_score < max(1, int(TRUST_QUESTIONNAIRE_DRAFT_FIT or 0)):
+        answer_state = "open"
+    elif question_topics and not shared_topics:
+        answer_state = "draft"
+    elif evidence_status == "revoked":
+        answer_state = "revoked"
+    elif evidence_status == "stale":
+        answer_state = "stale"
+    elif evidence_status == "approved" and fit_score >= max(1, int(TRUST_QUESTIONNAIRE_APPROVED_FIT or 0)):
+        answer_state = "approved"
+    else:
+        answer_state = "draft"
+
+    heading = str(best.get("heading") or "").strip()
+    evidence_key = str(best.get("key") or "").strip()
+    if answer_state == "approved" and heading:
+        answer_text = f"Supported by approved evidence `{heading}`."
+    elif answer_state == "draft" and heading:
+        answer_text = f"Draft only. `{heading}` is relevant but not strong enough to ship as final without approval."
+    elif answer_state == "stale" and heading:
+        answer_text = f"`{heading}` is stale and must be refreshed before it can support a final answer."
+    elif answer_state == "revoked" and heading:
+        answer_text = f"`{heading}` is revoked and must not be used in a final trust pack."
+    else:
+        answer_text = "No approved evidence currently supports this answer."
+
+    return {
+        "request_text": request_text,
+        "answer_state": answer_state,
+        "support_fit_score": fit_score,
+        "evidence_key": evidence_key,
+        "evidence_heading": heading,
+        "evidence_status": evidence_status or "missing",
+        "answer_text": answer_text,
+        "best_evidence_origin_agent": str(best.get("origin_agent") or "").strip().lower(),
+        "best_evidence_topic_tags": [
+            str(tag).strip().lower()
+            for tag in list(best.get("topic_tags") or [])
+            if str(tag).strip()
+        ],
+    }
+
+
+def _rollup_trust_questionnaire(questionnaire: dict[str, Any]) -> dict[str, Any]:
+    questions = [dict(item) for item in list(questionnaire.get("questions") or []) if isinstance(item, dict)]
+    critical_questions = [item for item in questions if bool(item.get("critical"))]
+    pending_questions = [item for item in questions if bool(item.get("approval_required"))]
+    pending_critical = [item for item in pending_questions if bool(item.get("critical"))]
+    revoked_critical = [item for item in critical_questions if str(item.get("answer_state") or "").strip().lower() == "revoked"]
+    stale_critical = [item for item in critical_questions if str(item.get("answer_state") or "").strip().lower() == "stale"]
+    unresolved_critical = [item for item in critical_questions if str(item.get("answer_state") or "").strip().lower() == "unresolved"]
+    approved_critical = [item for item in critical_questions if str(item.get("answer_state") or "").strip().lower() == "approved"]
+    if revoked_critical:
+        approval_gate_status = "blocked_revoked"
+        overall_status = "revoked"
+    elif pending_critical or stale_critical:
+        approval_gate_status = "pending_approval"
+        overall_status = "stale" if stale_critical else "draft"
+    else:
+        approval_gate_status = "ready_for_final_delivery"
+        overall_status = "approved"
+    questionnaire["overall_status"] = overall_status
+    questionnaire["approval_gate_status"] = approval_gate_status
+    questionnaire["final_delivery_allowed"] = approval_gate_status == "ready_for_final_delivery"
+    questionnaire["question_count"] = len(questions)
+    questionnaire["critical_count"] = len(critical_questions)
+    questionnaire["pending_approval_count"] = len(pending_questions)
+    questionnaire["pending_critical_count"] = len(pending_critical)
+    questionnaire["approved_critical_count"] = len(approved_critical)
+    questionnaire["unresolved_critical_count"] = len(unresolved_critical)
+    questionnaire["updated_at"] = _memory_now_iso()
+    return questionnaire
+
+
+def _sync_trust_approval_queue(state: dict[str, Any], questionnaire: dict[str, Any]) -> list[dict[str, Any]]:
+    queue_state = state.setdefault("approval_queue", {})
+    queue_entries: list[dict[str, Any]] = []
+    for question in list(questionnaire.get("questions") or []):
+        if not isinstance(question, dict):
+            continue
+        queue_id = str(
+            question.get("queue_id")
+            or _questionnaire_queue_id(
+                str(questionnaire.get("questionnaire_id") or "").strip(),
+                str(question.get("question_id") or "").strip(),
+            )
+        ).strip()
+        if not queue_id:
+            continue
+        queue_record = dict(queue_state.get(queue_id) or {})
+        queue_record["queue_id"] = queue_id
+        queue_record["questionnaire_id"] = str(questionnaire.get("questionnaire_id") or "").strip()
+        queue_record["source_session_key"] = str(questionnaire.get("source_session_key") or "").strip()
+        queue_record["question_id"] = str(question.get("question_id") or "").strip()
+        queue_record["question_text"] = str(question.get("text") or "").strip()
+        queue_record["critical"] = bool(question.get("critical"))
+        queue_record["topic_tags"] = [
+            str(tag).strip().lower()
+            for tag in list(question.get("topic_tags") or [])
+            if str(tag).strip()
+        ]
+        queue_record["evidence_key"] = str(question.get("evidence_key") or "").strip()
+        queue_record["evidence_status"] = str(question.get("evidence_status") or "").strip().lower()
+        queue_record["answer_state"] = str(question.get("answer_state") or "").strip().lower()
+        queue_record["approval_required"] = bool(question.get("approval_required"))
+        queue_record["status"] = (
+            "pending"
+            if bool(question.get("approval_required"))
+            else str(queue_record.get("status") or "cleared").strip().lower()
+        )
+        queue_record.setdefault("created_at", _memory_now_iso())
+        queue_record["updated_at"] = _memory_now_iso()
+        queue_state[queue_id] = queue_record
+        question["queue_id"] = queue_id
+        queue_entries.append(dict(queue_record))
+    questionnaire["approval_queue_ids"] = [
+        str(item.get("queue_id") or "").strip()
+        for item in queue_entries
+        if str(item.get("queue_id") or "").strip()
+    ]
+    questionnaire["approval_queue_entries"] = queue_entries
+    return queue_entries
+
+
+def _build_questionnaire_state(
+    request_text: str,
+    session_key: str,
+    skill_names: list[str],
+    *,
+    trust_packet: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    evidence_state = _load_trust_evidence_state()
+    evidence_entries = [
+        dict(item)
+        for item in list((evidence_state.get("entries") or {}).values())
+        if isinstance(item, dict) and str(item.get("content") or "").strip()
+    ]
+    questions = _extract_questionnaire_items(request_text)
+    questionnaire_id = "tq_" + hashlib.sha256(f"{session_key}\n{request_text}".encode("utf-8")).hexdigest()[:12]
+    built_questions: list[dict[str, Any]] = []
+    for question in questions:
+        record = dict(question)
+        support = _questionnaire_support_snapshot(
+            str(record.get("text") or "").strip(),
+            request_text,
+            skill_names,
+            evidence_entries,
+        )
+        record.update(support)
+        answer_state = str(record.get("answer_state") or "").strip().lower()
+        record["approval_required"] = bool(record.get("critical")) and answer_state in {"draft", "open", "stale", "revoked"}
+        built_questions.append(record)
+    state = _load_trust_assurance_state()
+    questionnaires = state.setdefault("questionnaires", {})
+    questionnaire = dict(questionnaires.get(questionnaire_id) or {})
+    questionnaire["questionnaire_id"] = questionnaire_id
+    questionnaire["source_session_key"] = session_key
+    questionnaire["request_text"] = request_text
+    questionnaire["skill_names"] = [
+        str(item).strip().lower()
+        for item in list(skill_names or [])
+        if str(item).strip()
+    ]
+    questionnaire["trust_evidence_keys"] = _trust_evidence_packet_keys(trust_packet)
+    questionnaire["questions"] = built_questions
+    questionnaire.setdefault("created_at", _memory_now_iso())
+    _rollup_trust_questionnaire(questionnaire)
+    _sync_trust_approval_queue(state, questionnaire)
+    questionnaires[questionnaire_id] = questionnaire
+    _save_trust_assurance_state(state)
+    return questionnaire
+
+
+def _render_questionnaire_answer_pack(questionnaire: dict[str, Any]) -> str:
+    questions = [dict(item) for item in list(questionnaire.get("questions") or []) if isinstance(item, dict)]
+    approved_lines: list[str] = []
+    draft_lines: list[str] = []
+    open_lines: list[str] = []
+    for question in questions:
+        text = str(question.get("text") or "").strip()
+        state = str(question.get("answer_state") or "").strip().lower() or "open"
+        heading = str(question.get("evidence_heading") or "").strip()
+        fit_score = int(question.get("support_fit_score") or 0)
+        prefix = f"- Q{int(question.get('ordinal') or 0)}: {text}"
+        if state == "approved" and heading:
+            approved_lines.append(f"{prefix} -> `{heading}` (fit {fit_score})")
+        draft_lines.append(f"{prefix} [{state}] {str(question.get('answer_text') or '').strip()}")
+        if state in {"draft", "open", "stale", "revoked", "unresolved"} or bool(question.get("approval_required")):
+            gap_text = "approval queue" if bool(question.get("approval_required")) else state
+            open_lines.append(f"{prefix} -> {gap_text}")
+
+    if questionnaire.get("final_delivery_allowed"):
+        status_line = "Final trust-pack delivery is currently allowed for this bounded questionnaire set."
+    elif str(questionnaire.get("approval_gate_status") or "").strip() == "blocked_revoked":
+        status_line = "Final trust-pack delivery is blocked because at least one critical answer depends on revoked evidence."
+    else:
+        status_line = "Final trust-pack delivery is still blocked pending approval or refresh on critical questions."
+
+    next_moves = []
+    if int(questionnaire.get("pending_approval_count") or 0) > 0:
+        next_moves.append(
+            f"Review {int(questionnaire.get('pending_approval_count') or 0)} queued question(s) before shipping a final pack."
+        )
+    if str(questionnaire.get("approval_gate_status") or "").strip() == "blocked_revoked":
+        next_moves.append("Replace revoked evidence or mark the affected question unresolved with explicit buyer-facing wording.")
+    if not next_moves:
+        next_moves.append("Reuse only the approved answers below and keep any unresolved edge cases visible.")
+    next_moves.append("Do not assert certifications, retention guarantees, privacy guarantees, or subprocessors beyond the evidence listed.")
+
+    return textwrap.dedent(
+        f"""
+        **Status**
+
+        - Questionnaire ID: `{str(questionnaire.get("questionnaire_id") or "").strip()}`
+        - Approval gate: `{str(questionnaire.get("approval_gate_status") or "").strip()}`
+        - Pending approvals: `{int(questionnaire.get("pending_approval_count") or 0)}`
+        - Critical questions: `{int(questionnaire.get("critical_count") or 0)}`
+        - {status_line}
+
+        **Approved evidence**
+
+        {chr(10).join(approved_lines) if approved_lines else '- No critical answer is currently backed by approved evidence.'}
+
+        **Draft answers**
+
+        {chr(10).join(draft_lines) if draft_lines else '- No questionnaire answers were derived in this run.'}
+
+        **Open gaps**
+
+        {chr(10).join(open_lines) if open_lines else '- No open gaps remain in this bounded questionnaire set.'}
+
+        **Next move**
+
+        {chr(10).join(f"{index}. {line}" for index, line in enumerate(next_moves, start=1))}
+        """
+    ).strip()
+
+
+def _build_trust_assurance_summary(state: dict[str, Any] | None = None) -> dict[str, Any]:
+    payload = state if isinstance(state, dict) else _load_trust_assurance_state()
+    evidence_state = _load_trust_evidence_state()
+    queue_entries = [dict(item) for item in list((payload.get("approval_queue") or {}).values()) if isinstance(item, dict)]
+    questionnaires = [dict(item) for item in list((payload.get("questionnaires") or {}).values()) if isinstance(item, dict)]
+    pending_queue = [item for item in queue_entries if bool(item.get("approval_required"))]
+    evidence_counts = {"approved": 0, "draft": 0, "stale": 0, "revoked": 0}
+    for entry in list((evidence_state.get("entries") or {}).values()):
+        if not isinstance(entry, dict):
+            continue
+        status = _trust_evidence_effective_status(entry)
+        evidence_counts[status] = int(evidence_counts.get(status) or 0) + 1
+    return {
+        "queue_count": len(queue_entries),
+        "pending_queue_count": len(pending_queue),
+        "questionnaire_count": len(questionnaires),
+        "ready_questionnaire_count": sum(1 for item in questionnaires if bool(item.get("final_delivery_allowed"))),
+        "questionnaires": sorted(
+            (
+                {
+                    "questionnaire_id": str(item.get("questionnaire_id") or "").strip(),
+                    "approval_gate_status": str(item.get("approval_gate_status") or "").strip(),
+                    "pending_approval_count": int(item.get("pending_approval_count") or 0),
+                    "critical_count": int(item.get("critical_count") or 0),
+                    "source_session_key": str(item.get("source_session_key") or "").strip(),
+                }
+                for item in questionnaires
+            ),
+            key=lambda item: (
+                int(item.get("pending_approval_count") or 0),
+                str(item.get("questionnaire_id") or ""),
+            ),
+            reverse=True,
+        )[:10],
+        "approval_queue": sorted(
+            (
+                {
+                    "queue_id": str(item.get("queue_id") or "").strip(),
+                    "questionnaire_id": str(item.get("questionnaire_id") or "").strip(),
+                    "question_id": str(item.get("question_id") or "").strip(),
+                    "question_text": str(item.get("question_text") or "").strip(),
+                    "critical": bool(item.get("critical")),
+                    "status": str(item.get("status") or "").strip().lower(),
+                    "approval_required": bool(item.get("approval_required")),
+                    "evidence_key": str(item.get("evidence_key") or "").strip(),
+                    "evidence_status": str(item.get("evidence_status") or "").strip().lower(),
+                }
+                for item in queue_entries
+            ),
+            key=lambda item: (
+                1 if bool(item.get("approval_required")) else 0,
+                1 if bool(item.get("critical")) else 0,
+                str(item.get("queue_id") or ""),
+            ),
+            reverse=True,
+        )[:20],
+        "evidence": {"counts": evidence_counts},
+    }
+
+
+def _review_trust_approval_queue(
+    queue_id: str,
+    decision: str,
+    *,
+    note: str = "",
+    actor: str = "",
+) -> dict[str, Any] | None:
+    queue_key = str(queue_id or "").strip()
+    normalized_decision = str(decision or "").strip().lower()
+    if not queue_key or normalized_decision not in {"approve", "stale", "revoke", "unresolved"}:
+        return None
+    state = _load_trust_assurance_state()
+    queue_state = state.setdefault("approval_queue", {})
+    queue_record = dict(queue_state.get(queue_key) or {})
+    if not queue_record:
+        return None
+    questionnaires = state.setdefault("questionnaires", {})
+    questionnaire_id = str(queue_record.get("questionnaire_id") or "").strip()
+    questionnaire = dict(questionnaires.get(questionnaire_id) or {})
+    if not questionnaire:
+        return None
+    questions = [dict(item) for item in list(questionnaire.get("questions") or []) if isinstance(item, dict)]
+    question_id = str(queue_record.get("question_id") or "").strip()
+    evidence_state = _load_trust_evidence_state()
+    updated_question: dict[str, Any] | None = None
+    for index, question in enumerate(questions):
+        if str(question.get("question_id") or "").strip() != question_id:
+            continue
+        updated_question = dict(question)
+        if normalized_decision == "approve":
+            updated_question["answer_state"] = "approved"
+            updated_question["approval_required"] = False
+            updated_question["approved_at"] = _memory_now_iso()
+            if str(updated_question.get("evidence_key") or "").strip():
+                reviewed = _review_trust_evidence_entry(
+                    str(updated_question.get("evidence_key") or "").strip(),
+                    "approve",
+                    note=note,
+                    actor=actor,
+                    state=evidence_state,
+                )
+                if reviewed:
+                    updated_question["evidence_status"] = _trust_evidence_effective_status(reviewed)
+        elif normalized_decision == "unresolved":
+            updated_question["answer_state"] = "unresolved"
+            updated_question["approval_required"] = False
+            updated_question["resolution_note"] = str(note or "Marked unresolved for truthful final delivery.").strip()
+        elif normalized_decision == "stale":
+            updated_question["answer_state"] = "stale"
+            updated_question["approval_required"] = True
+            if str(updated_question.get("evidence_key") or "").strip():
+                reviewed = _review_trust_evidence_entry(
+                    str(updated_question.get("evidence_key") or "").strip(),
+                    "stale",
+                    note=note,
+                    actor=actor,
+                    state=evidence_state,
+                )
+                if reviewed:
+                    updated_question["evidence_status"] = _trust_evidence_effective_status(reviewed)
+        else:
+            updated_question["answer_state"] = "revoked"
+            updated_question["approval_required"] = True
+            if str(updated_question.get("evidence_key") or "").strip():
+                reviewed = _review_trust_evidence_entry(
+                    str(updated_question.get("evidence_key") or "").strip(),
+                    "revoke",
+                    note=note,
+                    actor=actor,
+                    state=evidence_state,
+                )
+                if reviewed:
+                    updated_question["evidence_status"] = _trust_evidence_effective_status(reviewed)
+        updated_question["last_reviewed_at"] = _memory_now_iso()
+        updated_question["last_review_decision"] = normalized_decision
+        questions[index] = updated_question
+        break
+    if not updated_question:
+        return None
+    questionnaire["questions"] = questions
+    _rollup_trust_questionnaire(questionnaire)
+    _sync_trust_approval_queue(state, questionnaire)
+    queue_record = dict(queue_state.get(queue_key) or {})
+    queue_record["status"] = normalized_decision
+    queue_record["approval_required"] = bool(updated_question.get("approval_required"))
+    queue_record["evidence_status"] = str(updated_question.get("evidence_status") or "").strip().lower()
+    queue_record["answer_state"] = str(updated_question.get("answer_state") or "").strip().lower()
+    queue_record["review_note"] = str(note).strip()
+    queue_record["reviewed_by"] = str(actor or "").strip().lower()
+    queue_record["reviewed_at"] = _memory_now_iso()
+    queue_record["updated_at"] = _memory_now_iso()
+    queue_state[queue_key] = queue_record
+    questionnaires[questionnaire_id] = questionnaire
+    _save_trust_evidence_state(evidence_state)
+    _save_trust_assurance_state(state)
+    session_key = str(questionnaire.get("source_session_key") or "").strip()
+    if session_key:
+        append_session_event(
+            session_key,
+            {
+                "history_type": "trust_approval_review",
+                "status": normalized_decision,
+                "agent_id": TEAM_MANAGER_AGENT_ID,
+                "speaker": "manager",
+                "text": f"Reviewed queue item {queue_key} with decision {normalized_decision}.",
+                "queue_id": queue_key,
+                "questionnaire_id": questionnaire_id,
+                "question_id": question_id,
+                "review_note": str(note).strip(),
+                "reviewed_by": str(actor or "").strip().lower(),
+            },
+            loom_root=LOOM_ROOT,
+        )
+    return {
+        "queue": dict(queue_record),
+        "questionnaire": {
+            "questionnaire_id": questionnaire_id,
+            "approval_gate_status": str(questionnaire.get("approval_gate_status") or "").strip(),
+            "final_delivery_allowed": bool(questionnaire.get("final_delivery_allowed")),
+            "pending_approval_count": int(questionnaire.get("pending_approval_count") or 0),
+        },
+        "question": dict(updated_question),
+    }
+
+
+def _apply_security_questionnaire_workflow(
+    request_text: str,
+    session_key: str,
+    skill_names: list[str],
+    *,
+    trust_packet: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    questionnaire = _build_questionnaire_state(
+        request_text,
+        session_key,
+        skill_names,
+        trust_packet=trust_packet,
+    )
+    return {
+        "questionnaire": questionnaire,
+        "rendered_artifact": _render_questionnaire_answer_pack(questionnaire),
+        "approval_queue_entries": [
+            dict(item)
+            for item in list(questionnaire.get("approval_queue_entries") or [])
+            if isinstance(item, dict)
+        ],
+        "approval_gate_status": str(questionnaire.get("approval_gate_status") or "").strip(),
+        "final_delivery_allowed": bool(questionnaire.get("final_delivery_allowed")),
+    }
 
 
 def _atlas_memory_research_block(
@@ -7937,12 +8667,14 @@ def _salvage_security_questionnaire_artifact(request: str) -> str:
         **Draft answers**
 
         - Trả lời từng câu dưới dạng draft nếu evidence hiện có còn yếu hoặc đang thiếu.
+        - Mỗi câu critical phải lộ rõ state hiện tại: approved, draft, stale, revoked, hoặc unresolved.
         - Không được tự khẳng định SOC 2 / ISO 27001 / retention / subprocessors nếu chưa có proof.
 
         **Open gaps**
 
         - Cần xác nhận câu nào đã có approved evidence.
-        - Cần escalations cho các claim security, privacy, retention, AI governance còn thiếu proof.
+        - Cần approval queue cho các claim security, privacy, retention, AI governance còn thiếu proof.
+        - Nếu còn pending critical approvals thì chưa được gọi đây là final trust pack.
 
         **Next move**
 
@@ -7989,6 +8721,7 @@ def _manager_response_shape(goal: str, plan: dict[str, Any] | None = None) -> st
         return (
             "Do not write generic policy prose or internal notes. "
             "Return a bounded questionnaire answer pack with sections: Status, Approved evidence, Draft answers, Open gaps, Next move. "
+            "Track each critical question explicitly, show its current state, and block final-pack language while approvals are still pending. "
             "Never claim a certification, retention promise, subprocessor fact, or AI-governance fact without clear evidence."
         )
     if "ai-stack-watch" in skill_names:
@@ -8074,7 +8807,8 @@ def _skill_specific_execution_addendum(request: str, matched_skills: list[dict[s
         lines.extend(
             [
                 "The expected artifact is a governed questionnaire answer pack, not generic compliance marketing copy.",
-                "Separate approved evidence from draft answers and open gaps.",
+                "Separate approved evidence from draft answers and open gaps, and make each critical question's state visible.",
+                "If any critical question is still pending approval, stale, or revoked, say that final trust-pack delivery is blocked.",
                 "Never assert certifications, retention guarantees, privacy guarantees, or subprocessor details without explicit proof.",
             ]
         )
@@ -9062,6 +9796,9 @@ class WebAPIAdapter(ChannelAdapter):
                             break
                     self._send_json(200, {"status": "success", "events": events})
                     return
+                if request_path == "/api/trust-ops/status":
+                    self._send_json(200, {"status": "success", "trust_ops": _build_trust_assurance_summary()})
+                    return
                 if request_path in {
                     "/api/context",
                     "/api/status",
@@ -9121,6 +9858,45 @@ class WebAPIAdapter(ChannelAdapter):
                     return
                 if not isinstance(payload, dict):
                     self._send_json(400, {"status": "error", "output": "json_object_required"})
+                    return
+                if request_path == "/api/trust-ops/queue/review":
+                    queue_id = str(payload.get("queue_id") or "").strip()
+                    decision = str(payload.get("decision") or "").strip().lower()
+                    reviewed = _review_trust_approval_queue(
+                        queue_id,
+                        decision,
+                        note=str(payload.get("note") or "").strip(),
+                        actor=str(payload.get("actor") or "").strip(),
+                    )
+                    if not reviewed:
+                        self._send_json(400, {"status": "error", "output": "invalid_queue_review"})
+                        return
+                    self._send_json(200, {"status": "success", "review": reviewed, "trust_ops": _build_trust_assurance_summary()})
+                    return
+                if request_path == "/api/trust-ops/evidence/review":
+                    evidence_key = str(payload.get("evidence_key") or "").strip()
+                    decision = str(payload.get("decision") or "").strip().lower()
+                    reviewed = _review_trust_evidence_entry(
+                        evidence_key,
+                        decision,
+                        note=str(payload.get("note") or "").strip(),
+                        actor=str(payload.get("actor") or "").strip(),
+                    )
+                    if not reviewed:
+                        self._send_json(400, {"status": "error", "output": "invalid_evidence_review"})
+                        return
+                    self._send_json(
+                        200,
+                        {
+                            "status": "success",
+                            "evidence": {
+                                "key": str(reviewed.get("key") or "").strip(),
+                                "approval_status": _trust_evidence_effective_status(reviewed),
+                                "reviewed_at": str(reviewed.get("reviewed_at") or "").strip(),
+                            },
+                            "trust_ops": _build_trust_assurance_summary(),
+                        },
+                    )
                     return
                 if request_path in {
                     "/api/authority/kill-switch",
