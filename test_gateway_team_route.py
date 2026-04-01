@@ -452,6 +452,21 @@ class GatewayTeamRouteTests(unittest.TestCase):
         self.assertTrue(bundle['matches'])
         self.assertEqual([item['name'] for item in bundle['matches']], ['security-questionnaire'])
 
+    def test_skill_bundle_isolates_short_english_security_questionnaire_from_internal_status(self):
+        bundle = meridian_gateway._skill_bundle_for_request(
+            'Security questionnaire for Meridian: what AI governance controls are documented?',
+            'web_api:test-questionnaire-bundle-en',
+            manager_brief='security questionnaire',
+            allow_create=False,
+        )
+        self.assertTrue(bundle['matches'])
+        self.assertEqual([item['name'] for item in bundle['matches']], ['security-questionnaire'])
+        self.assertFalse(
+            meridian_gateway._looks_like_meridian_internal_query(
+                'Security questionnaire for Meridian: what AI governance controls are documented?'
+            )
+        )
+
     def test_skill_bundle_isolates_ai_stack_watch_from_safe_web_research(self):
         bundle = meridian_gateway._skill_bundle_for_request(
             'watch thay đổi provider model pricing policy tuần này cho AI stack của Meridian',
@@ -706,6 +721,78 @@ class GatewayTeamRouteTests(unittest.TestCase):
         self.assertEqual(reviewed['queue']['status'], 'approve')
         self.assertEqual(reviewed['question']['answer_state'], 'approved')
         self.assertEqual(evidence_state['entries']['trust/questionnaire/demo']['approval_status'], 'approved')
+
+    def test_review_trust_approval_queue_revoke_files_court_violation(self):
+        assurance_state = {
+            'version': 1,
+            'questionnaires': {
+                'tq_demo': {
+                    'questionnaire_id': 'tq_demo',
+                    'source_session_key': 'web_api:test-review-queue-revoke',
+                    'questions': [
+                        {
+                            'question_id': 'tqq_demo',
+                            'ordinal': 1,
+                            'text': 'Which subprocessors are in scope?',
+                            'topic_tags': ['subprocessors'],
+                            'critical': True,
+                            'answer_state': 'approved',
+                            'approval_required': False,
+                            'evidence_key': 'trust/questionnaire/demo',
+                            'evidence_status': 'approved',
+                            'queue_id': 'tqa_demo',
+                            'best_evidence_origin_agent': 'quill',
+                        }
+                    ],
+                }
+            },
+            'approval_queue': {
+                'tqa_demo': {
+                    'queue_id': 'tqa_demo',
+                    'questionnaire_id': 'tq_demo',
+                    'question_id': 'tqq_demo',
+                    'question_text': 'Which subprocessors are in scope?',
+                    'critical': True,
+                    'approval_required': False,
+                    'evidence_key': 'trust/questionnaire/demo',
+                    'evidence_status': 'approved',
+                    'status': 'cleared',
+                }
+            },
+        }
+        meridian_gateway._rollup_trust_questionnaire(assurance_state['questionnaires']['tq_demo'])
+        evidence_state = {
+            'entries': {
+                'trust/questionnaire/demo': {
+                    'key': 'trust/questionnaire/demo',
+                    'heading': 'Approved questionnaire answer pack',
+                    'kind': 'questionnaire_answer_pack',
+                    'content': '- subprocessor answer',
+                    'approval_status': 'approved',
+                    'topic_tags': ['subprocessors'],
+                    'origin_agent': 'quill',
+                }
+            },
+            'session_packets': {},
+        }
+        with mock.patch.object(meridian_gateway, '_load_trust_assurance_state', return_value=assurance_state):
+            with mock.patch.object(meridian_gateway, '_load_trust_evidence_state', return_value=evidence_state):
+                with mock.patch.object(meridian_gateway, '_save_trust_assurance_state'):
+                    with mock.patch.object(meridian_gateway, '_save_trust_evidence_state'):
+                        with mock.patch.object(meridian_gateway, 'append_session_event'):
+                            with mock.patch.object(meridian_gateway, '_record_gateway_audit'):
+                                with mock.patch.object(meridian_gateway, 'accounting_append_tx'):
+                                    with mock.patch.object(meridian_gateway, 'court_file_violation', return_value='case_123'):
+                                        reviewed = meridian_gateway._review_trust_approval_queue(
+                                            'tqa_demo',
+                                            'revoke',
+                                            note='subprocessor claim revoked',
+                                            actor='owner',
+                                        )
+        self.assertIsNotNone(reviewed)
+        self.assertEqual(reviewed['queue']['court_violation_id'], 'case_123')
+        self.assertEqual(reviewed['question']['answer_state'], 'revoked')
+        self.assertEqual(evidence_state['entries']['trust/questionnaire/demo']['approval_status'], 'revoked')
 
     def test_normalize_memory_entries_decays_stale_successful_output_value(self):
         state = {

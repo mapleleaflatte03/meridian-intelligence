@@ -1119,6 +1119,8 @@ def _looks_like_meridian_internal_query(text: str) -> bool:
     lowered = text.strip().lower()
     if not lowered:
         return False
+    if _request_is_security_questionnaire(text) or _request_is_ai_stack_watch(text):
+        return False
     if _looks_like_meridian_council_query(text):
         return False
     mentions_meridian = any(term in lowered for term in _MERIDIAN_INTERNAL_STATUS_TERMS)
@@ -5414,6 +5416,57 @@ def _review_trust_evidence_entry(
     entries[key] = record
     if payload is not state:
         _save_trust_evidence_state(payload)
+    session_key = str(record.get("source_session_key") or "").strip()
+    origin_agent = str(record.get("origin_agent") or "").strip().lower()
+    extra_details: dict[str, Any] = {
+        "evidence_key": key,
+        "decision": normalized_decision,
+        "kind": str(record.get("kind") or "").strip(),
+        "approval_status": str(record.get("approval_status") or "").strip().lower(),
+        "origin_agent": origin_agent,
+    }
+    if note:
+        extra_details["review_note"] = str(note).strip()
+    if origin_agent:
+        try:
+            ledger = accounting_load_ledger()
+            agent = dict((ledger.get("agents") or {}).get(origin_agent) or {})
+            if agent:
+                extra_details["authority_units"] = int(agent.get("authority_units") or 0)
+                extra_details["reputation_units"] = int(agent.get("reputation_units") or 0)
+        except Exception:
+            pass
+        try:
+            extra_details["court_restrictions"] = [
+                str(item).strip().lower()
+                for item in list(court_get_restrictions(origin_agent, org_id=LOOM_ORG_ID) or [])
+                if str(item).strip()
+            ]
+        except Exception:
+            pass
+    _record_gateway_audit(
+        "trust_evidence_reviewed",
+        session_key=session_key or key,
+        channel="trust_ops",
+        text=str(record.get("heading") or "").strip(),
+        outcome=normalized_decision,
+        extra_details=extra_details,
+    )
+    try:
+        accounting_append_tx(
+            {
+                "type": "trust_evidence_review",
+                "session_key": session_key,
+                "evidence_key": key,
+                "decision": normalized_decision,
+                "kind": str(record.get("kind") or "").strip(),
+                "origin_agent": origin_agent,
+                "actor": str(actor or "").strip().lower(),
+                "note": str(note).strip(),
+            }
+        )
+    except Exception:
+        pass
     return dict(record)
 
 
@@ -5810,6 +5863,7 @@ def _review_trust_approval_queue(
     question_id = str(queue_record.get("question_id") or "").strip()
     evidence_state = _load_trust_evidence_state()
     updated_question: dict[str, Any] | None = None
+    prior_violation_id = str(queue_record.get("court_violation_id") or "").strip()
     for index, question in enumerate(questions):
         if str(question.get("question_id") or "").strip() != question_id:
             continue
@@ -5876,11 +5930,83 @@ def _review_trust_approval_queue(
     queue_record["reviewed_by"] = str(actor or "").strip().lower()
     queue_record["reviewed_at"] = _memory_now_iso()
     queue_record["updated_at"] = _memory_now_iso()
+    origin_agent = str(updated_question.get("best_evidence_origin_agent") or "").strip().lower()
+    if normalized_decision == "revoke" and bool(updated_question.get("critical")) and origin_agent and not prior_violation_id:
+        try:
+            violation_id = court_file_violation(
+                agent_id=origin_agent,
+                org_id=LOOM_ORG_ID,
+                violation_type="trust_evidence_revoked",
+                severity=3,
+                evidence=(
+                    f"Queue review {queue_key} revoked critical trust evidence for question: "
+                    f"{str(updated_question.get('text') or '').strip()}"
+                )[:500],
+                policy_ref="trust_ops.approval_review",
+            )
+            queue_record["court_violation_id"] = str(violation_id or "").strip()
+        except Exception:
+            pass
     queue_state[queue_key] = queue_record
     questionnaires[questionnaire_id] = questionnaire
     _save_trust_evidence_state(evidence_state)
     _save_trust_assurance_state(state)
     session_key = str(questionnaire.get("source_session_key") or "").strip()
+    extra_details: dict[str, Any] = {
+        "queue_id": queue_key,
+        "questionnaire_id": questionnaire_id,
+        "question_id": question_id,
+        "critical": bool(updated_question.get("critical")),
+        "answer_state": str(updated_question.get("answer_state") or "").strip().lower(),
+        "approval_required": bool(updated_question.get("approval_required")),
+        "origin_agent": origin_agent,
+        "court_violation_id": str(queue_record.get("court_violation_id") or "").strip(),
+        "pending_approval_count": int(questionnaire.get("pending_approval_count") or 0),
+        "approval_gate_status": str(questionnaire.get("approval_gate_status") or "").strip(),
+    }
+    if origin_agent:
+        try:
+            ledger = accounting_load_ledger()
+            agent = dict((ledger.get("agents") or {}).get(origin_agent) or {})
+            if agent:
+                extra_details["authority_units"] = int(agent.get("authority_units") or 0)
+                extra_details["reputation_units"] = int(agent.get("reputation_units") or 0)
+        except Exception:
+            pass
+        try:
+            extra_details["court_restrictions"] = [
+                str(item).strip().lower()
+                for item in list(court_get_restrictions(origin_agent, org_id=LOOM_ORG_ID) or [])
+                if str(item).strip()
+            ]
+        except Exception:
+            pass
+    _record_gateway_audit(
+        "trust_queue_reviewed",
+        session_key=session_key or questionnaire_id or queue_key,
+        channel="trust_ops",
+        text=str(updated_question.get("text") or "").strip(),
+        outcome=normalized_decision,
+        extra_details=extra_details,
+    )
+    try:
+        accounting_append_tx(
+            {
+                "type": "trust_queue_review",
+                "session_key": session_key,
+                "queue_id": queue_key,
+                "questionnaire_id": questionnaire_id,
+                "question_id": question_id,
+                "decision": normalized_decision,
+                "critical": bool(updated_question.get("critical")),
+                "origin_agent": origin_agent,
+                "actor": str(actor or "").strip().lower(),
+                "note": str(note).strip(),
+                "court_violation_id": str(queue_record.get("court_violation_id") or "").strip(),
+            }
+        )
+    except Exception:
+        pass
     if session_key:
         append_session_event(
             session_key,
@@ -9737,6 +9863,9 @@ class WebAPIAdapter(ChannelAdapter):
             def _origin_allowed(self) -> bool:
                 return self.headers.get("Origin") == adapter.allowed_origin
 
+            def _public_read_allowed(self, request_path: str) -> bool:
+                return str(request_path or "").strip() == "/api/trust-ops/status"
+
             def _send_cors_headers(self) -> None:
                 self.send_header("Access-Control-Allow-Origin", adapter.allowed_origin)
                 self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
@@ -9781,12 +9910,12 @@ class WebAPIAdapter(ChannelAdapter):
                 self.end_headers()
 
             def do_GET(self) -> None:  # noqa: N802
-                if not self._origin_allowed():
-                    self._send_json(403, {"status": "error", "output": "origin_not_allowed"})
-                    return
                 parsed = urlparse(self.path)
                 request_path = parsed.path
                 proxied_path = request_path + (f"?{parsed.query}" if parsed.query else "")
+                if not self._origin_allowed() and not self._public_read_allowed(request_path):
+                    self._send_json(403, {"status": "error", "output": "origin_not_allowed"})
+                    return
                 if request_path == "/api/events":
                     events = []
                     while True:
