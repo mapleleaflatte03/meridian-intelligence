@@ -351,6 +351,37 @@
       '<div class="operator-question-grid">' + questionItems + '</div>';
   }
 
+  function buildOperatorStatusMessage(operator) {
+    var filters = operator && operator.filters ? operator.filters : {};
+    var queue = operator && operator.queue ? operator.queue : [];
+    var questionnaires = operator && operator.questionnaires ? operator.questionnaires : [];
+    var selectedQuestionnaire = filters.questionnaire_id || '';
+    var filterLabelMap = {
+      actionable: 'actionable items',
+      all: 'all visible items',
+      pending: 'pending approvals',
+      approved: 'approved items',
+      stale: 'stale items',
+      revoked: 'revoked items',
+      unresolved: 'unresolved items',
+      draft: 'draft items'
+    };
+    var filterLabel = filterLabelMap[filters.status] || 'queue items';
+    var parts = [
+      'Trust Ops queue loaded.',
+      'Showing ' + String(queue.length) + ' ' + filterLabel + '.'
+    ];
+    if (selectedQuestionnaire) {
+      parts.push('Focused on ' + selectedQuestionnaire + '.');
+    } else if (questionnaires.length) {
+      parts.push('Tracking ' + String(questionnaires.length) + ' questionnaires.');
+    }
+    if (filters.include_cleared) {
+      parts.push('Cleared items included.');
+    }
+    return parts.join(' ');
+  }
+
   async function loadOperatorSnapshot() {
     var params = new URLSearchParams();
     var formData = new FormData(filterForm);
@@ -378,7 +409,7 @@
       renderSummary(currentSnapshot);
       renderQueue(currentSnapshot);
       renderQuestionnaireDetail(currentSnapshot);
-      setOperatorStatus('Trust Ops queue loaded. Actionable items are shown first.', false);
+      setOperatorStatus(buildOperatorStatusMessage(currentSnapshot), false);
     } catch (error) {
       setOperatorStatus(error.message || 'Failed to load Trust Ops queue', true);
       if (queueBody) {
