@@ -842,6 +842,19 @@
     target.innerHTML = lines.join('');
   }
 
+  function renderLoadingChart(target) {
+    if (!target) {
+      return;
+    }
+    target.innerHTML = [
+      '<div class="live-chart-skeleton" aria-hidden="true">',
+      '<div class="live-chart-skeleton-row"><span class="live-chart-skeleton-label"></span><span class="live-chart-skeleton-bar"></span><span class="live-chart-skeleton-value"></span></div>',
+      '<div class="live-chart-skeleton-row"><span class="live-chart-skeleton-label"></span><span class="live-chart-skeleton-bar"></span><span class="live-chart-skeleton-value"></span></div>',
+      '<div class="live-chart-skeleton-row"><span class="live-chart-skeleton-label"></span><span class="live-chart-skeleton-bar"></span><span class="live-chart-skeleton-value"></span></div>',
+      '</div>'
+    ].join('');
+  }
+
   function setCaption(shell, name, text) {
     var node = shell.querySelector('[data-live-caption="' + name + '"]');
     if (node) {
@@ -852,7 +865,7 @@
   function setLoadingState(shell, message) {
     ['runtime', 'queue', 'proof'].forEach(function (name) {
       setCaption(shell, name, message);
-      renderChart(shell.querySelector('[data-live-chart="' + name + '"]'), []);
+      renderLoadingChart(shell.querySelector('[data-live-chart="' + name + '"]'));
     });
   }
 

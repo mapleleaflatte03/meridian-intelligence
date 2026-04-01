@@ -686,6 +686,45 @@ h2 {
   line-height: 1.55;
   margin: 0;
 }
+.live-chart-skeleton {
+  display: grid;
+  gap: 0.95rem;
+  min-height: 140px;
+  padding-top: 0.35rem;
+}
+.live-chart-skeleton-row {
+  display: grid;
+  grid-template-columns: 68px 1fr 34px;
+  gap: 0.7rem;
+  align-items: center;
+}
+.live-chart-skeleton-label,
+.live-chart-skeleton-value,
+.live-chart-skeleton-bar {
+  display: block;
+  position: relative;
+  overflow: hidden;
+  background: rgba(255,255,255,0.06);
+}
+.live-chart-skeleton-label {
+  height: 0.72rem;
+}
+.live-chart-skeleton-value {
+  height: 0.72rem;
+}
+.live-chart-skeleton-bar {
+  height: 0.5rem;
+}
+.live-chart-skeleton-label::after,
+.live-chart-skeleton-value::after,
+.live-chart-skeleton-bar::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(135,216,255,0.22), transparent);
+  animation: meridian-shimmer 1.35s ease-in-out infinite;
+}
 .live-chart-empty {
   display: flex;
   align-items: center;
@@ -710,6 +749,11 @@ h2 {
   font-family: var(--mono);
   font-size: 0.82rem;
   margin-top: 0.08rem;
+}
+@keyframes meridian-shimmer {
+  100% {
+    transform: translateX(100%);
+  }
 }
 .compact-copy { max-width: var(--copy-max); }
 
