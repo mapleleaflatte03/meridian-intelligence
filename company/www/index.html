@@ -165,6 +165,29 @@
     </div>
   </div>
 
+  <h2 class="reveal">Live Host Snapshot</h2>
+  <p class="section-intro compact-copy">These charts read the live numbers from <code>/api/status</code> and <code>/api/runtime-proof</code> on this host. They are not static marketing numbers.</p>
+  <div class="live-chart-grid reveal" data-live-snapshot>
+    <div class="live-chart-card">
+      <span class="lane-kicker">Runtime</span>
+      <h3>Footprint now</h3>
+      <div class="live-chart-shell" data-live-chart="runtime"></div>
+      <p class="live-chart-caption" data-live-caption="runtime">Loading runtime footprint…</p>
+    </div>
+    <div class="live-chart-card">
+      <span class="lane-kicker">Queue</span>
+      <h3>Pressure now</h3>
+      <div class="live-chart-shell" data-live-chart="queue"></div>
+      <p class="live-chart-caption" data-live-caption="queue">Loading queue state…</p>
+    </div>
+    <div class="live-chart-card">
+      <span class="lane-kicker">Proof</span>
+      <h3>Boundary now</h3>
+      <div class="live-chart-shell" data-live-chart="proof"></div>
+      <p class="live-chart-caption" data-live-caption="proof">Loading proof status…</p>
+    </div>
+  </div>
+
   <h2 id="product" class="reveal">What Meridian Sells Now</h2>
   <p class="section-intro compact-copy">Meridian's product surface is now simpler to read: one watch lane, one assurance lane, one governed delivery layer, and one research module that supports the rest.</p>
   <div class="feature-grid reveal">
@@ -437,79 +460,88 @@
     <span>7 managed agents</span>
   </div>
 
-  <!-- FAQ -->
-  <h2 class="reveal">FAQ</h2>
+  <h2 class="reveal">Fast Answers</h2>
+  <div class="split-grid reveal">
+    <div class="split-card">
+      <h3>What Meridian is</h3>
+      <div class="bullet-stack">
+        <div class="bullet-item"><span class="bullet-mark">01</span><span>A governed runtime for paid AI agent work.</span></div>
+        <div class="bullet-item"><span class="bullet-mark">02</span><span>Trust Ops is the current wedge, not the whole theory.</span></div>
+      </div>
+    </div>
+    <div class="split-card">
+      <h3>What buyers start with</h3>
+      <div class="bullet-stack">
+        <div class="bullet-item"><span class="bullet-mark">01</span><span>AI Stack Watch.</span></div>
+        <div class="bullet-item"><span class="bullet-mark">02</span><span>Customer assurance and questionnaire packs.</span></div>
+      </div>
+    </div>
+    <div class="split-card">
+      <h3>What makes it different</h3>
+      <div class="bullet-stack">
+        <div class="bullet-item"><span class="bullet-mark">01</span><span>Authority, Treasury, Court, proof routes, and bounded claims.</span></div>
+        <div class="bullet-item"><span class="bullet-mark">02</span><span>Managed agents are scored, constrained, and sanctionable.</span></div>
+      </div>
+    </div>
+    <div class="split-card">
+      <h3>What the current buy path is</h3>
+      <div class="bullet-stack">
+        <div class="bullet-item"><span class="bullet-mark">01</span><span>$49 founder pilot for bounded evaluation.</span></div>
+        <div class="bullet-item"><span class="bullet-mark">02</span><span>Design-partner scope for teams that need a governed lane.</span></div>
+      </div>
+    </div>
+  </div>
   <details>
-    <summary>What is Meridian?</summary>
-    <p>Meridian is a governed runtime for paid AI agent work. Underneath that product surface, the open kernel contributes five governance primitives, the platform adds Commitment as the sixth primitive, and Loom is the execution runtime on this host. Trust Ops and competitor intelligence are the first practical wedges built on that stack, not the whole definition of Meridian.</p>
-  </details>
-  <details>
-    <summary>Is Meridian just a competitor intelligence product?</summary>
-    <p>No. Competitor intelligence is one module. Meridian is now positioning more clearly around AI Stack Watch, Customer Assurance, and governed paid work. The broader operating system underneath is still Institution, Agent, Authority, Treasury, Court, Commitment, with Loom as the execution runtime. Public proof today is strongest on the live Loom path and the open kernel surfaces on this host.</p>
-  </details>
-  <details>
-    <summary>What does Meridian sell first now?</summary>
-    <p>The sharpest buyer-facing answer is governed Trust Ops for AI vendors: watch the external environment, answer trust questions from approved evidence, and keep the workflow auditable. Competitor intelligence remains part of that stack, not the only story.</p>
-  </details>
-  <details>
-    <summary>What competitors can I track?</summary>
-    <p>Any company in the AI/ML ecosystem: model providers (OpenAI, Anthropic, Google, Mistral, Meta, Cohere, DeepSeek), frameworks (LangChain, LlamaIndex, CrewAI), infrastructure (Cloudflare, AWS, Azure, GCP), and more.</p>
-  </details>
-  <details>
-    <summary>How is this different from a newsletter or Google Alerts?</summary>
-    <p>Meridian monitors structured sources (pricing pages, changelogs, API docs) that newsletters miss. Every finding cites its source with a date. Output is structured for competitive workflows, not just raw links. And every agent action is audited and metered.</p>
-  </details>
-  <details>
-    <summary>What does "managed agent" mean?</summary>
-    <p>Each agent has a registered identity, defined purpose, permitted scopes, spend budget, and reputation score. Actions are logged to an audit trail. Usage is metered per organization. This is how you operate AI agents accountably at scale.</p>
-  </details>
-  <details>
-    <summary>Can I cancel anytime?</summary>
-    <p>Yes. The current customer path is founder-led and manual, so you can stop anytime by replying on Telegram or email. No recurring paid continuation starts unless you explicitly agree to it.</p>
-  </details>
-  <details>
-    <summary>What is MCP?</summary>
-    <p>Model Context Protocol — a standard for AI tools. Connect your AI client to Meridian's MCP server to access intelligence tools programmatically. The host now publishes bounded <code>base_usdc_x402</code> readiness plus a kernel reference proof bundle; external-customer checkout proof is still pending.</p>
+    <summary>More buyer questions</summary>
+    <div class="bullet-stack">
+      <div class="bullet-item"><span class="bullet-mark">01</span><span>Competitor intelligence is still a module, but not the whole category.</span></div>
+      <div class="bullet-item"><span class="bullet-mark">02</span><span>Meridian watches model providers, frameworks, infra, and adjacent AI vendors.</span></div>
+      <div class="bullet-item"><span class="bullet-mark">03</span><span>The current customer path is founder-led and cancellable; there is no fake recurring automation promise.</span></div>
+    </div>
   </details>
 
   <!-- Developer Section -->
-  <h2 id="developers">For Developers</h2>
-  <p class="dev-toggle" onclick="document.getElementById('dev-details').classList.toggle('open')">Show MCP integration, payment details, and API info &#9662;</p>
-  <div id="dev-details" class="dev-section">
-    <div class="card">
-      <p><strong>Developer truth:</strong> Meridian is runtime-neutral in design, and this host publishes only the Meridian routes and proof surfaces it actually runs.</p>
-      <p>Today the built-in kernel/runtime pair is the live governed runtime surface on this host. Loom is the active Meridian runtime boundary here.</p>
-      <p>Proof routes: <code>/api/federation/manifest</code>, <code>/api/runtime-proof</code>, <code>/api/runtime-proof-contract</code>, <code>/api/kernel-proof-bundle</code>.</p>
-      <p><strong>Operator surface:</strong> Trust Ops queue now lives behind operator auth at <code>/trust-ops</code> with governed review actions and the same host boundary, but it is no longer public-read.</p>
-    </div>
-    <h3>MCP Integration</h3>
-    <p>Add to your AI client config:</p>
-    <pre>{
+  <h2 id="developers">Developer Quick Start</h2>
+  <div class="lane-grid reveal">
+    <div class="lane-card">
+      <span class="lane-kicker">Connect</span>
+      <h3>MCP / SSE</h3>
+      <p>Point your client at <code>https://app.welliam.codes/sse</code> and use the Meridian MCP surface directly.</p>
+      <div class="sample-box"><code>{
   "mcpServers": {
-    "meridian": {
-      "url": "https://app.welliam.codes/sse"
-    }
+    "meridian": { "url": "https://app.welliam.codes/sse" }
   }
-}</pre>
-
-    <h3>Available Tools</h3>
-    <div class="card">
-      <p><code>intelligence_latest_brief</code> &mdash; <strong>$0.50</strong> &mdash; Metered brief tool for the founding Meridian institution; external-customer settlement proof is still pending.</p>
-      <p><code>intelligence_on_demand_research</code> &mdash; <strong>$2.00</strong> &mdash; Metered research tool with sourced findings on the current public MCP surface.</p>
-      <p><code>intelligence_competitor_snapshot</code> &mdash; <strong>$3.00</strong> &mdash; Metered competitor snapshot tool; battlecard layouts on this site remain reference examples.</p>
-      <p><code>intelligence_qa_verify</code> &mdash; <strong>$1.00</strong> &mdash; Metered QA verification of claims or text.</p>
-      <p><code>intelligence_weekly_digest</code> &mdash; <strong>$1.50</strong> &mdash; Metered digest tool; public weekly brief layouts remain reference examples.</p>
-      <p><code>company_info</code> &mdash; <strong>FREE</strong> &mdash; Meridian capabilities and pricing</p>
+}</code></div>
     </div>
-
-    <h3>Payment</h3>
-    <div class="card">
-      <p><strong>Protocol:</strong> x402-capable settlement path (HTTP 402 Payment Required). This host now advertises bounded <code>base_usdc_x402</code> readiness and the kernel reference proof bundle includes an external settlement adapter reference run; external-customer checkout proof is still pending.</p>
-      <p><strong>Chain:</strong> Base L2 (Chain ID 8453)</p>
-      <p><strong>Token:</strong> USDC</p>
-      <p><strong>Wallet:</strong><br><span class="wallet">0x82009D0fa435d490A12e0cBfBE47bf3358e47761</span></p>
+    <div class="lane-card">
+      <span class="lane-kicker">Verify</span>
+      <h3>Proof routes</h3>
+      <p><code>/api/runtime-proof</code>, <code>/api/runtime-proof-contract</code>, and <code>/api/kernel-proof-bundle</code> are the shortest truth path.</p>
+      <div class="lane-tags">
+        <span class="lane-tag">runtime-proof</span>
+        <span class="lane-tag">proof-contract</span>
+        <span class="lane-tag">kernel-bundle</span>
+      </div>
+    </div>
+    <div class="lane-card">
+      <span class="lane-kicker">Settle</span>
+      <h3>Bounded payment path</h3>
+      <p>Base USDC readiness is live on this host, but external-customer checkout proof stays bounded and explicit.</p>
+      <div class="lane-tags">
+        <span class="lane-tag">x402</span>
+        <span class="lane-tag">base usdc</span>
+        <span class="lane-tag">bounded</span>
+      </div>
     </div>
   </div>
+  <details>
+    <summary>Advanced developer notes</summary>
+    <div class="bullet-stack">
+      <div class="bullet-item"><span class="bullet-mark">01</span><span>Today the built-in kernel/runtime pair is the live governed runtime surface on this host.</span></div>
+      <div class="bullet-item"><span class="bullet-mark">02</span><span>Trust Ops queue is operator-only at <code>/trust-ops</code>; it is not public-read.</span></div>
+      <div class="bullet-item"><span class="bullet-mark">03</span><span>Public MCP examples and repo entry points live on GitHub and the demo/boundary pages.</span></div>
+    </div>
+  </details>
 
   <!-- Footer -->
   <div class="footer">
