@@ -3663,6 +3663,14 @@ def _memory_entry_skills(entry: dict[str, Any]) -> list[str]:
     ]
 
 
+def _memory_support_delivery_fingerprints(record: dict[str, Any]) -> list[str]:
+    return [
+        str(item or "").strip()
+        for item in list(record.get("support_delivery_fingerprints") or [])
+        if str(item or "").strip()
+    ]
+
+
 def _memory_inline_digest(text: str, *, limit: int = 220) -> str:
     flattened = re.sub(r"\s+", " ", str(text or "").strip()).strip()
     if len(flattened) <= int(limit or 0):
@@ -3894,6 +3902,32 @@ def _memory_remove_entry(record: dict[str, Any]) -> None:
     )
 
 
+def _matching_successful_output_memory_key(
+    entries_state: dict[str, Any],
+    candidate: dict[str, Any],
+) -> str:
+    candidate_content = str(candidate.get("content") or "").strip()
+    candidate_origin = str(candidate.get("origin_agent") or "").strip().lower()
+    candidate_skills = tuple(sorted(_memory_entry_skills(candidate)))
+    candidate_key = str(candidate.get("key") or "").strip()
+    if not candidate_content:
+        return ""
+    for existing_key, raw in list(entries_state.items()):
+        record = dict(raw or {})
+        if str(record.get("category") or "").strip().lower() != "successful_output":
+            continue
+        if str(existing_key or "").strip() == candidate_key:
+            continue
+        if str(record.get("content") or "").strip() != candidate_content:
+            continue
+        if str(record.get("origin_agent") or "").strip().lower() != candidate_origin:
+            continue
+        if tuple(sorted(_memory_entry_skills(record))) != candidate_skills:
+            continue
+        return str(existing_key).strip()
+    return ""
+
+
 def _upsert_memory_entry(state: dict[str, Any], entry: dict[str, Any]) -> tuple[dict[str, Any] | None, bool]:
     key = str(entry.get("key") or "").strip()
     content = str(entry.get("content") or "").strip()
@@ -3938,6 +3972,29 @@ def _upsert_memory_entry(state: dict[str, Any], entry: dict[str, Any]) -> tuple[
     record["origin_delivery_fingerprint"] = str(
         entry.get("origin_delivery_fingerprint") or record.get("origin_delivery_fingerprint") or ""
     ).strip()
+    if category == "successful_output":
+        merged_key = _matching_successful_output_memory_key(entries_state, record)
+        if merged_key:
+            existing_record = dict(entries_state.get(merged_key) or {})
+            preserved_counts = {
+                "recall_count": int(existing_record.get("recall_count") or 0),
+                "accepted_count": int(existing_record.get("accepted_count") or 0),
+                "failure_count": int(existing_record.get("failure_count") or 0),
+                "support_delivery_fingerprints": _memory_support_delivery_fingerprints(existing_record),
+            }
+            existing_record.update(record)
+            existing_record.update(preserved_counts)
+            record = existing_record
+            key = merged_key
+            record["key"] = key
+        support_fingerprints = _memory_support_delivery_fingerprints(record)
+        current_fingerprint = str(record.get("origin_delivery_fingerprint") or "").strip()
+        if current_fingerprint and current_fingerprint not in support_fingerprints:
+            support_fingerprints.append(current_fingerprint)
+            record["accepted_count"] = int(record.get("accepted_count") or 0) + 1
+        elif not support_fingerprints and str(record.get("source_quality_status") or "").strip().lower() == "success":
+            record["accepted_count"] = max(1, int(record.get("accepted_count") or 0))
+        record["support_delivery_fingerprints"] = support_fingerprints[-16:]
     record["updated_at"] = _memory_now_iso()
     record["content_hash"] = hashlib.sha256(record["content"].encode("utf-8")).hexdigest()
     _refresh_memory_value_score(record)

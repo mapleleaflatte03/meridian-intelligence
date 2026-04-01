@@ -287,6 +287,75 @@ class GatewayTeamRouteTests(unittest.TestCase):
         self.assertIsNotNone(entry)
         self.assertEqual(entry['origin_agent'], 'main')
 
+    def test_upsert_memory_entry_seeds_successful_output_value_from_first_delivery(self):
+        state = {'entries': {}}
+        record, changed = meridian_gateway._upsert_memory_entry(
+            state,
+            {
+                'key': 'delivery/udf_seeded',
+                'heading': 'Successful output: research-khach-hang',
+                'category': 'successful_output',
+                'content': (
+                    '**Status**\n\nĐây là research starter dạng giả thuyết cần kiểm chứng.\n\n'
+                    '**Likely buyer**\n- PMM\n\n'
+                    '**Next move**\n- Interview buyers'
+                ),
+                'source_skill_names': ['research-khach-hang'],
+                'source_quality_status': 'success',
+                'origin_agent': 'atlas',
+                'origin_delivery_fingerprint': 'udf_seeded',
+            },
+        )
+        self.assertTrue(changed)
+        self.assertIsNotNone(record)
+        self.assertEqual(record['accepted_count'], 1)
+        self.assertEqual(record['memory_value_score'], 1)
+        self.assertEqual(record['support_delivery_fingerprints'], ['udf_seeded'])
+
+    def test_upsert_memory_entry_merges_repeated_successful_output_pattern(self):
+        state = {'entries': {}}
+        first, _ = meridian_gateway._upsert_memory_entry(
+            state,
+            {
+                'key': 'delivery/udf_merge_a',
+                'heading': 'Successful output: research-khach-hang',
+                'category': 'successful_output',
+                'content': (
+                    '**Status**\n\nĐây là research starter dạng giả thuyết cần kiểm chứng.\n\n'
+                    '**Likely buyer**\n- PMM\n\n'
+                    '**Next move**\n- Interview buyers'
+                ),
+                'source_skill_names': ['research-khach-hang'],
+                'source_quality_status': 'success',
+                'origin_agent': 'atlas',
+                'origin_delivery_fingerprint': 'udf_merge_a',
+            },
+        )
+        second, _ = meridian_gateway._upsert_memory_entry(
+            state,
+            {
+                'key': 'delivery/udf_merge_b',
+                'heading': 'Successful output: research-khach-hang',
+                'category': 'successful_output',
+                'content': (
+                    '**Status**\n\nĐây là research starter dạng giả thuyết cần kiểm chứng.\n\n'
+                    '**Likely buyer**\n- PMM\n\n'
+                    '**Next move**\n- Interview buyers'
+                ),
+                'source_skill_names': ['research-khach-hang'],
+                'source_quality_status': 'success',
+                'origin_agent': 'atlas',
+                'origin_delivery_fingerprint': 'udf_merge_b',
+            },
+        )
+        self.assertIsNotNone(first)
+        self.assertIsNotNone(second)
+        self.assertEqual(len(state['entries']), 1)
+        self.assertIn('delivery/udf_merge_a', state['entries'])
+        self.assertEqual(second['key'], 'delivery/udf_merge_a')
+        self.assertEqual(second['accepted_count'], 2)
+        self.assertEqual(second['support_delivery_fingerprints'], ['udf_merge_a', 'udf_merge_b'])
+
     def test_build_memory_packet_penalizes_cross_skill_successful_output_memory(self):
         state = {
             'entries': {
