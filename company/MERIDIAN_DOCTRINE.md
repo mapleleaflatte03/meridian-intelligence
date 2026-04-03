@@ -10,7 +10,7 @@ What Meridian is trying to become is more serious:
 
 **a founder-led company building an open constitutional kernel, with a long-term goal of governed contributor payouts backed by real treasury rules.**
 
-Live runtime boundary: Meridian Loom is the active execution runtime on this host. Meridian-facing execution routes are expected to be Loom-owned or fail closed. See [OPEN_SOURCE_BOUNDARY](www/OPEN_SOURCE_BOUNDARY.html).
+Live runtime boundary: Meridian Loom is the active execution runtime on this host. Meridian-facing execution routes are expected to be Loom-owned or fail closed. See [OPEN_SOURCE_BOUNDARY](www/OPEN_SOURCE_BOUNDARY.html) and the public boundary page at `https://app.welliam.codes/boundary`.
 
 ---
 

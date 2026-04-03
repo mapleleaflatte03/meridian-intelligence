@@ -3,9 +3,9 @@
 </p>
 
 <p align="center">
-  <strong>Meridian — The Governed Runtime for Paid AI Agent Work</strong><br>
-  Competitor intelligence is the first commercial wedge; AI Stack Watch and Customer Assurance are the next bounded Trust Ops lanes.<br>
-  Loom is the live execution runtime on this host.
+  <strong>Meridian — Loom-first governed agent runtime portal</strong><br>
+  Loom is the flagship local runtime product, Kernel is the runtime-neutral governance core, and the Meridian apps are first-party proof workloads.<br>
+  The live host keeps that hierarchy explicit instead of collapsing it into one vague category claim.
 </p>
 
 <p align="center">
@@ -17,63 +17,63 @@
 
 <p align="center">
   <a href="https://app.welliam.codes/">Home</a> ·
-  <a href="https://app.welliam.codes/why.html">Why</a> ·
-  <a href="https://app.welliam.codes/compare.html">Compare</a> ·
-  <a href="https://app.welliam.codes/demo.html">Demo</a> ·
-  <a href="https://app.welliam.codes/pilot.html">Pilot</a> ·
-  <a href="https://app.welliam.codes/support.html">Support</a> ·
-  <a href="https://app.welliam.codes/OPEN_SOURCE_BOUNDARY.html">Boundary</a>
+  <a href="https://app.welliam.codes/loom">Loom</a> ·
+  <a href="https://app.welliam.codes/why">Why</a> ·
+  <a href="https://app.welliam.codes/compare">Compare</a> ·
+  <a href="https://app.welliam.codes/demo">Demo</a> ·
+  <a href="https://app.welliam.codes/pilot">Pilot</a> ·
+  <a href="https://app.welliam.codes/support">Support</a> ·
+  <a href="https://app.welliam.codes/boundary">Boundary</a>
 </p>
 
 # Meridian Intelligence
 
-This repo is the public product surface for Meridian's first commercial wedge: competitor intelligence that proves governed digital labor in a concrete market. It now also carries the first bounded Trust Ops slice: AI Stack Watch and governed Customer Assurance workflows. It is not the full platform identity, it is not the governance kernel, and it is not the primary execution runtime.
+This repo is the public Meridian portal plus the first-party Meridian apps that run on Loom + Kernel. It is not the governance kernel, and it is not the runtime itself. The product front door is now Loom.
 
 ## Launch Positioning
 
-Meridian currently presents a premium public surface around four ideas:
+Meridian currently presents a Loom-first hierarchy around four ideas:
 
-- Meridian as the governed runtime for paid AI agent work.
-- Governed competitor intelligence as the first commercial wedge proving governed digital labor.
-- AI Stack Watch plus governed Customer Assurance as the bounded Trust Ops expansion path.
-- Meridian Loom as the live execution runtime on this host and the installable local runtime.
-- A truthful constitutional and host boundary that separates verified live routes from future deployment claims.
+- Meridian Loom as the flagship local runtime product.
+- Meridian Kernel as the runtime-neutral governance core.
+- Meridian Intelligence plus bounded Trust Ops as first-party workloads that prove the runtime under real pressure.
+- A truthful host boundary that separates verified live routes from future deployment claims.
 
 ## 1-Command Install
 
-Public launch snippet:
+If the operator question is "what do I install?", the answer is Loom:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/mapleleaflatte03/meridian-loom/main/scripts/install.sh | bash
 ```
 
-The installer story belongs to Meridian Loom. This intelligence repo links to that runtime surface while keeping the live customer and host boundary honest.
+The installer story belongs to Meridian Loom. This repo links to that runtime surface while keeping the live portal and host boundary honest.
 
-## Constitutional Model
+## Product Hierarchy
 
 The current Meridian story across the stack is:
 
-- **Kernel boundary:** five governance primitives — Institution, Agent, Authority, Treasury, Court.
-- **Meridian platform:** six platform primitives — Institution, Agent, Authority, Treasury, Court, Commitment.
-- **Loom runtime:** the live execution runtime on this host, plus the installable local runtime.
+- **Loom runtime:** the product front door and official first-party runtime.
+- **Kernel boundary:** five runtime-neutral governance primitives — Institution, Agent, Authority, Treasury, Court.
+- **First-party Meridian apps:** Intelligence and bounded Trust Ops workloads that prove what Loom + Kernel can carry.
 
-Loom carries execution, sessions, channels, skills, and memory/context. Commitment is not a sixth kernel primitive; it is the sixth Meridian platform primitive composed above the kernel and exercised through Meridian-facing services.
+Loom carries execution, sessions, channels, skills, personal agents, and memory/context. Kernel carries authority, treasury, court, warrants, sanctions, and the runtime contract. Commitment remains a Meridian platform primitive composed above Kernel, but it is not the category center or the runtime front door.
 
 ## Three-Part Architecture
 
-- [meridian-kernel](https://github.com/mapleleaflatte03/meridian-kernel): governance truth, institution, authority, treasury, and court.
-- [meridian-intelligence](https://github.com/mapleleaflatte03/meridian-intelligence): public intelligence surface, launch pages, subscriptions, MCP routes, and the Commitment-facing product layer.
-- [meridian-loom](https://github.com/mapleleaflatte03/meridian-loom): live execution runtime on this host and the installable local runtime.
+- [meridian-loom](https://github.com/mapleleaflatte03/meridian-loom): official first-party local runtime, install path, CLI, personal agents, channels, memory, and proof receipts.
+- [meridian-kernel](https://github.com/mapleleaflatte03/meridian-kernel): governance truth, institution, authority, treasury, court, and the runtime contract Loom consumes.
+- [meridian-intelligence](https://github.com/mapleleaflatte03/meridian-intelligence): portal, live host surface, first-party workflows, subscriptions, and bounded customer-facing routes.
 
 ## What Is Live Today
 
-- The public web surface, pilot flow, support path, and live host truth pages.
-- Competitor intelligence as the first managed vertical.
-- Bounded Trust Ops primitives: AI Stack Watch and governed questionnaire / customer-assurance workflows on the live gateway path.
 - Loom as both the live execution runtime on this host and the installable local runtime.
+- The public web portal, Loom landing page, compare page, demo page, and boundary note.
+- Competitor intelligence as the first Loom-backed first-party workflow.
+- Bounded Trust Ops primitives as additional first-party workloads on the same host.
 - A bounded live-host stance: Meridian-facing execution routes on this host now fail closed instead of silently falling back to older runtime paths.
 - Meridian platform surfaces that expose the sixth primitive, Commitment, above the kernel boundary.
-- A public comparison page that explains where Meridian is sharper than OpenClaw, OpenFang, and TEMM1E and where it still has to earn the right to win: https://app.welliam.codes/compare.html
+- A public runtime comparison page that explains where Loom is sharper than OpenClaw, OpenFang, IronClaw, TEMM1E, Goose, OpenHands, CrewAI, and LangGraph and where it still has to earn the right to win: https://app.welliam.codes/compare
 
 ## What Is Not Claimed
 
@@ -83,7 +83,7 @@ Loom carries execution, sessions, channels, skills, and memory/context. Commitme
 
 ## Intelligence Workflow (Current Vertical)
 
-Competitive intelligence is the first managed workflow vertical. What exists today is the workflow, the runtime, and the product surface. What is intentionally still narrow is the delivery promise. The public demo and battlecard pages include qualified reference examples; they are not meant to imply that every illustrated output is a currently live customer artifact on the public host.
+Competitive intelligence is the first managed first-party workflow vertical. What exists today is the workflow, the runtime, and the product surface. What is intentionally still narrow is the delivery promise. The public demo and battlecard pages include qualified reference examples; they are not meant to imply that every illustrated output is a currently live customer artifact on the public host.
 
 - **Cited competitor alerts** — findings on pricing changes, launches, API updates, and deprecations
 - **Curated intelligence briefs** — top competitive moves with action items
@@ -93,9 +93,10 @@ Competitive intelligence is the first managed workflow vertical. What exists tod
 ### Current Entry Path
 
 Start with the demo and pilot surfaces:
-- Demo: https://app.welliam.codes/demo.html
-- Pilot: https://app.welliam.codes/pilot.html
-- Support the work: https://app.welliam.codes/support.html
+- Loom: https://app.welliam.codes/loom
+- Demo: https://app.welliam.codes/demo
+- Pilot: https://app.welliam.codes/pilot
+- Support the work: https://app.welliam.codes/support
 - Contact: Telegram [@Enhanhsj](https://t.me/Enhanhsj) or email `nguyensimon186@gmail.com`
 
 The honest current offer is a founder-led paid pilot plus an evidence-backed checkout capture rail. More cash in treasury only clears the reserve gate; broader automated delivery still waits for customer-backed phase progression, runtime preflight, and constitutional approval where required.

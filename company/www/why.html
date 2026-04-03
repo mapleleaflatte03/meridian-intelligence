@@ -3,13 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Why Meridian Exists</title>
-<meta name="description" content="Why Meridian exists: the problem it is aimed at, why governance matters for agent work, why Trust Ops is the practical wedge, and what Meridian still refuses to fake.">
+<title>Why Meridian is Loom-first</title>
+<meta name="description" content="Why Meridian is now Loom-first: Kernel stays runtime-neutral, Loom becomes the flagship runtime, and first-party apps prove the stack without replacing the runtime identity.">
 <link rel="icon" type="image/svg+xml" href="/assets/meridian_mark_flat.svg">
 <link rel="alternate icon" type="image/png" href="/assets/logo_favicon_64.png">
 <link rel="apple-touch-icon" sizes="192x192" href="/assets/logo_avatar_192.png">
-<meta property="og:title" content="Why Meridian Exists">
-<meta property="og:description" content="Why Meridian exists: the problem it is aimed at, why governance matters for agent work, why Trust Ops is the practical wedge, and what Meridian still refuses to fake.">
+<meta property="og:title" content="Why Meridian is Loom-first">
+<meta property="og:description" content="Kernel stays runtime-neutral, Loom becomes the flagship runtime, and first-party apps prove the stack without replacing the runtime identity.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://app.welliam.codes/why">
 <meta property="og:image" content="https://app.welliam.codes/assets/logo_banner_1200x630.jpg">
@@ -17,8 +17,8 @@
 <meta property="og:image:height" content="630">
 <meta property="og:site_name" content="Meridian">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="Why Meridian Exists">
-<meta name="twitter:description" content="Why Meridian exists: the problem it is aimed at, why governance matters for agent work, why Trust Ops is the practical wedge, and what Meridian still refuses to fake.">
+<meta name="twitter:title" content="Why Meridian is Loom-first">
+<meta name="twitter:description" content="Kernel stays runtime-neutral, Loom becomes the flagship runtime, and first-party apps prove the stack without replacing the runtime identity.">
 <meta name="twitter:image" content="https://app.welliam.codes/assets/logo_banner_1200x630.jpg">
 <link rel="stylesheet" href="/assets/meridian.css">
 </head>
@@ -28,17 +28,16 @@
   <div class="header-inner">
     <a class="brand" href="/">
       <img src="/assets/meridian_mark_flat.svg" alt="" class="brand-mark" aria-hidden="true">
-      <img src="/assets/meridian_wordmark.svg" alt="Meridian — Governed Trust Ops" class="brand-wordmark">
+      <img src="/assets/meridian_wordmark.svg" alt="Meridian — Governed Agent Runtime" class="brand-wordmark">
     </a>
     <nav class="site-nav">
+      <a href="/loom">Loom</a>
       <a href="/why" class="current">Why</a>
-      <a href="/#product">Product</a>
       <a href="/compare">Compare</a>
       <a href="/demo">Demo</a>
-      <a href="/#pricing">Pricing</a>
-      <a href="/support">Support</a>
-      <a href="/#developers">API</a>
-      <a href="/pilot" class="nav-cta">Pilot</a>
+      <a href="https://github.com/mapleleaflatte03/meridian-kernel" target="_blank" rel="noopener">Kernel</a>
+      <a href="https://github.com/mapleleaflatte03/meridian-loom" target="_blank" rel="noopener">GitHub</a>
+      <a href="/loom#install" class="nav-cta">Install Loom</a>
     </nav>
   </div>
 </header>
@@ -46,25 +45,25 @@
 <div class="page-intro">
   <div class="page-intro-shell">
     <div class="page-intro-main">
-      <img src="/assets/meridian_wordmark.svg" alt="Meridian — Governed Trust Ops" class="page-wordmark">
+      <img src="/assets/meridian_wordmark.svg" alt="Meridian — Governed Agent Runtime" class="page-wordmark">
       <div class="eyebrow">
         <span class="eyebrow-dot"></span>
-        <span>Meridian thesis &middot; why this exists</span>
+        <span>Stack thesis · Loom-first</span>
       </div>
-      <h1>Why Meridian Exists</h1>
-      <p class="subtitle">Most agent stacks ask how to make the assistant more capable. Meridian starts with a different question: how do you make AI work governable enough to trust when approvals, money, customer assurance, and sanctions are on the line?</p>
+      <h1>Why Meridian is Loom-first now.</h1>
+      <p class="subtitle">The architecture always supported this. Kernel was already runtime-neutral. The mismatch was public hierarchy: apps were being centered ahead of the runtime. This page explains the correction.</p>
     </div>
     <aside class="page-rail">
       <div class="rail-kicker">Narrative boundary</div>
       <div class="rail-item">
-        <span>What this page is for</span>
-        <strong>One place to understand the thesis.</strong>
-        <p>This page exists so the story does not have to be reconstructed from homepage fragments, repo blurbs, or launch posts.</p>
+        <span>What changed</span>
+        <strong>Hierarchy, not the model.</strong>
+        <p>Kernel did not become smaller. Loom just moved into the front-door role it was always supposed to earn.</p>
       </div>
       <div class="rail-item">
-        <span>What it does not do</span>
-        <strong>It does not overrule the boundary note.</strong>
-        <p>Meridian still only claims what the live host, repos, and public proof routes can support.</p>
+        <span>What did not change</span>
+        <strong>The boundary note still wins.</strong>
+        <p>The stack still only claims what the live host and public repos can actually support.</p>
       </div>
     </aside>
   </div>
@@ -73,142 +72,150 @@
 <div class="container">
 
   <div class="notice mb-xl">
-    <strong>Meridian is not a protest against agent capability.</strong>
-    <span class="dim">It is a bet that capability alone will not be enough once agent work starts touching budgets, commitments, customers, or real operational risk.</span>
+    <strong>The original mistake was product hierarchy, not architecture.</strong>
+    <span class="dim">Kernel already governed runtimes. Loom could already consume Kernel. The part that drifted was public storytelling: first-party apps became louder than the runtime itself.</span>
   </div>
 
   <div class="process-rail">
     <div class="process-step">
       <div class="process-number">01</div>
-      <h3>Problem</h3>
-      <p>Capability is improving faster than governance.</p>
+      <h3>Kernel</h3>
+      <p>Stays runtime-neutral and governs execution through explicit primitives.</p>
     </div>
     <div class="process-step">
       <div class="process-number">02</div>
-      <h3>Thesis</h3>
-      <p>Agent work needs approval, budget, proof, and sanctions.</p>
+      <h3>Loom</h3>
+      <p>Becomes the official first-party runtime product and local agent OS bet.</p>
     </div>
     <div class="process-step">
       <div class="process-number">03</div>
-      <h3>Wedge</h3>
-      <p>Trust Ops is the first practical workflow Meridian can sell honestly.</p>
+      <h3>Apps</h3>
+      <p>Remain first-party proof workloads and commercial lanes on top of Loom.</p>
     </div>
     <div class="process-step">
       <div class="process-number">04</div>
       <h3>Boundary</h3>
-      <p>Meridian only claims what the live host and repos can prove.</p>
+      <p>Still only claims what the host and repos can verify.</p>
     </div>
   </div>
 
   <span class="step-label">1</span>
-  <h2>The Frustration</h2>
-  <p class="section-intro compact-copy">A lot of agent systems still assume that if the output looks smart enough, governance can be added later. Meridian starts from the opposite assumption.</p>
+  <h2>The field is mostly selling breadth or orchestration</h2>
+  <p class="section-intro compact-copy">That is exactly why Loom cannot hide behind a generic “governance layer” story forever. If Meridian wants to compete with Claw-family runtimes, the runtime itself has to become the front door.</p>
   <div class="feature-grid">
     <div class="feature-card">
-      <h3>Execution is abundant</h3>
-      <p>Tool use, memory, channel adapters, and UI polish are improving quickly across the field.</p>
+      <h3>Breadth systems</h3>
+      <p>OpenClaw and OpenHands pull attention through surface area, assistant feel, and broader user-facing ergonomics.</p>
     </div>
     <div class="feature-card">
-      <h3>Governance is scarce</h3>
-      <p>Very few open stacks are built around authority, treasury, court, sanction, and proof as operating primitives instead of afterthoughts.</p>
+      <h3>Runtime systems</h3>
+      <p>OpenFang, CrewAI, and LangGraph pull attention through orchestration density, packaging, and framework gravity.</p>
+    </div>
+    <div class="feature-card">
+      <h3>Local agency systems</h3>
+      <p>IronClaw, TEMM1E, and Goose pull attention through memory-heavy local agency and hands-on operator feel.</p>
     </div>
   </div>
 
   <span class="step-label">2</span>
-  <h2>The Meridian Thesis</h2>
-  <p class="section-intro">The important question is not only "can the agent act?" It is "can the institution trust the action enough to approve it, budget it, price it, audit it, and sanction failures honestly?"</p>
+  <h2>Kernel and Loom actually match cleanly</h2>
+  <p class="section-intro">Kernel does not need to become the product front door in order to stay central. It stays central by keeping governance independent of any one runtime.</p>
   <div class="card">
-    <p><strong>Kernel primitives:</strong> Institution, Agent, Authority, Treasury, Court.</p>
-    <p><strong>Platform primitive:</strong> Commitment.</p>
-    <p><strong>Runtime:</strong> Loom executes the work and exposes proof surfaces on the live host.</p>
+    <p><strong>Kernel:</strong> Institution, Agent, Authority, Treasury, Court, warrants, sanctions, and proof contracts.</p>
+    <p><strong>Loom:</strong> the first-party runtime that consumes that contract and exposes install, agents, memory, channels, receipts, and local operator UX.</p>
+    <p><strong>Result:</strong> Kernel stays runtime-neutral by architecture while Loom becomes runtime-specific by product strategy.</p>
   </div>
 
   <span class="step-label">3</span>
-  <h2>Why Start With Trust Ops Instead Of A Generic Assistant</h2>
-  <p class="section-intro compact-copy">Meridian needed a wedge that was commercially real, operationally difficult, and small enough to sell honestly. Trust Ops is that broader shape now.</p>
+  <h2>Why the apps are still useful</h2>
+  <p class="section-intro compact-copy">Loom-first does not mean “throw away the apps.” It means stop letting the apps define the category. Their job is to prove the runtime under real workflow pressure.</p>
   <div class="feature-grid">
     <div class="feature-card">
-      <h3>Useful now</h3>
-      <p>AI vendors already need cited alerts, trust-answer drafts, and a cleaner way to handle repeated questionnaires and policy change fallout.</p>
+      <h3>Intelligence</h3>
+      <p>Competitor intelligence remains a first-party workload that proves governed signal intake, drafting, QA, and delivery on Loom.</p>
     </div>
     <div class="feature-card">
-      <h3>Hard enough to matter</h3>
-      <p>Research, QA, evidence approval, queue review, delivery, and metering make it a real governed workflow, not just a prompt with nicer formatting.</p>
+      <h3>Trust Ops</h3>
+      <p>Bounded customer-assurance workflows still matter because they prove review queues, evidence state, and approval logic on the same runtime stack.</p>
+    </div>
+    <div class="feature-card">
+      <h3>But the front door moved</h3>
+      <p>Those workflows are now examples of what the runtime can carry. They are no longer the root category Meridian uses to introduce itself.</p>
     </div>
   </div>
 
   <span class="step-label">4</span>
-  <h2>Why Open Source Matters Here</h2>
-  <div class="card">
-    <p><strong>What Meridian wants open:</strong> the kernel, the Loom runtime, the governance interfaces, and the public proof surfaces.</p>
-    <p><strong>Why:</strong> if the governance thesis is real, it should be inspectable and reusable, not trapped in a black-box hosted product.</p>
-    <p><strong>What stays bounded:</strong> hosted service operations, customer data, founder-led delivery paths, and anything the current public boundary does not yet prove.</p>
+  <h2>What Loom has to win on</h2>
+  <p class="section-intro compact-copy">The moat is not “more features than everyone.” The moat is governed execution that feels complete enough to choose directly.</p>
+  <div class="split-grid">
+    <div class="split-card">
+      <h3>Must win</h3>
+      <div class="bullet-stack">
+        <div class="bullet-item"><span class="bullet-mark">01</span><span>Install speed and first-run clarity.</span></div>
+        <div class="bullet-item"><span class="bullet-mark">02</span><span>Personal agent loop that feels real, not academic.</span></div>
+        <div class="bullet-item"><span class="bullet-mark">03</span><span>Receipts and proof routes that are easier to trust than Claw-style vibes.</span></div>
+        <div class="bullet-item"><span class="bullet-mark">04</span><span>Memory and channel ergonomics good enough for daily use.</span></div>
+      </div>
+    </div>
+    <div class="split-card">
+      <h3>Must not do</h3>
+      <div class="bullet-stack">
+        <div class="bullet-item"><span class="bullet-mark">01</span><span>Blur back into a generic hosted SaaS story.</span></div>
+        <div class="bullet-item"><span class="bullet-mark">02</span><span>Reduce Loom to a tiny runtime behind app-layer messaging.</span></div>
+        <div class="bullet-item"><span class="bullet-mark">03</span><span>Copy breadth hype before the core runtime loop feels solid.</span></div>
+        <div class="bullet-item"><span class="bullet-mark">04</span><span>Let product positioning drift away from Kernel contract truth.</span></div>
+      </div>
+    </div>
   </div>
 
   <span class="step-label">5</span>
-  <h2>What Meridian Refuses To Fake</h2>
+  <h2>What Meridian still refuses to fake</h2>
   <div class="split-grid">
     <div class="split-card">
       <h3>Will not fake</h3>
       <div class="bullet-stack">
-        <div class="bullet-item"><span class="bullet-mark">01</span><span>Universal hosted automation.</span></div>
-        <div class="bullet-item"><span class="bullet-mark">02</span><span>Every deployment mode already live.</span></div>
-        <div class="bullet-item"><span class="bullet-mark">03</span><span>Broad self-serve checkout fiction.</span></div>
-        <div class="bullet-item"><span class="bullet-mark">04</span><span>Winning every category versus the field.</span></div>
+        <div class="bullet-item"><span class="bullet-mark">01</span><span>Universal hosted runtime replacement.</span></div>
+        <div class="bullet-item"><span class="bullet-mark">02</span><span>Every future channel and delivery mode already live.</span></div>
+        <div class="bullet-item"><span class="bullet-mark">03</span><span>Winning every runtime category today.</span></div>
       </div>
     </div>
     <div class="split-card">
       <h3>Will claim</h3>
       <div class="bullet-stack">
-        <div class="bullet-item"><span class="bullet-mark">01</span><span>Governed paid agent work.</span></div>
-        <div class="bullet-item"><span class="bullet-mark">02</span><span>Trust Ops as the current wedge.</span></div>
-        <div class="bullet-item"><span class="bullet-mark">03</span><span>Open kernel, Loom runtime, and proof surfaces.</span></div>
-        <div class="bullet-item"><span class="bullet-mark">04</span><span>A smaller truthful boundary over a larger fake one.</span></div>
+        <div class="bullet-item"><span class="bullet-mark">01</span><span>Loom is the official first-party runtime.</span></div>
+        <div class="bullet-item"><span class="bullet-mark">02</span><span>Kernel remains the runtime-neutral governance core.</span></div>
+        <div class="bullet-item"><span class="bullet-mark">03</span><span>First-party apps prove the stack without redefining the stack.</span></div>
       </div>
-    </div>
-  </div>
-  <p class="note">The boundary note still has priority over this page: <a href="/boundary">read it here</a>.</p>
-
-  <span class="step-label">6</span>
-  <h2>What Meridian Is Actually Trying To Become</h2>
-  <p class="section-intro compact-copy">Not a prettier chatbot. Meridian is trying to become the governed runtime a company reaches for when the work is tied to revenue, trust reviews, approvals, and operational risk.</p>
-  <div class="feature-grid">
-    <div class="feature-card">
-      <h3>Governed paid work</h3>
-      <p>Meridian wants to be strongest where work must be metered, approved, priced, audited, and settled without hand-waving.</p>
-    </div>
-    <div class="feature-card">
-      <h3>Truthful operating surface</h3>
-      <p>Meridian would rather publish a smaller truthful boundary than a larger fake one. That discipline is part of the product, not merely the marketing.</p>
     </div>
   </div>
 
   <div class="card text-center mt-lg">
-    <p><strong>If this thesis sounds real, follow the shortest path.</strong></p>
-    <a class="cta cta-primary" href="/compare">Read The Comparison</a>
-    <a class="cta cta-outline" href="/demo">See Product Demo</a>
-    <a class="cta cta-outline" href="/pilot">Start Paid Pilot</a>
+    <p><strong>If the hierarchy makes sense, take the shortest next step.</strong></p>
+    <a class="cta cta-primary" href="/loom">Open Loom</a>
+    <a class="cta cta-outline" href="/compare">Read the runtime compare</a>
+    <a class="cta cta-outline" href="/demo">See the live demo</a>
   </div>
 
   <div class="footer">
     <div class="footer-brand">
-      <img src="/assets/meridian_lockup.svg" alt="Meridian — Governed Trust Ops" class="footer-lockup">
+      <img src="/assets/meridian_lockup.svg" alt="Meridian — Governed Agent Runtime" class="footer-lockup">
     </div>
     <div class="footer-links">
       <a href="/">Home</a>
+      <a href="/loom">Loom</a>
       <a href="/why">Why</a>
       <a href="/compare">Compare</a>
       <a href="/demo">Demo</a>
       <a href="/pilot">Pilot</a>
       <a href="/support">Support</a>
       <a href="/boundary">Boundary</a>
-      <a href="https://github.com/mapleleaflatte03/meridian-intelligence" target="_blank" rel="noopener">GitHub</a>
-      <a href="https://github.com/mapleleaflatte03/meridian-kernel" target="_blank" rel="noopener">OSS Kernel</a>
+      <a href="https://github.com/mapleleaflatte03/meridian-loom" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://github.com/mapleleaflatte03/meridian-kernel" target="_blank" rel="noopener">Kernel</a>
     </div>
-    <p>Governed Trust Ops for AI vendors &copy; 2026</p>
+    <p>Meridian portal for Loom, Kernel, and first-party apps &copy; 2026</p>
   </div>
-
 </div>
+
 <script src="/assets/meridian.js" defer></script>
 </body>
 </html>
