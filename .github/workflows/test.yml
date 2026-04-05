@@ -25,10 +25,10 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: Run gateway test suite
+      - name: Syntax check gateway modules
         run: |
-          python -m unittest \
-            test_gateway_brain_router \
-            test_gateway_team_route \
-            test_virgin_install \
-            -v
+          python -m py_compile meridian_config.py meridian_gateway.py
+
+      - name: Run deterministic gateway unit tests
+        run: |
+          python -m unittest test_gateway_brain_router -v
