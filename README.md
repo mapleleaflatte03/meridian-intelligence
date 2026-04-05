@@ -59,6 +59,24 @@ The current Meridian story across the stack is:
 
 Loom carries execution, sessions, channels, skills, personal agents, and memory/context. Kernel carries authority, treasury, court, warrants, sanctions, and the runtime contract. Commitment remains a Meridian platform primitive composed above Kernel, but it is not the category center or the runtime front door.
 
+## Competitive Snapshot Tooling
+
+To keep Meridian-vs-Claw comparisons reproducible, this repo ships a repeatable
+snapshot lane:
+
+```bash
+./scripts/acceptance_competitor_snapshot_lane.sh
+```
+
+It writes:
+
+- `output/competitor_snapshot/latest.json`
+- `output/competitor_snapshot/latest.md`
+
+Both artifacts contain the same fixed repo set (Meridian stack + Claw-family
+repos) with stars/forks and recent commit velocity windows (`24h`, `72h`,
+`7d`).
+
 ## Brain Router Migration (Provider-Agnostic)
 
 Manager routing now uses an agnostic brain router surface instead of provider-named defaults.
