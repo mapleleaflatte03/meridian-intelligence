@@ -59,6 +59,31 @@ The current Meridian story across the stack is:
 
 Loom carries execution, sessions, channels, skills, personal agents, and memory/context. Kernel carries authority, treasury, court, warrants, sanctions, and the runtime contract. Commitment remains a Meridian platform primitive composed above Kernel, but it is not the category center or the runtime front door.
 
+## Brain Router Migration (Provider-Agnostic)
+
+Manager routing now uses an agnostic brain router surface instead of provider-named defaults.
+
+- New optional env surface:
+  - `MERIDIAN_BRAIN_ROUTER_CONFIG_PATH`
+  - `MERIDIAN_BRAIN_MANAGER_PROFILE_NAME`
+  - `MERIDIAN_BRAIN_MANAGER_TRANSPORT` (`cli_session` or `http_json`)
+  - `MERIDIAN_BRAIN_MANAGER_ENDPOINT`
+  - `MERIDIAN_BRAIN_MANAGER_MODEL`
+  - `MERIDIAN_BRAIN_MANAGER_KEY_POOL` / `MERIDIAN_BRAIN_MANAGER_KEY_ENV_POOL`
+  - `MERIDIAN_BRAIN_MANAGER_FAILOVER_STATUS_CODES`
+- Config schema + sample:
+  - `company/meridian_platform/config/brain_router.schema.json`
+  - `company/meridian_platform/config/brain_router.sample.json`
+- Backward compatibility:
+  - legacy manager env keys are still read through a migration layer.
+  - no provider-named defaults are required for new installs.
+
+Rollback plan (safe + quick):
+1. Set `MERIDIAN_BRAIN_MANAGER_TRANSPORT=cli_session` and `MERIDIAN_BRAIN_MANAGER_CLI_BIN=codex`.
+2. Unset `MERIDIAN_BRAIN_MANAGER_ENDPOINT` and key-pool envs.
+3. Restart `meridian-gateway.service`.
+4. Verify via `GET /api/status` and a short manager route request.
+
 ## Three-Part Architecture
 
 - [meridian-loom](https://github.com/mapleleaflatte03/meridian-loom): official first-party local runtime, install path, CLI, personal agents, channels, memory, and proof receipts.

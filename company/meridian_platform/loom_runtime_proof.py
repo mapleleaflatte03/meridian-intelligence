@@ -44,6 +44,7 @@ _HEALTH_TELEGRAM_RE = re.compile(
     r'(?:\s+\((?P<detail1>[^)]+)\))?'
     r'(?:\s+\((?P<detail2>[^)]+)\))?$'
 )
+RUNTIME_PROOF_CONTRACT_VERSION = "runtime_proof_contract_v1"
 
 
 def _now() -> str:
@@ -508,6 +509,24 @@ def public_loom_runtime_receipt(
         'health_ok': bool(health.get('health_ok') or service_probe.get('ok')),
         'service_probe_ok': bool(service_probe.get('ok')),
     }
+    session_surface = dict(health.get('session_runtime') or {})
+    channel_surface = dict(health.get('channel_runtime') or {})
+    memory_ok = bool(memory_context.get('checked') and memory_context.get('memory_ok') and memory_context.get('context_ok'))
+    channel_ok = bool(service_probe.get('ok') and int(channel_surface.get('enabled_count') or 0) > 0)
+    runtime_ok = bool(runtime_health.get('health_ok'))
+    runtime_proof_contract = {
+        'version': RUNTIME_PROOF_CONTRACT_VERSION,
+        'runtime_proof_status': 'proven' if runtime_ok else 'degraded',
+        'channel_surface_status': 'bounded_proven' if channel_ok else 'unverified',
+        'memory_surface_status': 'bounded_proven' if memory_ok else 'unverified',
+        'proof_chain_status': (
+            'complete'
+            if runtime_ok and channel_ok and memory_ok
+            else ('partial' if runtime_ok else 'degraded')
+        ),
+        'proof_path': '/api/status -> /api/runtime-proof -> /api/runtime-proof-contract -> /api/kernel-proof-bundle',
+        'session_surface_status': 'bounded_proven' if int(session_surface.get('total_count') or 0) >= 0 else 'unverified',
+    }
     return {
         'runtime_id': proof.get('runtime_id', 'loom_native'),
         'proof_type': proof.get('proof_type', 'live_single_host_loom_deployment'),
@@ -526,10 +545,11 @@ def public_loom_runtime_receipt(
             'session_total': health.get('session_total', 0),
         },
         'runtime_surfaces': {
-            'session_provenance': dict(health.get('session_runtime') or {}),
-            'channel_runtime': dict(health.get('channel_runtime') or {}),
+            'session_provenance': session_surface,
+            'channel_runtime': channel_surface,
         },
         'runtime_health': runtime_health,
+        'runtime_proof_contract': runtime_proof_contract,
         'service_probe': {
             'checked': bool(service_probe.get('checked')),
             'ok': bool(service_probe.get('ok')),
@@ -596,11 +616,24 @@ def public_loom_surface_contract_receipt(
         if bool(memory_context.get('checked')) and bool(memory_context.get('memory_ok')) and bool(memory_context.get('context_ok'))
         else 'unverified'
     )
+    runtime_proof_contract = {
+        'version': RUNTIME_PROOF_CONTRACT_VERSION,
+        'runtime_proof_status': 'proven' if bool(service_probe.get('ok')) else 'degraded',
+        'channel_surface_status': omni_channel_status,
+        'memory_surface_status': memory_status,
+        'proof_chain_status': (
+            'complete'
+            if bool(service_probe.get('ok')) and omni_channel_status == 'bounded_proven' and memory_status == 'bounded_proven'
+            else ('partial' if bool(service_probe.get('ok')) else 'degraded')
+        ),
+        'proof_path': '/api/status -> /api/runtime-proof -> /api/runtime-proof-contract -> /api/kernel-proof-bundle',
+    }
 
     return {
         'runtime_id': proof.get('runtime_id', 'loom_native'),
         'proof_type': 'bounded_live_surface_contract',
         'contract_version': 1,
+        'runtime_proof_contract': runtime_proof_contract,
         'checked_at': proof.get('checked_at', _now()),
         'bound_org_id': bound_org_id,
         'deployment_truth': dict(proof.get('deployment_truth') or {}),

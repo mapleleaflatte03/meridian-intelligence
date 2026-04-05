@@ -416,6 +416,13 @@ class LiveWorkspaceContextTests(unittest.TestCase):
             'identity_model': 'session',
             'summary': {'subscriber_count': 1, 'external_target_count': 0},
         }
+        self.workspace.service_state.subscription_preview_snapshot = lambda org_id=None: {
+            'bound_org_id': org_id,
+            'mutation_enabled': True,
+            'identity_model': 'session',
+            'summary': {'preview_count': 0, 'open_count': 0},
+            'queue': [],
+        }
         self.workspace.service_state.accounting_snapshot = lambda org_id=None: {
             'bound_org_id': org_id,
             'mutation_enabled': True,
@@ -551,6 +558,11 @@ class LiveWorkspaceContextTests(unittest.TestCase):
         self.assertIn('federation', status['runtime_core'])
         self.assertFalse(status['runtime_core']['federation']['enabled'])
         self.assertEqual(status['runtime_proof']['route'], '/api/runtime-proof')
+        self.assertEqual(status['runtime_proof']['contract_version'], 'runtime_proof_contract_v1')
+        self.assertNotEqual(status['runtime_proof']['runtime_proof_status'], '')
+        self.assertNotEqual(status['runtime_proof']['channel_surface_status'], '')
+        self.assertNotEqual(status['runtime_proof']['trust_ops_status'], '')
+        self.assertNotEqual(status['runtime_proof']['proof_path'], '')
         self.assertEqual(status['runtime_proof']['runtime_id'], 'loom_native')
         self.assertEqual(status['slo']['status'], 'not_formalized')
         self.assertEqual(status['queue_count'], 0)

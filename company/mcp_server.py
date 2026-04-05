@@ -67,6 +67,7 @@ RESEARCH_CACHE_TTL_SECONDS = int(os.environ.get('MERIDIAN_RESEARCH_CACHE_TTL_SEC
 
 # Platform integration — audit, metering, authority, treasury
 sys.path.insert(0, PLATFORM_DIR)
+import brain_router
 try:
     from audit import log_event as audit_log
     from metering import record as meter_record
@@ -249,87 +250,26 @@ def _specialist_direct_provider_fallback(
     specialist = _team_specialist(agent_id)
     if specialist is None:
         return {'ok': False, 'error': f'unknown specialist {agent_id}'}
-    if specialist.provider_kind not in {'openai_compatible', 'custom_endpoint'}:
-        return {'ok': False, 'error': f'fallback unsupported for provider kind {specialist.provider_kind}'}
     api_key = (TEAM_RUNTIME_ENV.get(specialist.api_key_env_var) or os.environ.get(specialist.api_key_env_var) or '').strip()
-    if not api_key:
-        return {'ok': False, 'error': f'missing API key env {specialist.api_key_env_var}'}
     url = _specialist_completion_url(agent_id)
-    if not url:
-        return {'ok': False, 'error': f'missing completion url for {agent_id}'}
-    headers = {
-        'Authorization': f'Bearer {api_key}',
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-    }
-
-    def _post(messages: list[dict[str, str]]) -> tuple[dict[str, Any], int | None]:
-        payload = {
-            'model': specialist.model,
-            'messages': messages,
-            'max_tokens': max_tokens,
-        }
-        request = urllib.request.Request(
-            url,
-            data=json.dumps(payload).encode('utf-8'),
-            headers=headers,
-            method='POST',
-        )
-        try:
-            with urllib.request.urlopen(request, timeout=timeout) as response:
-                return {'ok': True, 'raw_body': response.read().decode('utf-8')}, None
-        except urllib.error.HTTPError as exc:
-            return {
-                'ok': False,
-                'error': f'direct provider fallback HTTP {exc.code}',
-                'status_code': exc.code,
-                'body': exc.read().decode('utf-8', errors='replace'),
-            }, exc.code
-        except Exception as exc:
-            return {'ok': False, 'error': f'direct provider fallback failed: {exc}'}, None
-
-    first_result, status_code = _post(
-        [
-            {'role': 'system', 'content': system_prompt},
-            {'role': 'user', 'content': user_prompt},
-        ]
+    result = brain_router.execute_specialist_http(
+        profile_name=specialist.profile_name,
+        endpoint=url,
+        model=specialist.model,
+        api_key=api_key,
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+        max_tokens=max_tokens,
+        timeout=timeout,
     )
-    if not first_result.get('ok') and status_code == 400:
-        combined_prompt = f"{system_prompt.strip()}\n\n{user_prompt.strip()}".strip()
-        retry_result, retry_status = _post([{'role': 'user', 'content': combined_prompt}])
-        if retry_result.get('ok'):
-            first_result = retry_result
-        else:
-            retry_error = str(retry_result.get('error') or '').strip()
-            retry_body = str(retry_result.get('body') or '').strip()
-            first_result['retry_error'] = retry_error or first_result.get('retry_error', '')
-            if retry_body:
-                first_result['retry_body'] = retry_body
-    if not first_result.get('ok'):
-        return first_result
-    raw_body = str(first_result.get('raw_body') or '')
-
-    try:
-        parsed = json.loads(raw_body)
-    except json.JSONDecodeError:
-        parsed = {}
-    choices = parsed.get('choices') if isinstance(parsed, dict) else None
-    message = choices[0].get('message') if isinstance(choices, list) and choices and isinstance(choices[0], dict) else {}
-    content = message.get('content') if isinstance(message, dict) else ''
-    if isinstance(content, list):
-        content = ''.join(
-            str(part.get('text') or '')
-            for part in content
-            if isinstance(part, dict)
-        )
-    return {
-        'ok': True,
-        'output_text': str(content or '').strip(),
-        'raw_output': raw_body,
-        'model': str(parsed.get('model') or specialist.model),
-        'response': parsed,
-        'note': f'direct provider fallback via {url}',
-    }
+    if not result.get('ok'):
+        if not api_key:
+            result.setdefault('error', f'missing API key env {specialist.api_key_env_var}')
+        elif not url:
+            result.setdefault('error', f'missing completion url for {agent_id}')
+        return result
+    result['note'] = f'direct provider fallback via {url}'
+    return result
 
 
 def _extract_json_object(text: str) -> dict | None:

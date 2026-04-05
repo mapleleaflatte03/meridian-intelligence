@@ -340,6 +340,63 @@ class LoomRuntimeProofTests(unittest.TestCase):
             contract['surface_contract']['surfaces']['omni_channel_presence']['not_claimed'],
         )
 
+    def test_runtime_proof_contract_fields_are_non_null(self):
+        receipt = proof.public_loom_runtime_receipt({
+            'runtime_id': 'loom_native',
+            'proof_type': 'live_single_host_loom_deployment',
+            'checked_at': '2026-04-05T00:00:00Z',
+            'deployment_truth': {'scope': 'single_host', 'generic_runtime_claim': False},
+            'health': {
+                'status': 'healthy',
+                'health_ok': True,
+                'telegram': {'ok': True},
+                'agent_count': 1,
+                'agents': [{'handle': 'leviathann'}],
+                'heartbeat': {'interval': '30m', 'primary_agent': 'leviathann'},
+                'session_total': 2,
+                'session_runtime': {'total_count': 2, 'active_count': 2, 'archived_count': 0},
+                'channel_runtime': {
+                    'total_count': 2,
+                    'enabled_count': 2,
+                    'ingress_count': 11,
+                    'active_delivery_count': 5,
+                    'archived_delivery_count': 1,
+                    'channel_ids': ['web_api', 'telegram'],
+                },
+            },
+            'service_probe': {
+                'checked': True,
+                'ok': True,
+                'service_status': 'running',
+                'health': 'healthy',
+                'transport': 'socket+http',
+                'output': 'running',
+            },
+            'memory_context': {
+                'checked': True,
+                'memory_ok': True,
+                'context_ok': True,
+                'memory': {'total_entries': 0},
+                'context': {'section_count': 6},
+            },
+            'governed_agents': [],
+            'handle_overlap': ['leviathann'],
+            'handle_gap': [],
+        }, bound_org_id='org_founding')
+
+        contract = receipt['runtime_proof_contract']
+        self.assertEqual(contract['version'], 'runtime_proof_contract_v1')
+        self.assertNotEqual(contract['runtime_proof_status'], '')
+        self.assertNotEqual(contract['channel_surface_status'], '')
+        self.assertNotEqual(contract['memory_surface_status'], '')
+        self.assertNotEqual(contract['proof_chain_status'], '')
+        self.assertNotEqual(contract['proof_path'], '')
+        self.assertIsNotNone(contract.get('runtime_proof_status'))
+        self.assertIsNotNone(contract.get('channel_surface_status'))
+        self.assertIsNotNone(contract.get('memory_surface_status'))
+        self.assertIsNotNone(contract.get('proof_chain_status'))
+        self.assertIsNotNone(contract.get('proof_path'))
+
 
 if __name__ == '__main__':
     unittest.main()

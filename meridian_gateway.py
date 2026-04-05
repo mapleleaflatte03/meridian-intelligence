@@ -59,6 +59,7 @@ from session_history import append_session_event, load_session_events
 from subscription_service import public_checkout_offer, subscription_summary
 from team_topology import SPECIALIST_KEYS, load_team_topology, sync_loom_team_profiles
 from telegram_history import imported_history_context
+import brain_router
 
 KERNEL_DIR = Path("/opt/meridian-kernel/kernel")
 _KERNEL_IMPORT_CONFLICTS = (
@@ -122,9 +123,12 @@ TELEGRAM_DEDUP_STATE_PATH = Path(LOOM_ROOT) / "state" / "gateway" / "telegram_de
 MEMORY_RECALL_STATE_PATH = Path(LOOM_ROOT) / "state" / "gateway" / "memory_recall.json"
 TRUST_EVIDENCE_STATE_PATH = Path(LOOM_ROOT) / "state" / "gateway" / "trust_evidence.json"
 TRUST_ASSURANCE_STATE_PATH = Path(LOOM_ROOT) / "state" / "gateway" / "trust_assurance.json"
+ROUTE_DECISION_TRACE_PATH = Path(LOOM_ROOT) / "state" / "gateway" / "route_decision_trace.jsonl"
 TELEGRAM_INBOUND_DEDUP_WINDOW_SECONDS = int(os.environ.get("MERIDIAN_TELEGRAM_INBOUND_DEDUP_WINDOW_SECONDS", "120"))
 TELEGRAM_OUTBOUND_DEDUP_WINDOW_SECONDS = int(os.environ.get("MERIDIAN_TELEGRAM_OUTBOUND_DEDUP_WINDOW_SECONDS", "900"))
 SKILL_AUTONOMY_LOCK = threading.RLock()
+ROUTE_LOAD_CACHE_LOCK = threading.RLock()
+ROUTE_LOAD_CACHE: dict[str, Any] = {"fetched_at_unix_ms": 0, "snapshot": {}}
 LOOM_ORG_ID = (
     os.environ.get("MERIDIAN_LOOM_ORG_ID")
     or os.environ.get("MERIDIAN_WORKSPACE_ORG_ID")
@@ -143,6 +147,10 @@ MERIDIAN_CODEX_BIN = os.environ.get(
 MAX_STEPS = int(os.environ.get("MERIDIAN_GATEWAY_MAX_STEPS", "6"))
 REQUEST_TIMEOUT_SECONDS = int(os.environ.get("MERIDIAN_GATEWAY_TIMEOUT_SECONDS", "90"))
 HEARTBEAT_INTERVAL_SECONDS = 60
+ROUTE_SCORE_TEAM_MARGIN_SHORT = int(os.environ.get("MERIDIAN_ROUTE_TEAM_MARGIN_SHORT", "9"))
+ROUTE_SCORE_TEAM_MARGIN_DEFAULT = int(os.environ.get("MERIDIAN_ROUTE_TEAM_MARGIN_DEFAULT", "4"))
+ROUTE_SCORE_DIRECT_GUARD_CONFIDENCE = int(os.environ.get("MERIDIAN_ROUTE_DIRECT_GUARD_CONFIDENCE", "55"))
+ROUTE_LOAD_CACHE_TTL_SECONDS = int(os.environ.get("MERIDIAN_ROUTE_LOAD_CACHE_TTL_SECONDS", "5"))
 WORKSPACE_API_BASE = os.environ.get("MERIDIAN_WORKSPACE_API_BASE", "http://127.0.0.1:18901").rstrip("/")
 WORKSPACE_CREDENTIALS_FILE = Path(
     os.environ.get("MERIDIAN_WORKSPACE_CREDENTIALS_FILE", "/home/ubuntu/.meridian/.workspace_credentials")
@@ -539,22 +547,22 @@ def _record_gateway_audit(
 
 def _profile_transport_kind(provider_kind: str) -> str:
     value = (provider_kind or "").strip().lower()
-    if value == "openai_codex":
-        return "codex_session"
-    if value == "openai_compatible":
-        return "openai_rest"
-    if value == "custom_endpoint":
-        return "custom_http"
-    return "ollama_local"
+    if value in {"cli_session", "openai_codex"}:
+        return "cli_session"
+    if value in {"http_json", "openai_compatible", "custom_endpoint"}:
+        return "http_json"
+    if value in {"local_http_json", "local_ollama"}:
+        return "local_http_json"
+    return "unknown"
 
 
 def _profile_auth_mode(provider_kind: str) -> str:
     value = (provider_kind or "").strip().lower()
-    if value == "openai_codex":
-        return "codex_auth_json"
-    if value == "local_ollama":
+    if value in {"cli_session", "openai_codex"}:
+        return "session_home"
+    if value in {"local_http_json", "local_ollama"}:
         return "none"
-    return "bearer_env"
+    return "bearer_env_pool"
 
 
 def _team_route_fallback(agent_id: str) -> dict[str, Any]:
@@ -581,17 +589,18 @@ def _team_route_fallback(agent_id: str) -> dict[str, Any]:
 
 
 def _loom_manager_defaults() -> dict[str, str]:
-    provider_profile = "manager_frontier"
-    model = "gpt-5.4"
+    manager_meta = brain_router.manager_exec_metadata(runtime_env=os.environ, model_hint="")
+    provider_profile = str(manager_meta.get("provider_profile") or "manager_primary").strip() or "manager_primary"
+    model = str(manager_meta.get("model") or "").strip()
     manifest_path = Path(LOOM_ROOT) / "state" / "onboard.json"
     try:
         payload = json.loads(manifest_path.read_text(encoding="utf-8"))
         brain = payload.get("brain") or {}
-        lane = str(brain.get("managerLane") or "frontier").strip().lower()
         configured_model = str(brain.get("managerModel") or "").strip()
-        if lane != "frontier":
-            provider_profile = "local_ollama"
-        if configured_model:
+        configured_profile = str(brain.get("managerProfile") or "").strip()
+        if configured_profile:
+            provider_profile = configured_profile
+        if configured_model and not model:
             model = configured_model
     except Exception:
         pass
@@ -881,6 +890,153 @@ def _loom_channel_deliveries(limit: int = 50) -> list[dict[str, Any]]:
     return [item for item in payload if isinstance(item, dict)]
 
 
+def _median_int(values: list[int]) -> int:
+    if not values:
+        return 0
+    ordered = sorted(int(item) for item in values)
+    mid = len(ordered) // 2
+    if len(ordered) % 2 == 1:
+        return ordered[mid]
+    return int((ordered[mid - 1] + ordered[mid]) / 2)
+
+
+def _routing_runtime_load_snapshot(*, force_refresh: bool = False) -> dict[str, Any]:
+    now_ms = int(time.time() * 1000)
+    ttl_ms = max(1, ROUTE_LOAD_CACHE_TTL_SECONDS) * 1000
+    with ROUTE_LOAD_CACHE_LOCK:
+        cached_at = int(ROUTE_LOAD_CACHE.get("fetched_at_unix_ms") or 0)
+        cached_snapshot = ROUTE_LOAD_CACHE.get("snapshot")
+        if (
+            not force_refresh
+            and isinstance(cached_snapshot, dict)
+            and cached_snapshot
+            and cached_at
+            and now_ms - cached_at <= ttl_ms
+        ):
+            return dict(cached_snapshot)
+
+    deliveries = _loom_channel_deliveries(limit=24)
+    normalized = [item for item in deliveries if isinstance(item, dict)]
+    pending_count = 0
+    completed_count = 0
+    failed_count = 0
+    latency_samples: list[int] = []
+    latest_status = ""
+    for item in normalized:
+        status = str(item.get("status") or "").strip().lower()
+        if not latest_status and status:
+            latest_status = status
+        if status in {"queued", "pending"}:
+            pending_count += 1
+        if status in {"delivered", "failed"}:
+            completed_count += 1
+            if status == "failed":
+                failed_count += 1
+            submitted_at = int(item.get("submitted_at_unix_ms") or 0)
+            updated_at = int(item.get("updated_at_unix_ms") or 0)
+            if submitted_at > 0 and updated_at >= submitted_at:
+                latency_ms = updated_at - submitted_at
+                if 0 <= latency_ms <= 600_000:
+                    latency_samples.append(latency_ms)
+    fail_rate = (failed_count / completed_count) if completed_count else 0.0
+    latency_p50_ms = _median_int(latency_samples)
+    latency_p90_ms = 0
+    if latency_samples:
+        ordered = sorted(latency_samples)
+        idx = int(round((len(ordered) - 1) * 0.9))
+        latency_p90_ms = ordered[max(0, min(idx, len(ordered) - 1))]
+    backlog_pressure = pending_count
+    if latency_p50_ms >= 12_000:
+        backlog_pressure += 1
+    if fail_rate >= 0.30:
+        backlog_pressure += 1
+    snapshot = {
+        "fetched_at_unix_ms": now_ms,
+        "sample_window_count": len(normalized),
+        "pending_count": pending_count,
+        "completed_count": completed_count,
+        "failed_count": failed_count,
+        "fail_rate": round(fail_rate, 4),
+        "latency_p50_ms": latency_p50_ms,
+        "latency_p90_ms": latency_p90_ms,
+        "latest_status": latest_status or "unknown",
+        "backlog_pressure": backlog_pressure,
+    }
+    with ROUTE_LOAD_CACHE_LOCK:
+        ROUTE_LOAD_CACHE["fetched_at_unix_ms"] = now_ms
+        ROUTE_LOAD_CACHE["snapshot"] = dict(snapshot)
+    return snapshot
+
+
+def _adaptive_route_thresholds(load_snapshot: dict[str, Any]) -> dict[str, Any]:
+    team_margin_short = ROUTE_SCORE_TEAM_MARGIN_SHORT
+    team_margin_default = ROUTE_SCORE_TEAM_MARGIN_DEFAULT
+    direct_guard_confidence = ROUTE_SCORE_DIRECT_GUARD_CONFIDENCE
+    pending_count = int(load_snapshot.get("pending_count") or 0)
+    latency_p50_ms = int(load_snapshot.get("latency_p50_ms") or 0)
+    fail_rate = float(load_snapshot.get("fail_rate") or 0.0)
+    notes: list[str] = []
+
+    if pending_count >= 4:
+        team_margin_short += 5
+        team_margin_default += 4
+        direct_guard_confidence -= 6
+        notes.append("queue_high")
+    elif pending_count >= 2:
+        team_margin_short += 3
+        team_margin_default += 2
+        direct_guard_confidence -= 3
+        notes.append("queue_elevated")
+
+    if latency_p50_ms >= 12_000:
+        team_margin_short += 4
+        team_margin_default += 3
+        direct_guard_confidence -= 4
+        notes.append("latency_high")
+    elif latency_p50_ms >= 7_000:
+        team_margin_short += 2
+        team_margin_default += 1
+        direct_guard_confidence -= 2
+        notes.append("latency_elevated")
+
+    if fail_rate >= 0.35:
+        team_margin_short += 4
+        team_margin_default += 3
+        direct_guard_confidence -= 5
+        notes.append("delivery_fail_rate_high")
+    elif fail_rate >= 0.20:
+        team_margin_short += 2
+        team_margin_default += 1
+        direct_guard_confidence -= 2
+        notes.append("delivery_fail_rate_elevated")
+
+    if pending_count == 0 and latency_p50_ms and latency_p50_ms <= 2_500 and fail_rate <= 0.10:
+        team_margin_short -= 1
+        team_margin_default -= 1
+        direct_guard_confidence += 1
+        notes.append("load_low")
+
+    team_margin_short = max(3, min(team_margin_short, 26))
+    team_margin_default = max(2, min(team_margin_default, 20))
+    direct_guard_confidence = max(35, min(direct_guard_confidence, 85))
+
+    load_tier = "normal"
+    if pending_count >= 4 or latency_p50_ms >= 12_000 or fail_rate >= 0.35:
+        load_tier = "high"
+    elif pending_count >= 2 or latency_p50_ms >= 7_000 or fail_rate >= 0.20:
+        load_tier = "elevated"
+    elif pending_count == 0 and latency_p50_ms and latency_p50_ms <= 2_500 and fail_rate <= 0.10:
+        load_tier = "low"
+
+    return {
+        "team_margin_short": team_margin_short,
+        "team_margin_default": team_margin_default,
+        "direct_guard_confidence": direct_guard_confidence,
+        "load_tier": load_tier,
+        "notes": notes,
+    }
+
+
 def _loom_channel_update(
     delivery_id: str,
     status: str,
@@ -1008,6 +1164,10 @@ def _loom_session_route(
 _MERIDIAN_INTERNAL_STATUS_TERMS = (
     "meridian",
     "loom",
+    "gateway",
+    "telegram",
+    "delivery queue",
+    "bot",
     "kernel",
     "treasury",
     "authority",
@@ -1023,10 +1183,15 @@ _MERIDIAN_INTERNAL_STATUS_TERMS = (
 )
 _MERIDIAN_INTERNAL_QUESTION_TERMS = (
     "current",
+    "now",
     "status",
+    "trạng thái",
+    "trang thai",
     "state",
     "posture",
     "health",
+    "hiện tại",
+    "hien tai",
     "runtime",
     "proof",
     "balance",
@@ -1160,7 +1325,21 @@ def _looks_like_meridian_internal_query(text: str) -> bool:
     mentions_meridian = any(term in lowered for term in _MERIDIAN_INTERNAL_STATUS_TERMS)
     asks_for_state = any(term in lowered for term in _MERIDIAN_INTERNAL_QUESTION_TERMS)
     asks_for_team_work = any(term in lowered for term in _MERIDIAN_TEAM_REQUEST_TERMS)
-    return mentions_meridian and asks_for_state and not asks_for_team_work
+    asks_for_explicit_action = any(
+        term in lowered
+        for term in (
+            "gửi mail",
+            "gui mail",
+            "send mail",
+            "email to",
+            "book meeting",
+            "đặt lịch",
+            "dat lich",
+            "soạn",
+            "soan",
+        )
+    )
+    return mentions_meridian and asks_for_state and not asks_for_team_work and not asks_for_explicit_action
 
 
 def _looks_like_meridian_positioning_query(text: str) -> bool:
@@ -1223,6 +1402,28 @@ def _normalize_worker_selection(workers: list[str], text: str) -> list[str]:
     return ordered
 
 
+def _request_prefers_compact_status_response(goal: str) -> tuple[bool, int]:
+    lowered = str(goal or "").strip().lower()
+    if not lowered:
+        return False, 0
+    compact_markers = (
+        "trả lời ngắn",
+        "tra loi ngan",
+        "ngắn gọn",
+        "ngan gon",
+        "one line",
+        "1 line",
+        "một câu",
+        "mot cau",
+        "bullet",
+        "gạch đầu dòng",
+        "gach dau dong",
+    )
+    wants_compact = any(marker in lowered for marker in compact_markers)
+    wants_two = any(marker in lowered for marker in ("2 gạch đầu dòng", "2 bullet", "two bullet", "2 dòng", "2 dong"))
+    return wants_compact, (2 if wants_two else 0)
+
+
 def _render_meridian_internal_answer(_goal: str) -> str:
     status = _workspace_api_get_json("/api/status")
     proof = _workspace_api_get_json("/api/runtime-proof")
@@ -1253,11 +1454,28 @@ def _render_meridian_internal_answer(_goal: str) -> str:
     open_cases = int(cases.get("open") or 0)
     active_sessions = int(session_surface.get("active_count") or 0)
     active_deliveries = int(channel_surface.get("active_delivery_count") or 0)
+    telegram = _recent_telegram_delivery_summary(limit=5)
+    telegram_checked = int(telegram.get("checked_count") or 0)
+    telegram_delivered = int(telegram.get("delivered_count") or 0)
+    telegram_failed = int(telegram.get("failed_count") or 0)
+    telegram_latest = str(telegram.get("latest_status") or "unknown").strip() or "unknown"
+    wants_compact, bullet_count = _request_prefers_compact_status_response(_goal)
+    if wants_compact and bullet_count == 2:
+        return (
+            f"- Gateway runtime: `{runtime_id}` for `{org_id}`; preflight `{preflight}`; SLO `{slo_status}`.\n"
+            f"- Telegram delivery: latest `{telegram_latest}`, delivered `{telegram_delivered}/{telegram_checked}`, failed `{telegram_failed}`."
+        )
+    if wants_compact:
+        return (
+            f"Meridian runtime `{runtime_id}` is live (preflight `{preflight}`, SLO `{slo_status}`); "
+            f"Telegram latest `{telegram_latest}` with `{telegram_delivered}/{telegram_checked}` delivered and `{telegram_failed}` failed."
+        )
     return (
         f"Meridian is operating on {runtime_id} for {org_id} with preflight {preflight}, "
         f"SLO {slo_status}, {alert_count} queued alerts, treasury ${balance:.2f} against a ${reserve_floor:.2f} reserve floor, "
         f"{len(pending_approvals)} pending approvals, {open_cases} open cases, "
-        f"{active_sessions} active sessions, and {active_deliveries} active channel deliveries."
+        f"{active_sessions} active sessions, {active_deliveries} active channel deliveries, "
+        f"and Telegram latest {telegram_latest} with {telegram_delivered}/{telegram_checked} delivered and {telegram_failed} failed."
     )
 
 
@@ -1641,82 +1859,17 @@ def _council_role_instruction(agent_key: str) -> str:
 
 
 def _run_codex_exec(*, system_prompt: str, user_prompt: str, model: str, timeout: int = REQUEST_TIMEOUT_SECONDS) -> dict[str, Any]:
-    codex_bin = str(MERIDIAN_CODEX_BIN).strip() or "codex"
-    codex_home = str(MERIDIAN_CODEX_HOME).strip() or "/home/ubuntu/.meridian/auth/codex/login-home"
-    prompt = textwrap.dedent(
-        f"""
-        System instructions:
-        {system_prompt.strip()}
+    return brain_router.execute_manager(
+        runtime_env=os.environ,
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+        model=model,
+        timeout=timeout,
+    )
 
-        User request:
-        {user_prompt.strip()}
 
-        Return only the final answer for the user.
-        """
-    ).strip()
-    output_path = None
-    env = os.environ.copy()
-    env["HOME"] = codex_home
-    command = [
-        codex_bin,
-        "exec",
-        "-m",
-        model,
-        "--skip-git-repo-check",
-        "--ephemeral",
-        "--color",
-        "never",
-        "-C",
-        "/home/ubuntu",
-    ]
-    try:
-        with tempfile.NamedTemporaryFile(prefix="meridian-codex-", suffix=".txt", delete=False) as handle:
-            output_path = handle.name
-        command.extend(["-o", output_path, prompt])
-        completed = subprocess.run(
-            command,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            check=False,
-            env=env,
-        )
-        output_text = ""
-        if output_path:
-            candidate = Path(output_path)
-            if candidate.exists():
-                output_text = candidate.read_text(encoding="utf-8").strip()
-        result = {
-            "ok": completed.returncode == 0 and bool(output_text),
-            "returncode": completed.returncode,
-            "stdout": (completed.stdout or "").strip(),
-            "stderr": (completed.stderr or "").strip(),
-            "output_text": output_text,
-            "model": model,
-            "provider_profile": "manager_frontier",
-        }
-        if completed.returncode != 0 and not result["stderr"]:
-            result["stderr"] = result["stdout"][-500:]
-        if not output_text and completed.returncode == 0:
-            result["ok"] = False
-            result["stderr"] = result["stderr"] or "Codex exec returned empty output"
-        return result
-    except Exception as exc:
-        return {
-            "ok": False,
-            "returncode": -1,
-            "stderr": f"{exc.__class__.__name__}: {exc}",
-            "stdout": "",
-            "output_text": "",
-            "model": model,
-            "provider_profile": "manager_frontier",
-        }
-    finally:
-        if output_path:
-            try:
-                Path(output_path).unlink(missing_ok=True)
-            except Exception:
-                pass
+def _manager_exec_metadata(model: str = "") -> dict[str, str]:
+    return brain_router.manager_exec_metadata(runtime_env=os.environ, model_hint=model)
 
 
 def _telegram_help_text() -> str:
@@ -1898,6 +2051,242 @@ def _direct_provider_timeout_for_request(
     return min(15, max(8, specialist_timeout // 2))
 
 
+def _route_requires_team_execution(request: str, skill_names: list[str]) -> bool:
+    lowered_skills = {str(item or "").strip().lower() for item in skill_names if str(item or "").strip()}
+    if not request.strip():
+        return False
+    if _request_wants_protocol_artifact(request):
+        return True
+    if _request_is_security_questionnaire(request, list(lowered_skills)):
+        return True
+    if _request_is_ai_stack_watch(request, list(lowered_skills)):
+        return True
+    if _request_is_customer_research(request, list(lowered_skills)):
+        return True
+    if _request_prefers_safe_web_research(request):
+        return True
+    if lowered_skills.intersection(
+        {
+            "mail-gui",
+            "book-meeting",
+            "follow-demo-soan",
+            "scan-doi-thu",
+            "protocol-deal-hoi",
+            "mvp-sprint-scope",
+            "security-questionnaire",
+            "ai-stack-watch",
+            "research-khach-hang",
+            "ops-snapshot",
+            "founder-update",
+        }
+    ):
+        return True
+    return False
+
+
+def _decision_grade_route_score(request: str, skill_bundle: dict[str, Any]) -> dict[str, Any]:
+    stripped = str(request or "").strip()
+    tokens = _request_tokens(stripped)
+    token_count = len(tokens)
+    short_prompt = token_count <= 6 and len(stripped.split()) <= 10
+    actionable = _request_is_actionable(stripped)
+    matched_skills = [dict(item) for item in list(skill_bundle.get("matches") or []) if isinstance(item, dict)]
+    skill_names = [str(item.get("name") or "").strip() for item in matched_skills if str(item.get("name") or "").strip()]
+    sorted_scores = sorted((int(item.get("score") or 0) for item in matched_skills), reverse=True)
+    top_skill_score = sorted_scores[0] if sorted_scores else 0
+    second_skill_score = sorted_scores[1] if len(sorted_scores) > 1 else 0
+    score_gap = max(0, top_skill_score - second_skill_score)
+    top_skill_name = str(matched_skills[0].get("name") or "").strip().lower() if matched_skills else ""
+    has_autogenerated_top = bool(matched_skills and matched_skills[0].get("autogenerated"))
+    workers_seed = list(skill_bundle.get("workers") or []) or _fallback_team_workers(stripped)
+    candidate_workers = _refine_skill_routed_workers(stripped, matched_skills, workers_seed)
+    if not candidate_workers:
+        candidate_workers = _fallback_team_workers(stripped)
+    requires_team_execution = _route_requires_team_execution(stripped, skill_names)
+    load_snapshot = _routing_runtime_load_snapshot()
+    adaptive_thresholds = _adaptive_route_thresholds(load_snapshot)
+    direct_latency_seconds = 6 if short_prompt else 9
+    team_worker_latency = sum(
+        min(_specialist_timeout_for_request(worker, stripped, skill_names), 35)
+        for worker in candidate_workers
+    )
+    team_latency_seconds = team_worker_latency + 8
+    direct_cost_usd = round(0.0006 + (0.00002 * max(token_count, 1)), 6)
+    team_cost_usd = round(
+        0.0012 * max(len(candidate_workers), 1)
+        + (0.00007 * team_latency_seconds)
+        + (0.00003 * max(token_count, 1)),
+        6,
+    )
+    direct_score = 50
+    team_score = 46
+    if requires_team_execution:
+        team_score += 24
+    if actionable:
+        team_score += 6
+    else:
+        direct_score += 4
+    if short_prompt and not actionable:
+        direct_score += 16
+        team_score -= 6
+    if top_skill_score >= 20:
+        team_score += 16
+    elif top_skill_score >= 12:
+        team_score += 10
+    elif top_skill_score >= 8:
+        team_score += 6
+    else:
+        direct_score += 12
+        team_score -= 4
+    if score_gap <= 2:
+        direct_score += 8
+    elif score_gap >= 6:
+        team_score += 4
+    if has_autogenerated_top and top_skill_name in {"tra-loi-duy", "ai-intelligence"}:
+        direct_score += 8
+        team_score -= 6
+    if _request_needs_writer(stripped):
+        team_score += 4
+    latency_delta = max(0, team_latency_seconds - direct_latency_seconds)
+    cost_delta = max(0.0, team_cost_usd - direct_cost_usd)
+    team_score -= min(24, int(latency_delta / 4))
+    team_score -= min(16, int(cost_delta * 1000))
+    margin_required = int(
+        adaptive_thresholds.get("team_margin_short")
+        if short_prompt
+        else adaptive_thresholds.get("team_margin_default")
+    )
+    direct_guard_confidence = int(adaptive_thresholds.get("direct_guard_confidence") or ROUTE_SCORE_DIRECT_GUARD_CONFIDENCE)
+    raw_margin = team_score - direct_score
+    decision = "team" if raw_margin >= margin_required else "direct"
+    confidence = min(99, max(40, int((abs(raw_margin) * 2) + (top_skill_score * 1.5) + (score_gap * 1.5))))
+    reason = "balanced"
+    if decision == "direct":
+        if short_prompt and top_skill_score <= 8:
+            reason = "short_ambiguous_low_confidence"
+        elif latency_delta >= 20 or cost_delta >= 0.004:
+            reason = "latency_cost_guardrail"
+        else:
+            reason = "direct_is_sufficient"
+    elif requires_team_execution:
+        reason = "requires_structured_execution"
+    return {
+        "decision": decision,
+        "reason": reason,
+        "confidence": confidence,
+        "short_prompt": short_prompt,
+        "actionable": actionable,
+        "requires_team_execution": requires_team_execution,
+        "token_count": token_count,
+        "top_skill_score": top_skill_score,
+        "second_skill_score": second_skill_score,
+        "score_gap": score_gap,
+        "top_skill_name": top_skill_name,
+        "candidate_workers": list(candidate_workers),
+        "estimated_direct_latency_seconds": direct_latency_seconds,
+        "estimated_team_latency_seconds": team_latency_seconds,
+        "estimated_direct_cost_usd": direct_cost_usd,
+        "estimated_team_cost_usd": team_cost_usd,
+        "direct_score": direct_score,
+        "team_score": team_score,
+        "margin_required": margin_required,
+        "raw_margin": raw_margin,
+        "direct_guard_confidence": direct_guard_confidence,
+        "load_snapshot": load_snapshot,
+        "adaptive_thresholds": adaptive_thresholds,
+    }
+
+
+def _route_decision_trace_payload(
+    *,
+    session_key: str,
+    request: str,
+    plan: dict[str, Any],
+    routing_score: dict[str, Any],
+    skill_names: list[str],
+) -> dict[str, Any]:
+    adaptive_thresholds = dict(routing_score.get("adaptive_thresholds") or {})
+    load_snapshot = dict(routing_score.get("load_snapshot") or {})
+    workers = [
+        str(item or "").strip().upper()
+        for item in list(plan.get("workers") or [])
+        if str(item or "").strip()
+    ]
+    return {
+        "schema_version": "route_decision_trace_v1",
+        "recorded_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "session_key": str(session_key or "").strip(),
+        "request_text": str(request or "").strip(),
+        "skills_used": [str(name or "").strip() for name in skill_names if str(name or "").strip()],
+        "route": {
+            "mode": str(plan.get("mode") or "").strip(),
+            "reason": str(plan.get("reason") or "").strip(),
+            "decision": str(routing_score.get("decision") or "").strip(),
+            "decision_reason": str(routing_score.get("reason") or "").strip(),
+            "confidence": int(routing_score.get("confidence") or 0),
+            "direct_score": int(routing_score.get("direct_score") or 0),
+            "team_score": int(routing_score.get("team_score") or 0),
+            "margin_required": int(routing_score.get("margin_required") or 0),
+            "raw_margin": int(routing_score.get("raw_margin") or 0),
+            "direct_guard_confidence": int(routing_score.get("direct_guard_confidence") or 0),
+            "workers": workers,
+            "criteria": str(plan.get("criteria") or "").strip(),
+            "depth": str(plan.get("depth") or "").strip(),
+            "adaptive_thresholds": {
+                "team_margin_short": int(adaptive_thresholds.get("team_margin_short") or 0),
+                "team_margin_default": int(adaptive_thresholds.get("team_margin_default") or 0),
+                "direct_guard_confidence": int(adaptive_thresholds.get("direct_guard_confidence") or 0),
+                "load_tier": str(adaptive_thresholds.get("load_tier") or "").strip(),
+                "notes": [str(note or "").strip() for note in list(adaptive_thresholds.get("notes") or []) if str(note or "").strip()],
+            },
+            "load_snapshot": {
+                "pending_count": int(load_snapshot.get("pending_count") or 0),
+                "latency_p50_ms": int(load_snapshot.get("latency_p50_ms") or 0),
+                "latency_p90_ms": int(load_snapshot.get("latency_p90_ms") or 0),
+                "fail_rate": float(load_snapshot.get("fail_rate") or 0.0),
+                "latest_status": str(load_snapshot.get("latest_status") or "").strip(),
+                "backlog_pressure": int(load_snapshot.get("backlog_pressure") or 0),
+            },
+            "estimated_direct_latency_seconds": int(routing_score.get("estimated_direct_latency_seconds") or 0),
+            "estimated_team_latency_seconds": int(routing_score.get("estimated_team_latency_seconds") or 0),
+            "estimated_direct_cost_usd": float(routing_score.get("estimated_direct_cost_usd") or 0.0),
+            "estimated_team_cost_usd": float(routing_score.get("estimated_team_cost_usd") or 0.0),
+        },
+    }
+
+
+def _record_route_decision_trace(
+    *,
+    session_key: str,
+    request: str,
+    plan: dict[str, Any],
+    routing_score: dict[str, Any],
+    skill_names: list[str],
+) -> dict[str, Any]:
+    payload = _route_decision_trace_payload(
+        session_key=session_key,
+        request=request,
+        plan=plan,
+        routing_score=routing_score,
+        skill_names=skill_names,
+    )
+    trace_id = f"rtrace_{int(time.time() * 1000)}_{secrets.token_hex(4)}"
+    payload["trace_id"] = trace_id
+    payload["artifact_path"] = str(ROUTE_DECISION_TRACE_PATH)
+    try:
+        ROUTE_DECISION_TRACE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with ROUTE_DECISION_TRACE_PATH.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(payload, ensure_ascii=False, sort_keys=True) + "\n")
+    except Exception as exc:
+        _log(f"route decision trace append failed: {exc}", color=ANSI_YELLOW)
+        return {}
+    return {
+        "trace_id": trace_id,
+        "artifact_path": str(ROUTE_DECISION_TRACE_PATH),
+        "schema_version": "route_decision_trace_v1",
+    }
+
+
 def _team_route_plan(text: str, session_key: str) -> dict[str, Any]:
     stripped = text.strip()
     if not stripped:
@@ -1909,6 +2298,10 @@ def _team_route_plan(text: str, session_key: str) -> dict[str, Any]:
         session_key,
         manager_brief=stripped,
         allow_create=True,
+    )
+    routing_score = _decision_grade_route_score(stripped, skill_bundle)
+    route_direct_guard = int(
+        routing_score.get("direct_guard_confidence") or ROUTE_SCORE_DIRECT_GUARD_CONFIDENCE
     )
     if _looks_like_meridian_council_query(stripped):
         workers = _normalize_worker_selection(["ATLAS", "SENTINEL", "QUILL", "AEGIS", "FORGE", "PULSE"], stripped)
@@ -1982,6 +2375,24 @@ def _team_route_plan(text: str, session_key: str) -> dict[str, Any]:
         )
         top_skill = skill_bundle["matches"][0]
         verified_facts = _skill_route_verified_facts(stripped, skill_bundle["matches"])
+        if (
+            routing_score.get("decision") == "direct"
+            and not bool(routing_score.get("requires_team_execution"))
+            and not bool(routing_score.get("actionable"))
+            and int(routing_score.get("confidence") or 0) >= route_direct_guard
+        ):
+            return {
+                "mode": "direct",
+                "topic": stripped,
+                "depth": "quick",
+                "criteria": "consistency",
+                "workers": [],
+                "manager_brief": stripped,
+                "reason": "decision_grade_direct_short_ambiguous",
+                "skills": skill_bundle["matches"],
+                "verified_facts": verified_facts,
+                "routing_score": routing_score,
+            }
         return {
             "mode": "team",
             "topic": stripped,
@@ -1997,6 +2408,25 @@ def _team_route_plan(text: str, session_key: str) -> dict[str, Any]:
             "reason": "skill_routed_request",
             "skills": skill_bundle["matches"],
             "verified_facts": verified_facts,
+            "routing_score": routing_score,
+        }
+    if (
+        routing_score.get("decision") == "direct"
+        and bool(routing_score.get("short_prompt"))
+        and not bool(routing_score.get("requires_team_execution"))
+        and not bool(routing_score.get("actionable"))
+        and int(routing_score.get("confidence") or 0) >= route_direct_guard
+    ):
+        return {
+            "mode": "direct",
+            "topic": stripped,
+            "depth": "quick",
+            "criteria": "consistency",
+            "workers": [],
+            "manager_brief": stripped,
+            "reason": "decision_grade_direct_short_ambiguous",
+            "skills": skill_bundle["matches"],
+            "routing_score": routing_score,
         }
     history_context = imported_history_context(session_key, loom_root=LOOM_ROOT, limit=24)
     manager = _loom_manager_defaults()
@@ -2024,15 +2454,17 @@ def _team_route_plan(text: str, session_key: str) -> dict[str, Any]:
     )
     payload = _extract_json(plan.get("output_text", "")) if plan.get("ok") else None
     if not isinstance(payload, dict):
+        fallback_mode = "team" if str(routing_score.get("decision") or "").strip() == "team" else ("team" if len(stripped.split()) >= 4 else "direct")
         return {
-            "mode": "team" if len(stripped.split()) >= 4 else "direct",
+            "mode": fallback_mode,
             "topic": stripped,
             "depth": "standard",
             "criteria": "factual",
-            "workers": _fallback_team_workers(stripped),
+            "workers": _fallback_team_workers(stripped) if fallback_mode == "team" else [],
             "manager_brief": stripped,
-            "reason": "planner_fallback",
+            "reason": f"planner_fallback_{str(routing_score.get('decision') or '').strip() or 'heuristic'}",
             "skills": skill_bundle["matches"],
+            "routing_score": routing_score,
         }
     mode = str(payload.get("mode") or "team").strip().lower()
     if mode not in {"direct", "team"}:
@@ -2056,6 +2488,18 @@ def _team_route_plan(text: str, session_key: str) -> dict[str, Any]:
         workers = _fallback_team_workers(stripped)
     if mode == "team" and _request_needs_writer(stripped) and "QUILL" not in workers:
         workers.append("QUILL")
+    planner_reason = str(payload.get("reason") or "").strip()
+    if (
+        mode == "team"
+        and str(routing_score.get("decision") or "").strip() == "direct"
+        and bool(routing_score.get("short_prompt"))
+        and not bool(routing_score.get("requires_team_execution"))
+        and not bool(routing_score.get("actionable"))
+        and int(routing_score.get("confidence") or 0) >= route_direct_guard
+    ):
+        mode = "direct"
+        workers = []
+        planner_reason = "decision_grade_override_to_direct"
     return {
         "mode": mode,
         "topic": topic,
@@ -2063,12 +2507,15 @@ def _team_route_plan(text: str, session_key: str) -> dict[str, Any]:
         "criteria": criteria,
         "workers": workers,
         "manager_brief": str(payload.get("manager_brief") or topic).strip() or topic,
-        "reason": str(payload.get("reason") or "").strip(),
+        "reason": planner_reason,
         "skills": skill_bundle["matches"],
+        "routing_score": routing_score,
     }
 
 
 def _manager_direct_response(goal: str, session_key: str, plan: dict[str, Any] | None = None) -> str:
+    manager_defaults = _loom_manager_defaults()
+    manager_meta = _manager_exec_metadata(manager_defaults.get("model", ""))
     if _looks_like_meridian_internal_query(goal):
         answer = _render_meridian_internal_answer(goal)
         append_session_event(session_key, {
@@ -2077,14 +2524,13 @@ def _manager_direct_response(goal: str, session_key: str, plan: dict[str, Any] |
             "agent_id": TEAM_MANAGER_AGENT_ID,
             "speaker": "manager",
             "text": answer,
-            "provider_profile": TEAM_TOPOLOGY.manager.profile_name,
-            "model": TEAM_TOPOLOGY.manager.model,
-            "transport_kind": "codex_session",
-            "auth_mode": "codex_auth_json",
+            "provider_profile": manager_meta["provider_profile"],
+            "model": manager_meta["model"],
+            "transport_kind": manager_meta["transport_kind"],
+            "auth_mode": manager_meta["auth_mode"],
             "execution_owner": "meridian",
         }, loom_root=LOOM_ROOT)
         return answer
-    manager = _loom_manager_defaults()
     history_context = imported_history_context(session_key, loom_root=LOOM_ROOT, limit=24)
     memory_context = _memory_context_block(dict(plan or {}).get("memory_packet"))
     trust_evidence_context = _trust_evidence_context_block(dict(plan or {}).get("trust_evidence_packet"))
@@ -2101,21 +2547,22 @@ def _manager_direct_response(goal: str, session_key: str, plan: dict[str, Any] |
             f"Imported conversation continuity:\n{history_context or '(none)'}\n\n"
             f"User request:\n{goal.strip()}"
         ),
-        model=manager["model"],
+        model=manager_defaults["model"],
         timeout=REQUEST_TIMEOUT_SECONDS,
     )
     if result.get("ok") and str(result.get("output_text") or "").strip():
         answer = str(result.get("output_text") or "").strip()
+        result_meta = _manager_exec_metadata(str(result.get("model") or manager_defaults.get("model") or ""))
         append_session_event(session_key, {
             "history_type": "manager_response",
             "status": "completed",
             "agent_id": TEAM_MANAGER_AGENT_ID,
             "speaker": "manager",
             "text": answer,
-            "provider_profile": TEAM_TOPOLOGY.manager.profile_name,
-            "model": TEAM_TOPOLOGY.manager.model,
-            "transport_kind": "codex_session",
-            "auth_mode": "codex_auth_json",
+            "provider_profile": str(result.get("provider_profile") or result_meta["provider_profile"]),
+            "model": str(result.get("model") or result_meta["model"]),
+            "transport_kind": str(result.get("transport_kind") or result_meta["transport_kind"]),
+            "auth_mode": str(result.get("auth_mode") or result_meta["auth_mode"]),
             "execution_owner": "meridian",
         }, loom_root=LOOM_ROOT)
         return answer
@@ -2126,10 +2573,10 @@ def _manager_direct_response(goal: str, session_key: str, plan: dict[str, Any] |
         "agent_id": TEAM_MANAGER_AGENT_ID,
         "speaker": "manager",
         "text": answer,
-        "provider_profile": TEAM_TOPOLOGY.manager.profile_name,
-        "model": TEAM_TOPOLOGY.manager.model,
-        "transport_kind": "codex_session",
-        "auth_mode": "codex_auth_json",
+        "provider_profile": str(result.get("provider_profile") or manager_meta["provider_profile"]),
+        "model": str(result.get("model") or manager_meta["model"]),
+        "transport_kind": str(result.get("transport_kind") or manager_meta["transport_kind"]),
+        "auth_mode": str(result.get("auth_mode") or manager_meta["auth_mode"]),
         "execution_owner": "meridian",
         "warnings": [str(result.get("stderr") or "codex exec failed").strip()],
     }, loom_root=LOOM_ROOT)
@@ -2616,7 +3063,7 @@ def _qa_gate_allows_manager_fastpath(steps: list[dict[str, Any]]) -> bool:
         step
         for step in list(steps or [])
         if str(step.get("task_kind") or "").strip() == "qa_gate"
-        and str(step.get("status") or "").strip().lower() == "ok"
+        and _step_effective_status(step) == "ok"
     ]
     if not qa_steps:
         return False
@@ -2655,6 +3102,8 @@ def _manager_fastpath_artifact(
 
 
 def _manager_synthesis(goal: str, session_key: str, steps: list[dict[str, Any]], plan: dict[str, Any] | None = None) -> str:
+    manager_defaults = _loom_manager_defaults()
+    manager_meta = _manager_exec_metadata(manager_defaults.get("model", ""))
     skill_names = [
         str(item.get("name") or "").strip()
         for item in list((plan or {}).get("skills") or [])
@@ -2668,16 +3117,15 @@ def _manager_synthesis(goal: str, session_key: str, steps: list[dict[str, Any]],
             "agent_id": TEAM_MANAGER_AGENT_ID,
             "speaker": "manager",
             "text": fastpath_artifact,
-            "provider_profile": TEAM_TOPOLOGY.manager.profile_name,
-            "model": TEAM_TOPOLOGY.manager.model,
-            "transport_kind": "codex_session",
-            "auth_mode": "codex_auth_json",
+            "provider_profile": manager_meta["provider_profile"],
+            "model": manager_meta["model"],
+            "transport_kind": manager_meta["transport_kind"],
+            "auth_mode": manager_meta["auth_mode"],
             "execution_owner": "meridian",
             "warnings": [fastpath_warning],
         }, loom_root=LOOM_ROOT)
         return fastpath_artifact
 
-    manager = _loom_manager_defaults()
     history_context = imported_history_context(session_key, loom_root=LOOM_ROOT, limit=24)
     cleaned_steps = _manager_step_view(steps)
     verified_facts = {}
@@ -2709,29 +3157,30 @@ def _manager_synthesis(goal: str, session_key: str, steps: list[dict[str, Any]],
             f"Imported conversation continuity:\n{history_context or '(none)'}\n\n"
             f"Specialist outputs:\n{json.dumps(cleaned_steps, indent=2, ensure_ascii=False)}"
         ),
-        model=manager["model"],
+        model=manager_defaults["model"],
         timeout=REQUEST_TIMEOUT_SECONDS,
     )
     if result.get("ok") and str(result.get("output_text") or "").strip():
         answer = str(result.get("output_text") or "").strip()
+        result_meta = _manager_exec_metadata(str(result.get("model") or manager_defaults.get("model") or ""))
         append_session_event(session_key, {
             "history_type": "manager_response",
             "status": "completed",
             "agent_id": TEAM_MANAGER_AGENT_ID,
             "speaker": "manager",
             "text": answer,
-            "provider_profile": TEAM_TOPOLOGY.manager.profile_name,
-            "model": TEAM_TOPOLOGY.manager.model,
-            "transport_kind": "codex_session",
-            "auth_mode": "codex_auth_json",
+            "provider_profile": str(result.get("provider_profile") or result_meta["provider_profile"]),
+            "model": str(result.get("model") or result_meta["model"]),
+            "transport_kind": str(result.get("transport_kind") or result_meta["transport_kind"]),
+            "auth_mode": str(result.get("auth_mode") or result_meta["auth_mode"]),
             "execution_owner": "meridian",
         }, loom_root=LOOM_ROOT)
         return answer
     verification_incomplete = any(
         str(item.get("task_kind") or "").strip() in {"verify", "qa_gate"}
         and (
-            str(item.get("status") or "").strip() != "ok"
-            or bool(item.get("warnings"))
+            _step_effective_status(item) != "ok"
+            or _step_has_non_informational_warning(item)
             or "timed out" in str(item.get("result") or "").lower()
         )
         for item in steps
@@ -2760,10 +3209,10 @@ def _manager_synthesis(goal: str, session_key: str, steps: list[dict[str, Any]],
             "agent_id": TEAM_MANAGER_AGENT_ID,
             "speaker": "manager",
             "text": fallback_artifact,
-            "provider_profile": TEAM_TOPOLOGY.manager.profile_name,
-            "model": TEAM_TOPOLOGY.manager.model,
-            "transport_kind": "codex_session",
-            "auth_mode": "codex_auth_json",
+            "provider_profile": manager_meta["provider_profile"],
+            "model": manager_meta["model"],
+            "transport_kind": manager_meta["transport_kind"],
+            "auth_mode": manager_meta["auth_mode"],
             "execution_owner": "meridian",
             "warnings": ["manager_synthesis_fallback_to_best_worker_artifact"],
         }, loom_root=LOOM_ROOT)
@@ -2775,10 +3224,10 @@ def _manager_synthesis(goal: str, session_key: str, steps: list[dict[str, Any]],
         "agent_id": TEAM_MANAGER_AGENT_ID,
         "speaker": "manager",
         "text": answer,
-        "provider_profile": TEAM_TOPOLOGY.manager.profile_name,
-        "model": TEAM_TOPOLOGY.manager.model,
-        "transport_kind": "codex_session",
-        "auth_mode": "codex_auth_json",
+        "provider_profile": manager_meta["provider_profile"],
+        "model": manager_meta["model"],
+        "transport_kind": manager_meta["transport_kind"],
+        "auth_mode": manager_meta["auth_mode"],
         "execution_owner": "meridian",
         "warnings": ["manager_synthesis_empty"],
     }, loom_root=LOOM_ROOT)
@@ -2798,8 +3247,20 @@ def _run_team_route(text: str, session_key: str, runtime: AgentRuntime) -> tuple
         for item in list(plan.get("skills") or [])
         if isinstance(item, dict) and str(item.get("name") or "").strip()
     ]
+    routing_score = dict(plan.get("routing_score") or {})
+    route_trace = _record_route_decision_trace(
+        session_key=session_key,
+        request=request,
+        plan=plan,
+        routing_score=routing_score,
+        skill_names=skill_names,
+    )
+    if route_trace:
+        plan["route_decision_trace"] = dict(route_trace)
     plan["memory_packet"] = _build_memory_packet(request, session_key, skill_names)
     plan["trust_evidence_packet"] = _build_trust_evidence_packet(request, session_key, skill_names)
+    manager_defaults = _loom_manager_defaults()
+    manager_meta = _manager_exec_metadata(manager_defaults.get("model", ""))
     append_session_event(session_key, {
         "history_type": "manager_plan",
         "status": "planned",
@@ -2810,12 +3271,31 @@ def _run_team_route(text: str, session_key: str, runtime: AgentRuntime) -> tuple
         "mode": str(plan.get("mode") or ""),
         "criteria": str(plan.get("criteria") or ""),
         "depth": str(plan.get("depth") or ""),
-        "provider_profile": TEAM_TOPOLOGY.manager.profile_name,
-        "model": TEAM_TOPOLOGY.manager.model,
-        "transport_kind": "codex_session",
-        "auth_mode": "codex_auth_json",
+        "provider_profile": manager_meta["provider_profile"],
+        "model": manager_meta["model"],
+        "transport_kind": manager_meta["transport_kind"],
+        "auth_mode": manager_meta["auth_mode"],
         "execution_owner": "meridian",
         "skills_used": skill_names,
+        "routing_decision": str(routing_score.get("decision") or "").strip(),
+        "routing_confidence": routing_score.get("confidence"),
+        "routing_reason": str(routing_score.get("reason") or "").strip(),
+        "routing_direct_score": routing_score.get("direct_score"),
+        "routing_team_score": routing_score.get("team_score"),
+        "routing_margin_required": routing_score.get("margin_required"),
+        "routing_raw_margin": routing_score.get("raw_margin"),
+        "routing_direct_guard_confidence": routing_score.get("direct_guard_confidence"),
+        "routing_load_tier": str(dict(routing_score.get("adaptive_thresholds") or {}).get("load_tier") or "").strip(),
+        "routing_load_pending_count": dict(routing_score.get("load_snapshot") or {}).get("pending_count"),
+        "routing_load_latency_p50_ms": dict(routing_score.get("load_snapshot") or {}).get("latency_p50_ms"),
+        "routing_load_fail_rate": dict(routing_score.get("load_snapshot") or {}).get("fail_rate"),
+        "routing_estimated_direct_latency_seconds": routing_score.get("estimated_direct_latency_seconds"),
+        "routing_estimated_team_latency_seconds": routing_score.get("estimated_team_latency_seconds"),
+        "routing_estimated_direct_cost_usd": routing_score.get("estimated_direct_cost_usd"),
+        "routing_estimated_team_cost_usd": routing_score.get("estimated_team_cost_usd"),
+        "route_trace_schema_version": str(route_trace.get("schema_version") or "").strip(),
+        "route_trace_id": str(route_trace.get("trace_id") or "").strip(),
+        "route_trace_artifact_path": str(route_trace.get("artifact_path") or "").strip(),
         "memory_keys": _memory_packet_keys(plan.get("memory_packet")),
         "evidence_keys": _trust_evidence_packet_keys(plan.get("trust_evidence_packet")),
     }, loom_root=LOOM_ROOT)
@@ -6439,16 +6919,27 @@ def _governed_skill_autonomy_begin(
         "skill_name": skill_name,
         "session_key": session_key,
     }
-    budget = treasury_reserve_runtime_budget(
-        TEAM_MANAGER_AGENT_ID,
-        estimated_cost,
-        org_id=LOOM_ORG_ID,
-        action=action,
-        resource=skill_name,
-        context=payload,
-        lease_seconds=300,
-        policy_ref=GOVERNED_SKILL_SYNTHESIS_POLICY_REF,
-    )
+    try:
+        budget = treasury_reserve_runtime_budget(
+            TEAM_MANAGER_AGENT_ID,
+            estimated_cost,
+            org_id=LOOM_ORG_ID,
+            action=action,
+            resource=skill_name,
+            context=payload,
+            lease_seconds=300,
+            policy_ref=GOVERNED_SKILL_SYNTHESIS_POLICY_REF,
+        )
+    except (SystemExit, Exception) as exc:
+        return {
+            "allowed": False,
+            "phase": phase,
+            "skill_name": skill_name,
+            "estimated_cost_usd": estimated_cost,
+            "budget": {},
+            "reason": f"governance_unavailable: {str(exc).strip()}",
+            "error_type": type(exc).__name__,
+        }
     if not bool(budget.get("allowed")):
         return {
             "allowed": False,
@@ -6459,34 +6950,59 @@ def _governed_skill_autonomy_begin(
             "reason": str(budget.get("reason") or "budget reservation denied").strip(),
         }
     reservation = dict(budget.get("reservation") or {})
-    warrant = warrants_issue_warrant(
-        LOOM_ORG_ID,
-        "budget_spend",
-        GOVERNED_SKILL_BOUNDARY_NAME,
-        TEAM_MANAGER_AGENT_ID,
-        session_id=session_key,
-        request_payload=payload,
-        risk_class="moderate" if phase == "create" else "low",
-        evidence_refs=[f"session:{session_key}", f"skill:{skill_name}"],
-        policy_refs=[GOVERNED_SKILL_SYNTHESIS_POLICY_REF],
-        note=f"Governed dynamic skill synthesis ({phase}) for {skill_name}",
-    )
-    approved = warrants_review_warrant(
-        str(warrant.get("warrant_id") or "").strip(),
-        "approve",
-        "system:leviathann-governor",
-        org_id=LOOM_ORG_ID,
-        note="Bounded internal skill synthesis approved under governed autonomy policy.",
-    )
-    validated = warrants_validate_warrant_for_execution(
-        str(warrant.get("warrant_id") or "").strip(),
-        org_id=LOOM_ORG_ID,
-        action_class="budget_spend",
-        boundary_name=GOVERNED_SKILL_BOUNDARY_NAME,
-        actor_id=TEAM_MANAGER_AGENT_ID,
-        session_id=session_key,
-        request_payload=payload,
-    )
+    try:
+        warrant = warrants_issue_warrant(
+            LOOM_ORG_ID,
+            "budget_spend",
+            GOVERNED_SKILL_BOUNDARY_NAME,
+            TEAM_MANAGER_AGENT_ID,
+            session_id=session_key,
+            request_payload=payload,
+            risk_class="moderate" if phase == "create" else "low",
+            evidence_refs=[f"session:{session_key}", f"skill:{skill_name}"],
+            policy_refs=[GOVERNED_SKILL_SYNTHESIS_POLICY_REF],
+            note=f"Governed dynamic skill synthesis ({phase}) for {skill_name}",
+        )
+        approved = warrants_review_warrant(
+            str(warrant.get("warrant_id") or "").strip(),
+            "approve",
+            "system:leviathann-governor",
+            org_id=LOOM_ORG_ID,
+            note="Bounded internal skill synthesis approved under governed autonomy policy.",
+        )
+        validated = warrants_validate_warrant_for_execution(
+            str(warrant.get("warrant_id") or "").strip(),
+            org_id=LOOM_ORG_ID,
+            action_class="budget_spend",
+            boundary_name=GOVERNED_SKILL_BOUNDARY_NAME,
+            actor_id=TEAM_MANAGER_AGENT_ID,
+            session_id=session_key,
+            request_payload=payload,
+        )
+    except (SystemExit, Exception) as exc:
+        reservation_id = str(reservation.get("reservation_id") or "").strip()
+        if reservation_id:
+            try:
+                treasury_release_runtime_budget(
+                    reservation_id,
+                    TEAM_MANAGER_AGENT_ID,
+                    org_id=LOOM_ORG_ID,
+                    status="aborted",
+                    reason=f"governance_path_failed:{phase}",
+                    refs={"skill_name": skill_name, "error_type": type(exc).__name__},
+                )
+            except (SystemExit, Exception):
+                pass
+        return {
+            "allowed": False,
+            "phase": phase,
+            "skill_name": skill_name,
+            "estimated_cost_usd": estimated_cost,
+            "budget": budget,
+            "reservation": reservation,
+            "reason": f"governance_warrant_failed: {str(exc).strip()}",
+            "error_type": type(exc).__name__,
+        }
     return {
         "allowed": True,
         "phase": phase,
@@ -7430,6 +7946,22 @@ def _step_warning_texts(step: dict[str, Any]) -> list[str]:
     return [str(item).strip() for item in list(step.get("warnings") or []) if str(item).strip()]
 
 
+def _step_effective_status(step: dict[str, Any]) -> str:
+    status = str(step.get("status") or "").strip().lower()
+    if status:
+        return status
+    if _step_result_text(step):
+        return "ok"
+    warning_texts = _step_warning_texts(step)
+    if any(_warning_is_hard_blocker(item) or _warning_is_runtime_failure(item) for item in warning_texts):
+        return "error"
+    return "unknown"
+
+
+def _step_has_non_informational_warning(step: dict[str, Any]) -> bool:
+    return any(not _warning_is_informational(item) for item in _step_warning_texts(step))
+
+
 def _warning_is_hard_blocker(text: str) -> bool:
     lowered = str(text or "").strip().lower()
     return any(token in lowered for token in ("hard_deny", "hard deny", "sanction", "denied by policy"))
@@ -7900,7 +8432,7 @@ def _assess_skill_quality_outcome(
     has_warning = False
     placeholder_completion_ok = _placeholder_completion_is_success(skill_names or [])
     for step in steps:
-        status = str(step.get("status") or "").strip().lower()
+        status = _step_effective_status(step)
         task_kind = str(step.get("task_kind") or "").strip()
         if status != "ok":
             reason = f"{str(step.get('agent_id') or 'worker').strip() or 'worker'} status={status or 'unknown'}"
@@ -7960,6 +8492,8 @@ def _request_is_actionable(text: str) -> bool:
 def _autonomy_skill_candidate(text: str) -> bool:
     stripped = str(text or "").strip()
     if not stripped:
+        return False
+    if _looks_like_meridian_internal_query(stripped) or _looks_like_meridian_operator_workflow_query(stripped):
         return False
     lowered = stripped.lower()
     if lowered in {"hi", "hello", "hey", "yo", "ping", "/help"}:
@@ -8054,6 +8588,28 @@ def _request_prefers_specific_skill(request: str, matches: list[dict[str, Any]])
     return False
 
 
+def _best_specific_fallback_match(
+    request: str,
+    matches: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    candidates = [dict(item) for item in matches if isinstance(item, dict)]
+    if not candidates:
+        return []
+    request_category = TEAM_SKILLS._autonomy_category(request)
+    if request_category and request_category != "general":
+        category_matches = [
+            item for item in candidates
+            if _skill_item_category(item) == request_category
+        ]
+        if category_matches:
+            candidates = category_matches
+    candidates.sort(
+        key=lambda item: int(item.get("score") or 0),
+        reverse=True,
+    )
+    return [candidates[0]] if candidates else []
+
+
 def _skill_bundle_for_request(
     request: str,
     session_key: str,
@@ -8070,6 +8626,7 @@ def _skill_bundle_for_request(
         ]
         if filtered:
             matches = filtered
+    seed_matches = [dict(item) for item in matches if isinstance(item, dict)]
     if matches and _request_is_security_questionnaire(request):
         questionnaire_matches = [
             item
@@ -8269,7 +8826,7 @@ def _skill_bundle_for_request(
                 if refreshed:
                     matches = refreshed
                     refined_skill = next((dict(item) for item in matches if bool(item.get("autogenerated"))), None)
-                    if refined_skill:
+                if refined_skill:
                         append_session_event(
                             session_key,
                             {
@@ -8284,6 +8841,8 @@ def _skill_bundle_for_request(
                             },
                             loom_root=LOOM_ROOT,
                         )
+    if not matches and allow_create and seed_matches:
+        matches = _best_specific_fallback_match(request, seed_matches)
     lowered = (request or "").strip().lower()
     if matches:
         names = {str(item.get("name") or "").strip().lower() for item in matches}
@@ -9711,34 +10270,16 @@ class AgentRuntime:
                     user_parts.append(f"[{role}] {content}")
         defaults = _loom_manager_defaults()
         user_prompt = "\n\n".join(part for part in user_parts if part.strip())
-        if defaults["provider_profile"] == "manager_frontier":
-            codex_result = _run_codex_exec(
-                system_prompt=system_prompt,
-                user_prompt=user_prompt,
-                model=defaults["model"],
-            )
-            if not codex_result.get("ok"):
-                raise RuntimeError(codex_result.get("stderr") or codex_result.get("stdout") or "Codex exec failed")
-            output = str(codex_result.get("output_text") or "").strip()
-            if not output:
-                raise RuntimeError("Codex exec returned empty output")
-            return output
-        observation = self._run_loom(
-            "loom.llm.inference.v1",
-            {
-                "provider_profile": defaults["provider_profile"],
-                "model": defaults["model"],
-                "system_prompt": system_prompt,
-                "user_prompt": user_prompt,
-                "max_tokens": 700,
-            },
+        manager_result = _run_codex_exec(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            model=defaults["model"],
         )
-        if not observation.get("ok"):
-            raise RuntimeError(observation.get("error") or observation.get("stderr") or "Loom llm inference failed")
-        llm_response = observation.get("llm_response") or {}
-        output = str(llm_response.get("output_text") or "").strip()
+        if not manager_result.get("ok"):
+            raise RuntimeError(manager_result.get("stderr") or manager_result.get("stdout") or "manager route failed")
+        output = str(manager_result.get("output_text") or "").strip()
         if not output:
-            raise RuntimeError("Loom llm inference returned empty output_text")
+            raise RuntimeError("manager route returned empty output_text")
         return output
 
     def _valid_step(self, payload: dict[str, Any] | None) -> bool:
