@@ -76,6 +76,67 @@
     <span class="dim">Kernel stays runtime-neutral, but Loom is the official first-party runtime that has to win on product feel, install speed, receipts, and governed execution.</span>
   </div>
 
+  <h2>Reality split: breadth assistant vs governed runtime</h2>
+  <p class="section-intro compact-copy">Claw-family stacks currently win breadth, channels, and community gravity. Loom is intentionally optimized for governed execution where warrant, authority, treasury, and proof-chain are the selection criteria.</p>
+  <div class="scoreboard-grid">
+    <article class="score-card">
+      <span class="score-kicker">Claw-family default</span>
+      <h3>Personal autonomy and surface breadth</h3>
+      <p>Best fit when the requirement is broad channel coverage, companion UX, and fast feature spread across a large contributor base.</p>
+    </article>
+    <article class="score-card">
+      <span class="score-kicker">Loom default</span>
+      <h3>Governed runtime for organizations</h3>
+      <p>Best fit when execution must stay auditable and enforceable: receipts, sanctions, budget gates, and inspectable operator state.</p>
+    </article>
+  </div>
+
+  <h2>Runtime snapshot: resource and proof posture</h2>
+  <p class="section-intro compact-copy">This table is intentionally bounded. It combines local cold-start resource checks with runtime-governance posture from public stack surfaces.</p>
+  <div class="card">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Stack</th>
+          <th>Cold start band</th>
+          <th>Peak RSS band</th>
+          <th>Proof posture</th>
+          <th>Governance posture</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td data-label="Stack"><strong>Loom</strong></td>
+          <td data-label="Cold start band">~30ms (`loom status` reference)</td>
+          <td data-label="Peak RSS band">~4.8 MiB</td>
+          <td data-label="Proof posture">PoGE receipts + zk settlement-compatible path</td>
+          <td data-label="Governance posture">Kernel warrants, authority, treasury, court</td>
+        </tr>
+        <tr>
+          <td data-label="Stack"><strong>OpenFang</strong></td>
+          <td data-label="Cold start band">~28ms (`--help` reference)</td>
+          <td data-label="Peak RSS band">~2.8 MiB</td>
+          <td data-label="Proof posture">audit-oriented runtime traces</td>
+          <td data-label="Governance posture">runtime controls, no constitutional court/treasury model</td>
+        </tr>
+        <tr>
+          <td data-label="Stack"><strong>IronClaw</strong></td>
+          <td data-label="Cold start band">~33ms (`--help` reference)</td>
+          <td data-label="Peak RSS band">~5.1 MiB</td>
+          <td data-label="Proof posture">security-first local runtime controls</td>
+          <td data-label="Governance posture">strong sandbox posture, no kernel-style REP/AUTH/CASH economy</td>
+        </tr>
+        <tr>
+          <td data-label="Stack"><strong>ZeroClaw</strong></td>
+          <td data-label="Cold start band">benchmark slot included in Loom harness</td>
+          <td data-label="Peak RSS band">benchmark slot included in Loom harness</td>
+          <td data-label="Proof posture">runtime audit and performance emphasis</td>
+          <td data-label="Governance posture">breadth-first runtime surface, no Loom-style court/treasury layer</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
   <h2>Quadrant View</h2>
   <p class="section-intro compact-copy">This is the least misleading single frame: upward means more governance pressure, rightward means more breadth, and the lower-right corner is where persistent local agency tends to live.</p>
   <div class="quadrant-map">

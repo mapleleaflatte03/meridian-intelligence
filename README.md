@@ -39,6 +39,12 @@ Meridian currently presents a Loom-first hierarchy around four ideas:
 - Meridian Intelligence plus bounded Trust Ops as first-party workloads that prove the runtime under real pressure.
 - A truthful host boundary that separates verified live routes from future deployment claims.
 
+Operational positioning shorthand:
+
+- Claw-family stacks: broad personal-assistant autonomy surfaces.
+- Meridian Loom: governed runtime execution for organizations that need
+  receipts, warrants, court/authority policy, and treasury-gated labor.
+
 ## 1-Command Install
 
 If the operator question is "what do I install?", the answer is Loom:
