@@ -161,7 +161,7 @@ that path as `mcp_service` with identity model `x402_payment` and scope
 `founding_service_only`. Multi-institution MCP routing is not live.
 The live agent registry also surfaces `runtime_binding` on each governed agent
 record, and that same field is visible through `GET /api/agents` and the
-`agents` array plus the top-level `agent_runtime_bindings` tranche inside
+`agents` array plus the top-level `agent_runtime_bindings` summary block inside
 `/api/status`. That makes the agent-bound runtime truth public instead of
 implicit.
 

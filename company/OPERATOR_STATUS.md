@@ -191,7 +191,7 @@ These reminders go to owner-controlled accounts. Not funnel activity.
 No tracked public-repo engineering blocker remains at closeout. The remaining
 live runtime modules are intentionally founding-service-only, and the system is
 currently owner-blocked by treasury policy and, as a consequence, by the
-absence of a fresh brief. The latest founding-only service-state tranche also
+absence of a fresh brief. The latest founding-only service-state update also
 made subscriptions and owner-ledger accounting state capsule-canonical, with
 company-file compatibility paths kept only as symlink aliases back to the
 founding capsule, while payment-monitor state continues to resolve through the

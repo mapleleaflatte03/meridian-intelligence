@@ -1,6 +1,6 @@
 # Meridian Ecosystem Residual Plan
 
-This document records the next mandatory repo builds after the current probe, ACPX, onboarding, frontier transport, memory seam, Intelligence slimming, and kernel-admission tranche.
+This document records the next mandatory repo builds after the current probe, ACPX, onboarding, frontier transport, memory seam, Intelligence slimming, and kernel-admission update.
 
 ## Completed since last update (2026-03-29)
 

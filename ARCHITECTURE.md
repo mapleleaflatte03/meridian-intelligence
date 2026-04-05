@@ -120,7 +120,7 @@ Agent {
     boundary_name: string
     identity_model: string
     boundary_scope: string
-  }                                  # Self-contained runtime-binding tranche
+  }                                  # Self-contained runtime-binding summary
 }
 ```
 
@@ -434,7 +434,7 @@ which exposes:
 - the live boundary registry (`workspace`, `federation_gateway`, `mcp_service`, `payment_monitor`, `subscriptions`, `accounting`, `cli`)
 - the live admission model
 - the live federation-gateway state
-- governed agent records with their public `runtime_binding` tranche via `/api/agents`, the `agents` array in `/api/status`, and the top-level `agent_runtime_bindings` summary in `/api/status`
+- governed agent records with their public `runtime_binding` summary via `/api/agents`, the `agents` array in `/api/status`, and the top-level `agent_runtime_bindings` summary in `/api/status`
 - a public live `GET /api/runtime-proof` receipt for the `loom_native` runtime binding, including host health, the Loom service-state probe, runtime agent inventory, and governed-agent alignment
 
 The owner workspace also now exposes read-only snapshots for two

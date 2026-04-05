@@ -6,7 +6,7 @@ This store is intentionally narrow:
 
 - jobs are institution-scoped and file-backed
 - jobs are keyed idempotently by envelope_id
-- the first tranche only materializes local review state for received
+- the current scope only materializes local review state for received
   `execution_request` envelopes; it does not execute remote work yet
 """
 from __future__ import annotations
