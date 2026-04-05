@@ -1011,3 +1011,227 @@
 
   loadLiveSnapshot();
 })();
+
+(function () {
+  'use strict';
+  var summaryShell = document.querySelector('[data-proof-summary-shell]');
+  var streamLog = document.querySelector('[data-operator-stream-log]');
+  if (!summaryShell && !streamLog) {
+    return;
+  }
+
+  function safeText(value) {
+    return value == null ? '' : String(value);
+  }
+
+  function safeNumber(value) {
+    var parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+
+  function formatUsd(value) {
+    return '$' + safeNumber(value).toFixed(2);
+  }
+
+  function escapeHtml(value) {
+    return safeText(value)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  function setText(selector, value) {
+    var node = document.querySelector(selector);
+    if (node) {
+      node.textContent = safeText(value);
+    }
+  }
+
+  function setStreamMode(label, note, warning) {
+    var modeNode = document.querySelector('[data-stream-mode]');
+    var noteNode = document.querySelector('[data-stream-note]');
+    if (modeNode) {
+      modeNode.textContent = safeText(label);
+      modeNode.className = warning ? 'status-warn' : 'status-good';
+    }
+    if (noteNode) {
+      noteNode.textContent = safeText(note);
+    }
+  }
+
+  function appendStreamEvent(eventName, payload) {
+    if (!streamLog) {
+      return;
+    }
+    var text = safeText(payload && payload.text ? payload.text : '');
+    var source = safeText(payload && payload.source ? payload.source : eventName || 'event');
+    if (!text) {
+      return;
+    }
+    var line = document.createElement('div');
+    line.className = 'operator-stream-line';
+    line.innerHTML =
+      '<span class="operator-stream-ts">' + new Date().toLocaleTimeString() + '</span>' +
+      '<span class="operator-stream-source">' + escapeHtml(source) + '</span>' +
+      '<span class="operator-stream-text">' + escapeHtml(text) + '</span>';
+    streamLog.prepend(line);
+    var rows = streamLog.querySelectorAll('.operator-stream-line');
+    for (var idx = 80; idx < rows.length; idx += 1) {
+      rows[idx].remove();
+    }
+    var empty = streamLog.querySelector('.operator-stream-empty');
+    if (empty) {
+      empty.remove();
+    }
+  }
+
+  function renderSummary(status, proof) {
+    if (!summaryShell) {
+      return;
+    }
+    setText('[data-proof-runtime-id]', proof.runtime_id || status.runtime_id || 'unknown');
+    setText('[data-proof-type]', proof.proof_type || status.proof_mode || 'unknown');
+    setText('[data-proof-slo]', (status.slo && status.slo.status) || 'unknown');
+    setText('[data-proof-alerts]', safeNumber(status.slo && status.slo.alert_count));
+    setText('[data-proof-cash]', formatUsd(status.treasury && status.treasury.cash_usd));
+    setText('[data-proof-floor]', formatUsd(status.treasury && status.treasury.reserve_floor_usd));
+    setText(
+      '[data-proof-updated-at]',
+      'Updated ' + new Date().toLocaleString() +
+        ' · runtime ' + safeText(proof.runtime_health && proof.runtime_health.status || 'unknown') +
+        ' · proof ' + safeText(proof.health && proof.health.status || 'unknown')
+    );
+  }
+
+  async function refreshSummary() {
+    if (!summaryShell) {
+      return;
+    }
+    try {
+      var responses = await Promise.all([
+        fetch('/api/status'),
+        fetch('/api/runtime-proof')
+      ]);
+      if (!responses[0].ok || !responses[1].ok) {
+        throw new Error('proof routes returned non-200');
+      }
+      var status = await responses[0].json();
+      var proof = await responses[1].json();
+      renderSummary(status, proof);
+    } catch (error) {
+      setText('[data-proof-updated-at]', 'Unable to refresh proof summary: ' + safeText(error && error.message));
+    }
+  }
+
+  var pollTimer = null;
+  async function pollEventsOnce() {
+    try {
+      var response = await fetch('/api/events');
+      if (!response.ok) {
+        throw new Error('poll failed');
+      }
+      var payload = await response.json();
+      var events = payload && payload.events ? payload.events : [];
+      events.forEach(function (item) {
+        appendStreamEvent('poll', item);
+      });
+    } catch (error) {
+      setStreamMode('polling', 'Realtime stream unavailable, polling fallback active.', true);
+    }
+  }
+
+  function startPollingFallback() {
+    if (pollTimer) {
+      return;
+    }
+    setStreamMode('polling', 'Realtime stream unavailable, polling /api/events every 4s.', true);
+    pollEventsOnce();
+    pollTimer = window.setInterval(pollEventsOnce, 4000);
+  }
+
+  function connectEventStream() {
+    if (!streamLog) {
+      return;
+    }
+    if (!('EventSource' in window)) {
+      startPollingFallback();
+      return;
+    }
+    setStreamMode('stream', 'Connecting to /api/events/stream…', false);
+    var source = new EventSource('/api/events/stream');
+    source.addEventListener('open', function () {
+      setStreamMode('stream', 'Realtime stream active from /api/events/stream.', false);
+    });
+    source.addEventListener('event', function (event) {
+      try {
+        var payload = JSON.parse(event.data || '{}');
+        appendStreamEvent('stream', payload);
+      } catch (error) {
+        appendStreamEvent('stream', { source: 'gateway', text: safeText(event.data || '') });
+      }
+    });
+    source.addEventListener('heartbeat', function () {
+      setStreamMode('stream', 'Realtime stream active from /api/events/stream.', false);
+    });
+    source.onerror = function () {
+      source.close();
+      startPollingFallback();
+    };
+  }
+
+  refreshSummary();
+  window.setInterval(refreshSummary, 15000);
+  connectEventStream();
+})();
+
+(function () {
+  'use strict';
+  var shell = document.querySelector('[data-usdc-surface]');
+  if (!shell) {
+    return;
+  }
+
+  function safeNumber(value) {
+    var parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+
+  function setMetric(selector, value) {
+    var node = document.querySelector(selector);
+    if (node) {
+      node.textContent = value;
+    }
+  }
+
+  function formatUsd(value) {
+    return '$' + safeNumber(value).toFixed(2);
+  }
+
+  async function refreshUsdSurface() {
+    try {
+      var responses = await Promise.all([
+        fetch('/api/treasury'),
+        fetch('/api/payouts')
+      ]);
+      if (!responses[0].ok || !responses[1].ok) {
+        throw new Error('treasury routes unavailable');
+      }
+      var treasury = await responses[0].json();
+      var payouts = await responses[1].json();
+      var proposals = payouts && Array.isArray(payouts.proposals) ? payouts.proposals : [];
+
+      setMetric('[data-usdc-balance]', formatUsd(treasury.balance_usd));
+      setMetric('[data-usdc-floor]', formatUsd(treasury.reserve_floor_usd));
+      setMetric('[data-usdc-orders]', String(safeNumber(treasury.paid_orders)));
+      setMetric('[data-usdc-payouts]', String(proposals.length));
+      setMetric('[data-usdc-updated-at]', 'Updated ' + new Date().toLocaleString() + ' from /api/treasury and /api/payouts.');
+    } catch (error) {
+      setMetric('[data-usdc-updated-at]', 'Unable to load USDC surface: ' + String(error && error.message || 'unknown_error'));
+    }
+  }
+
+  refreshUsdSurface();
+  window.setInterval(refreshUsdSurface, 20000);
+})();

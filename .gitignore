@@ -91,3 +91,7 @@ company/gen_sample_brief.py
 company/send_email.py
 company/revenue_dashboard.py
 meridian_config.json
+
+# ── Launch runtime artifacts (generated locally) ──
+company/launch/artifacts/*.json
+!company/launch/artifacts/.gitkeep

@@ -21,6 +21,9 @@
   <a href="https://app.welliam.codes/why">Why</a> ·
   <a href="https://app.welliam.codes/compare">Compare</a> ·
   <a href="https://app.welliam.codes/demo">Demo</a> ·
+  <a href="https://app.welliam.codes/proofs">Proofs</a> ·
+  <a href="https://app.welliam.codes/workflows">Workflows</a> ·
+  <a href="https://app.welliam.codes/community">Community</a> ·
   <a href="https://app.welliam.codes/pilot">Pilot</a> ·
   <a href="https://app.welliam.codes/support">Support</a> ·
   <a href="https://app.welliam.codes/boundary">Boundary</a>
@@ -118,6 +121,9 @@ Rollback plan (safe + quick):
 
 - Loom as both the live execution runtime on this host and the installable local runtime.
 - The public web portal, Loom landing page, compare page, demo page, and boundary note.
+- A public proof dashboard with realtime event stream (`/proofs`).
+- A workflow gallery with live treasury/payout snapshot (`/workflows`).
+- A community operating page (`/community`) tied to governance-first contribution lanes.
 - Competitor intelligence as the first Loom-backed first-party workflow.
 - Bounded Trust Ops primitives as additional first-party workloads on the same host.
 - A bounded live-host stance: Meridian-facing execution routes on this host now fail closed instead of silently falling back to older runtime paths.

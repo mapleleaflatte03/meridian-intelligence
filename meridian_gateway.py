@@ -10841,8 +10841,56 @@ class WebAPIAdapter(ChannelAdapter):
         super().__init__(runtime, "web")
         self.allowed_origin = allowed_origin.strip()
         self.notifications: queue.Queue[dict[str, str]] = queue.Queue()
+        self.stream_subscribers: set[queue.Queue[dict[str, str]]] = set()
+        self.stream_subscribers_lock = threading.Lock()
         self.server: ThreadingHTTPServer | None = None
         self.thread: threading.Thread | None = None
+
+    def _publish_event(self, event: dict[str, str]) -> None:
+        self.notifications.put(dict(event))
+        with self.stream_subscribers_lock:
+            subscribers = list(self.stream_subscribers)
+        for subscriber in subscribers:
+            try:
+                subscriber.put_nowait(dict(event))
+            except queue.Full:
+                try:
+                    subscriber.get_nowait()
+                except queue.Empty:
+                    pass
+                try:
+                    subscriber.put_nowait(dict(event))
+                except queue.Full:
+                    continue
+
+    def _stream_events(self, handler: BaseHTTPRequestHandler) -> None:
+        subscriber: queue.Queue[dict[str, str]] = queue.Queue(maxsize=64)
+        with self.stream_subscribers_lock:
+            self.stream_subscribers.add(subscriber)
+        try:
+            handler.send_response(200)
+            handler._send_cors_headers()
+            handler.send_header("Content-Type", "text/event-stream")
+            handler.send_header("Cache-Control", "no-cache")
+            handler.send_header("Connection", "keep-alive")
+            handler.end_headers()
+            handler.wfile.write(b": meridian_events_stream_v1\n\n")
+            handler.wfile.flush()
+            while True:
+                try:
+                    event = subscriber.get(timeout=15)
+                    event_name = "event"
+                except queue.Empty:
+                    event = {"source": "gateway", "text": "heartbeat", "ts": str(int(time.time()))}
+                    event_name = "heartbeat"
+                payload = json.dumps(event, ensure_ascii=False)
+                handler.wfile.write(f"event: {event_name}\ndata: {payload}\n\n".encode("utf-8"))
+                handler.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError, OSError):
+            return
+        finally:
+            with self.stream_subscribers_lock:
+                self.stream_subscribers.discard(subscriber)
 
     def _make_handler(self):
         adapter = self
@@ -10940,6 +10988,9 @@ class WebAPIAdapter(ChannelAdapter):
                         except queue.Empty:
                             break
                     self._send_json(200, {"status": "success", "events": events})
+                    return
+                if request_path == "/api/events/stream":
+                    adapter._stream_events(self)
                     return
                 if request_path == "/api/trust-ops/status":
                     self._send_json(200, {"status": "success", "trust_ops": _build_trust_assurance_summary()})
@@ -11252,7 +11303,7 @@ class WebAPIAdapter(ChannelAdapter):
         delivery = _loom_channel_send("web_api", LOOM_ORG_ID, text)
         delivery_payload = delivery.get("payload") if isinstance(delivery, dict) else {}
         delivery_id = str((delivery_payload or {}).get("delivery_id") or "").strip()
-        self.notifications.put({"source": source, "text": text, "ts": str(int(time.time()))})
+        self._publish_event({"source": source, "text": text, "ts": str(int(time.time()))})
         if delivery_id:
             _loom_channel_update(delivery_id, "delivered", external_ref="notification_queue", detail="")
             _loom_session_route(
