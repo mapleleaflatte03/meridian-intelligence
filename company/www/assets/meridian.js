@@ -786,6 +786,7 @@
   if (!shells.length) {
     return;
   }
+  var latestSnapshot = null;
 
   function safeNumber(value) {
     var parsed = Number(value);
@@ -981,9 +982,11 @@
   }
 
   async function loadLiveSnapshot() {
-    shells.forEach(function (shell) {
-      setLoadingState(shell, 'Loading live host data…');
-    });
+    if (!latestSnapshot) {
+      shells.forEach(function (shell) {
+        setLoadingState(shell, 'Loading live host data…');
+      });
+    }
     try {
       var responses = await Promise.all([
         fetch('/api/status'),
@@ -994,6 +997,7 @@
       }
       var status = await responses[0].json();
       var proof = await responses[1].json();
+      latestSnapshot = { status: status, proof: proof };
       shells.forEach(function (shell) {
         renderSnapshotIntoShell(shell, status, proof);
       });
@@ -1002,14 +1006,19 @@
         ['runtime', 'queue', 'proof'].forEach(function (name) {
           setCaption(shell, name, error.message || 'Unable to load live host data.');
         });
-        renderChart(shell.querySelector('[data-live-chart="runtime"]'), []);
-        renderChart(shell.querySelector('[data-live-chart="queue"]'), []);
-        renderChart(shell.querySelector('[data-live-chart="proof"]'), []);
+        if (latestSnapshot) {
+          renderSnapshotIntoShell(shell, latestSnapshot.status, latestSnapshot.proof);
+        } else {
+          renderLoadingChart(shell.querySelector('[data-live-chart="runtime"]'));
+          renderLoadingChart(shell.querySelector('[data-live-chart="queue"]'));
+          renderLoadingChart(shell.querySelector('[data-live-chart="proof"]'));
+        }
       });
     }
   }
 
   loadLiveSnapshot();
+  window.setInterval(loadLiveSnapshot, 15000);
 })();
 
 (function () {
@@ -1194,6 +1203,7 @@
   }
   var showcaseGrid = document.querySelector('[data-workflow-showcase-grid]');
   var showcaseUpdatedAt = document.querySelector('[data-workflow-showcase-updated-at]');
+  var latestShowcase = null;
 
   function safeNumber(value) {
     var parsed = Number(value);
@@ -1221,6 +1231,7 @@
   }
 
   function renderWorkflowShowcase(showcase) {
+    latestShowcase = showcase || null;
     if (!showcaseGrid) {
       return;
     }
@@ -1254,7 +1265,7 @@
 
   async function refreshWorkflowShowcase() {
     if (!showcaseGrid) {
-      return;
+      return null;
     }
     try {
       var response = await fetch('/api/workflows/showcase');
@@ -1262,7 +1273,9 @@
         throw new Error('workflow showcase unavailable');
       }
       var payload = await response.json();
-      renderWorkflowShowcase(payload && payload.showcase ? payload.showcase : {});
+      var showcase = payload && payload.showcase ? payload.showcase : {};
+      renderWorkflowShowcase(showcase);
+      return showcase;
     } catch (error) {
       showcaseGrid.innerHTML = '<article class="feature-card"><h3>Workflow showcase error</h3><p>' +
         escapeHtml(String(error && error.message || 'unknown_error')) +
@@ -1270,10 +1283,34 @@
       if (showcaseUpdatedAt) {
         showcaseUpdatedAt.textContent = 'Unable to load /api/workflows/showcase.';
       }
+      return null;
     }
   }
 
+  function applyUsdFromShowcase(showcase) {
+    if (!showcase || typeof showcase !== 'object') {
+      return false;
+    }
+    var balance = safeNumber(showcase.treasury_balance_usd);
+    var floor = safeNumber(showcase.treasury_reserve_floor_usd);
+    var orders = safeNumber(showcase.paid_orders);
+    var payouts = safeNumber(showcase.payout_proposals);
+    setMetric('[data-usdc-balance]', formatUsd(balance));
+    setMetric('[data-usdc-floor]', formatUsd(floor));
+    setMetric('[data-usdc-orders]', String(orders));
+    setMetric('[data-usdc-payouts]', String(payouts));
+    setMetric(
+      '[data-usdc-updated-at]',
+      'Updated ' + new Date().toLocaleString() +
+        ' from /api/workflows/showcase.'
+    );
+    return true;
+  }
+
   async function refreshUsdSurface() {
+    if (applyUsdFromShowcase(latestShowcase)) {
+      return;
+    }
     try {
       var responses = await Promise.all([
         fetch('/api/treasury'),
@@ -1292,12 +1329,18 @@
       setMetric('[data-usdc-payouts]', String(proposals.length));
       setMetric('[data-usdc-updated-at]', 'Updated ' + new Date().toLocaleString() + ' from /api/treasury and /api/payouts.');
     } catch (error) {
-      setMetric('[data-usdc-updated-at]', 'Unable to load USDC surface: ' + String(error && error.message || 'unknown_error'));
+      if (!applyUsdFromShowcase(latestShowcase)) {
+        setMetric('[data-usdc-updated-at]', 'Unable to load USDC surface: ' + String(error && error.message || 'unknown_error'));
+      }
     }
   }
 
-  refreshUsdSurface();
-  refreshWorkflowShowcase();
+  async function refreshWorkflowAndUsdSurface() {
+    await refreshWorkflowShowcase();
+    await refreshUsdSurface();
+  }
+
+  refreshWorkflowAndUsdSurface();
   window.setInterval(refreshUsdSurface, 20000);
-  window.setInterval(refreshWorkflowShowcase, 20000);
+  window.setInterval(refreshWorkflowAndUsdSurface, 20000);
 })();

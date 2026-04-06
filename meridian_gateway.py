@@ -1802,6 +1802,35 @@ def _verified_fact_warnings(verified_facts: dict[str, Any], *, include_unknowns:
     return warnings
 
 
+def _specialist_role_label(specialist: Any) -> str:
+    role = str(getattr(specialist, "role", "") or "").strip()
+    if role:
+        return role
+    task_kind = str(getattr(specialist, "task_kind", "") or "").strip().lower()
+    fallback_by_task = {
+        "research": "research specialist",
+        "verify": "verification specialist",
+        "qa_gate": "quality gate specialist",
+        "execute": "execution specialist",
+        "write": "writing specialist",
+        "compress": "compression specialist",
+        "manage": "manager",
+    }
+    if task_kind:
+        return fallback_by_task.get(task_kind, task_kind.replace("_", " "))
+    return "specialist"
+
+
+def _specialist_purpose_label(specialist: Any) -> str:
+    purpose = str(getattr(specialist, "purpose", "") or "").strip()
+    if purpose:
+        return purpose
+    task_kind = str(getattr(specialist, "task_kind", "") or "").strip().replace("_", " ")
+    if task_kind:
+        return f"Deliver governed {task_kind} output with verifiable traceability."
+    return "Deliver governed output with verifiable traceability."
+
+
 def _verified_fact_worker_receipt(
     specialist: TeamSpecialist,
     request: str,
@@ -1886,7 +1915,7 @@ def _verified_fact_worker_receipt(
 
     return {
         "agent_id": specialist.registry_id,
-        "role": specialist.role,
+        "role": _specialist_role_label(specialist),
         "task_kind": specialist.task_kind,
         "request_id": f"verified-facts::{specialist.registry_id}::{int(time.time())}",
         "session_key": session_key,
@@ -2677,6 +2706,13 @@ def _manager_direct_response(goal: str, session_key: str, plan: dict[str, Any] |
 
 def _run_specialist_step(agent_key: str, request: str, session_key: str, plan: dict[str, Any]) -> dict[str, Any]:
     specialist = next(agent for agent in TEAM_TOPOLOGY.specialists if agent.env_key == agent_key)
+    specialist_role = _specialist_role_label(specialist)
+    specialist_purpose = _specialist_purpose_label(specialist)
+    def _safe_runtime_context() -> Any:
+        try:
+            return mcp_server._loom_runtime_context()  # type: ignore[attr-defined]
+        except Exception:
+            return {}
     context_block = _specialist_history_context(request, session_key, plan)
     verified_facts = plan.get("verified_facts")
     verified_facts_block = json.dumps(verified_facts, indent=2, ensure_ascii=False) if isinstance(verified_facts, dict) else "(none)"
@@ -2702,7 +2738,7 @@ def _run_specialist_step(agent_key: str, request: str, session_key: str, plan: d
             "status": receipt["status"],
             "agent_id": specialist.registry_id,
             "speaker": "worker",
-            "role": specialist.role,
+            "role": specialist_role,
             "task_kind": specialist.task_kind,
             "request_id": receipt["request_id"],
             "provider_profile": specialist.profile_name,
@@ -2737,7 +2773,7 @@ def _run_specialist_step(agent_key: str, request: str, session_key: str, plan: d
                 atlas_warnings.append(str(safe_fetch.get("error") or "safe_web_fetch_failed").strip())
             receipt = {
                 "agent_id": specialist.registry_id,
-                "role": specialist.role,
+                "role": specialist_role,
                 "task_kind": specialist.task_kind,
                 "request_id": "",
                 "session_key": session_key,
@@ -2757,7 +2793,7 @@ def _run_specialist_step(agent_key: str, request: str, session_key: str, plan: d
                 "status": receipt["status"],
                 "agent_id": specialist.registry_id,
                 "speaker": "worker",
-                "role": specialist.role,
+                "role": specialist_role,
                 "task_kind": specialist.task_kind,
                 "request_id": receipt["request_id"],
                 "provider_profile": specialist.profile_name,
@@ -2827,7 +2863,7 @@ def _run_specialist_step(agent_key: str, request: str, session_key: str, plan: d
                 atlas_warnings = [*atlas_warnings, "customer_research_starter_salvaged_after_unverified_research"]
         receipt = {
             "agent_id": specialist.registry_id,
-            "role": specialist.role,
+            "role": specialist_role,
             "task_kind": specialist.task_kind,
             "request_id": str(result.get("job_id") or ""),
             "session_key": session_key,
@@ -2847,7 +2883,7 @@ def _run_specialist_step(agent_key: str, request: str, session_key: str, plan: d
             "status": receipt["status"],
             "agent_id": specialist.registry_id,
             "speaker": "worker",
-            "role": specialist.role,
+            "role": specialist_role,
             "task_kind": specialist.task_kind,
             "request_id": receipt["request_id"],
             "provider_profile": specialist.profile_name,
@@ -2912,7 +2948,7 @@ def _run_specialist_step(agent_key: str, request: str, session_key: str, plan: d
         )
         receipt = {
             "agent_id": specialist.registry_id,
-            "role": specialist.role,
+            "role": specialist_role,
             "task_kind": specialist.task_kind,
             "request_id": str(result.get("job_id") or ""),
             "session_key": session_key,
@@ -2936,7 +2972,7 @@ def _run_specialist_step(agent_key: str, request: str, session_key: str, plan: d
             "status": receipt["status"],
             "agent_id": specialist.registry_id,
             "speaker": "worker",
-            "role": specialist.role,
+            "role": specialist_role,
             "task_kind": specialist.task_kind,
             "request_id": receipt["request_id"],
             "provider_profile": specialist.profile_name,
@@ -2952,8 +2988,8 @@ def _run_specialist_step(agent_key: str, request: str, session_key: str, plan: d
 
     prompt = textwrap.dedent(
         f"""
-        You are {specialist.name}, Meridian's {specialist.role}.
-        Purpose: {specialist.purpose}
+        You are {specialist.name}, Meridian's {specialist_role}.
+        Purpose: {specialist_purpose}
         Manager brief: {str(plan.get('manager_brief') or request).strip()}
         Verified Meridian host facts (treat these as the only trusted factual baseline):
         {verified_facts_block}
@@ -2998,7 +3034,7 @@ def _run_specialist_step(agent_key: str, request: str, session_key: str, plan: d
         )
         direct_fallback = mcp_server._specialist_direct_provider_fallback(  # type: ignore[attr-defined]
             specialist.registry_id,
-            system_prompt=f"You are {specialist.name}. {specialist.purpose}",
+            system_prompt=f"You are {specialist.name}. {specialist_purpose}",
             user_prompt=prompt,
             max_tokens=specialist_max_tokens,
             timeout=direct_provider_timeout,
@@ -3014,12 +3050,12 @@ def _run_specialist_step(agent_key: str, request: str, session_key: str, plan: d
             direct_fallback = None
             loom_timeout = max(8, specialist_timeout - min(direct_provider_timeout, max(specialist_timeout - 6, 0)))
             loom_result = mcp_server._shared_run_loom_capability(  # type: ignore[attr-defined]
-                mcp_server._loom_runtime_context(),  # type: ignore[attr-defined]
+                _safe_runtime_context(),
                 "loom.llm.inference.v1",
                 {
                     "provider_profile": specialist.profile_name,
                     "model": specialist.model,
-                    "system_prompt": f"You are {specialist.name}. {specialist.purpose}",
+                    "system_prompt": f"You are {specialist.name}. {specialist_purpose}",
                     "user_prompt": prompt,
                     "max_tokens": specialist_max_tokens,
                 },
@@ -3031,12 +3067,12 @@ def _run_specialist_step(agent_key: str, request: str, session_key: str, plan: d
             )
     else:
         loom_result = mcp_server._shared_run_loom_capability(  # type: ignore[attr-defined]
-            mcp_server._loom_runtime_context(),  # type: ignore[attr-defined]
+            _safe_runtime_context(),
             "loom.llm.inference.v1",
             {
                 "provider_profile": specialist.profile_name,
                 "model": specialist.model,
-                "system_prompt": f"You are {specialist.name}. {specialist.purpose}",
+                "system_prompt": f"You are {specialist.name}. {specialist_purpose}",
                 "user_prompt": prompt,
                 "max_tokens": specialist_max_tokens,
             },
@@ -3063,7 +3099,7 @@ def _run_specialist_step(agent_key: str, request: str, session_key: str, plan: d
         recovery_timeout = min(12, max(6, specialist_timeout // 3))
         direct_fallback = mcp_server._specialist_direct_provider_fallback(  # type: ignore[attr-defined]
             specialist.registry_id,
-            system_prompt=f"You are {specialist.name}. {specialist.purpose}",
+            system_prompt=f"You are {specialist.name}. {specialist_purpose}",
             user_prompt=prompt,
             max_tokens=specialist_max_tokens,
             timeout=recovery_timeout,
@@ -3112,7 +3148,7 @@ def _run_specialist_step(agent_key: str, request: str, session_key: str, plan: d
         warnings = [*warnings, *citation_warnings]
     receipt = {
         "agent_id": specialist.registry_id,
-        "role": specialist.role,
+        "role": specialist_role,
         "task_kind": specialist.task_kind,
         "request_id": str(loom_result.get("job_id") or ""),
         "session_key": session_key,
@@ -3135,7 +3171,7 @@ def _run_specialist_step(agent_key: str, request: str, session_key: str, plan: d
         "status": receipt["status"],
         "agent_id": specialist.registry_id,
         "speaker": "worker",
-        "role": specialist.role,
+        "role": specialist_role,
         "task_kind": specialist.task_kind,
         "request_id": receipt["request_id"],
         "provider_profile": specialist.profile_name,
@@ -3566,7 +3602,8 @@ def _run_team_route(text: str, session_key: str, runtime: AgentRuntime) -> tuple
             },
             loom_root=LOOM_ROOT,
         )
-    score_summary = _score_user_session_delivery(session_key, str(delivery_event.get("event_id") or ""))
+    delivery_event_id = str(dict(delivery_event or {}).get("event_id") or "")
+    score_summary = _score_user_session_delivery(session_key, delivery_event_id)
     if score_summary:
         append_session_event(
             session_key,
@@ -4882,7 +4919,9 @@ def _memory_delivery_origin_agent(delivery_event: dict[str, Any]) -> str:
     return origin_agent
 
 
-def _delivery_memory_entry_from_event(delivery_event: dict[str, Any]) -> dict[str, Any] | None:
+def _delivery_memory_entry_from_event(delivery_event: Any) -> dict[str, Any] | None:
+    if not isinstance(delivery_event, dict):
+        return None
     if str(delivery_event.get("status") or "").strip().lower() != "success":
         return None
     if not bool(delivery_event.get("final_artifact_usable")):
@@ -4989,7 +5028,7 @@ def _sync_successful_output_memory(state: dict[str, Any]) -> None:
     history_state["event_ids"] = seen_event_ids[-600:]
 
 
-def _remember_successful_delivery_memory(delivery_event: dict[str, Any]) -> None:
+def _remember_successful_delivery_memory(delivery_event: Any) -> None:
     entry = _delivery_memory_entry_from_event(delivery_event)
     if not entry:
         return
@@ -5697,7 +5736,9 @@ def _trust_evidence_context_block(trust_packet: dict[str, Any] | None) -> str:
     return context
 
 
-def _delivery_trust_evidence_entry_from_event(delivery_event: dict[str, Any]) -> dict[str, Any] | None:
+def _delivery_trust_evidence_entry_from_event(delivery_event: Any) -> dict[str, Any] | None:
+    if not isinstance(delivery_event, dict):
+        return None
     quality_status = str(delivery_event.get("status") or "").strip().lower()
     if quality_status not in {"success", "partial"}:
         return None
@@ -5812,7 +5853,7 @@ def _upsert_trust_evidence_entry(state: dict[str, Any], entry: dict[str, Any]) -
     return record, changed
 
 
-def _remember_trust_evidence(delivery_event: dict[str, Any]) -> list[dict[str, Any]]:
+def _remember_trust_evidence(delivery_event: Any) -> list[dict[str, Any]]:
     entry = _delivery_trust_evidence_entry_from_event(delivery_event)
     if not entry:
         return []
@@ -10990,8 +11031,13 @@ class WebAPIAdapter(ChannelAdapter):
         class Handler(BaseHTTPRequestHandler):
             server_version = "MeridianGatewayWeb/0.1"
 
-            def _origin_allowed(self) -> bool:
-                return self.headers.get("Origin") == adapter.allowed_origin
+            def _origin_allowed(self, request_path: str = "") -> bool:
+                origin = str(self.headers.get("Origin") or "").strip()
+                if origin == adapter.allowed_origin:
+                    return True
+                if not origin and self._public_read_allowed(request_path):
+                    return True
+                return False
 
             def _trust_ops_route(self, request_path: str) -> bool:
                 return str(request_path or "").strip() in {
@@ -11006,7 +11052,13 @@ class WebAPIAdapter(ChannelAdapter):
                 return _operator_token_valid(self.headers)
 
             def _public_read_allowed(self, request_path: str) -> bool:
-                return False
+                return str(request_path or "").strip() in {
+                    "/api/events",
+                    "/api/events/stream",
+                    "/api/workflows/showcase",
+                    "/api/status",
+                    "/api/runtime-proof",
+                }
 
             def _send_cors_headers(self) -> None:
                 self.send_header("Access-Control-Allow-Origin", adapter.allowed_origin)
@@ -11053,7 +11105,7 @@ class WebAPIAdapter(ChannelAdapter):
                     self.send_header("Content-Length", "0")
                     self.end_headers()
                     return
-                if not self._origin_allowed():
+                if not self._origin_allowed(request_path):
                     self._send_json(403, {"status": "error", "output": "origin_not_allowed"})
                     return
                 self.send_response(204)
@@ -11069,7 +11121,7 @@ class WebAPIAdapter(ChannelAdapter):
                     if not self._operator_authorized():
                         self._send_json(401, {"status": "error", "output": "operator_auth_required"})
                         return
-                elif not self._origin_allowed() and not self._public_read_allowed(request_path):
+                elif not self._origin_allowed(request_path) and not self._public_read_allowed(request_path):
                     self._send_json(403, {"status": "error", "output": "origin_not_allowed"})
                     return
                 if request_path == "/api/events":
@@ -11158,7 +11210,7 @@ class WebAPIAdapter(ChannelAdapter):
                     if not self._operator_authorized():
                         self._send_json(401, {"status": "error", "output": "operator_auth_required"})
                         return
-                elif not self._origin_allowed():
+                elif not self._origin_allowed(request_path):
                     self._send_json(403, {"status": "error", "output": "origin_not_allowed"})
                     return
                 self._reconcile_stale_web_deliveries()
