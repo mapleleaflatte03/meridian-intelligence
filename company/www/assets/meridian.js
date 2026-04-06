@@ -1104,7 +1104,7 @@
     setText('[data-proof-type]', proof.proof_type || status.proof_mode || 'unknown');
     setText('[data-proof-slo]', (status.slo && status.slo.status) || 'unknown');
     setText('[data-proof-alerts]', safeNumber(status.slo && status.slo.alert_count));
-    setText('[data-proof-cash]', formatUsd(status.treasury && status.treasury.cash_usd));
+    setText('[data-proof-cash]', formatUsd(status.treasury && status.treasury.balance_usd));
     setText('[data-proof-floor]', formatUsd(status.treasury && status.treasury.reserve_floor_usd));
     setText(
       '[data-proof-updated-at]',
