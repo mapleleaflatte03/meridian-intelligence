@@ -95,3 +95,6 @@ meridian_config.json
 # ── Launch runtime artifacts (generated locally) ──
 company/launch/artifacts/*.json
 !company/launch/artifacts/.gitkeep
+
+# ── Acceptance and test output (generated locally) ──
+output/
