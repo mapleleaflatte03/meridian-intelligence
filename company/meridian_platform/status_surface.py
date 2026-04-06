@@ -258,6 +258,37 @@ def persistence_snapshot(org_id=None):
     }
 
 
+def _governance_metrics(org_id):
+    """Extract governance SLO metrics from audit trail and court."""
+    proof_settle_latest_at = ''
+    active_sanctions = 0
+    try:
+        events = audit_tail_events(50, org_id=org_id)
+        for event in reversed(events):
+            action = str(event.get('action', '')).lower()
+            if 'settle' in action or 'poge' in action:
+                proof_settle_latest_at = event.get('timestamp', '')
+                break
+    except Exception:
+        pass
+    try:
+        import court as court_module
+        restrictions = court_module.get_restrictions(org_id)
+        if isinstance(restrictions, list):
+            active_sanctions = sum(
+                1 for item in restrictions
+                if str(item.get('status', '')).lower() in ('active', 'pending_review')
+            )
+        elif isinstance(restrictions, dict):
+            active_sanctions = int(restrictions.get('active_count', 0) or 0)
+    except Exception:
+        pass
+    return {
+        'proof_settle_latest_at': proof_settle_latest_at,
+        'active_sanctions': active_sanctions,
+    }
+
+
 def observability_snapshot(org_id):
     """Return the file-backed metrics inputs and an explicit SLO status."""
     audit_summary = audit_stats(org_id)
@@ -268,6 +299,7 @@ def observability_snapshot(org_id):
     metering_events = metering_usage(org_id)
     metering_latest = metering_events[-1] if metering_events else {}
     persistence = persistence_snapshot(org_id)
+    governance = _governance_metrics(org_id)
     metrics = {
         'audit': {
             **audit_summary,
@@ -281,6 +313,7 @@ def observability_snapshot(org_id):
             'latest_metric': metering_latest.get('metric', ''),
             'latest_cost_usd': round(float(metering_latest.get('cost_usd', 0.0) or 0.0), 4),
         },
+        'governance': governance,
     }
     slo = slo_policy.evaluate_observability(metrics)
     alert_run = alerting.record_slo_alerts(slo, org_id=org_id)

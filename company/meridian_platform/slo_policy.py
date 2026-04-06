@@ -29,6 +29,16 @@ DEFAULT_POLICY = {
             'warning_at_usd': 80.0,
             'breach_at_usd': 100.0,
         },
+        {
+            'name': 'proof_settle_freshness',
+            'metric': 'governance.proof_settle_latest_at',
+            'warning_after_seconds': 7200,
+            'breach_after_seconds': 172800,
+        },
+        {
+            'name': 'governance_sanction_clean',
+            'metric': 'governance.active_sanctions',
+        },
     ],
 }
 
@@ -104,10 +114,28 @@ def _eval_budget(name: str, total_cost_usd: float, warning_at_usd: float, breach
     }
 
 
+def _eval_sanction_clean(name: str, active_sanctions: int) -> dict[str, Any]:
+    active = int(active_sanctions or 0)
+    if active > 0:
+        status = 'breached'
+        message = f'{active} active sanction(s) require court review'
+    else:
+        status = 'healthy'
+        message = 'No active sanctions'
+    return {
+        'name': name,
+        'metric': active,
+        'status': status,
+        'active_sanctions': active,
+        'message': message,
+    }
+
+
 def evaluate_observability(metrics: dict[str, Any], policy: dict[str, Any] | None = None) -> dict[str, Any]:
     policy = policy or DEFAULT_POLICY
     audit = metrics.get('audit', {}) if isinstance(metrics, dict) else {}
     metering = metrics.get('metering', {}) if isinstance(metrics, dict) else {}
+    governance = metrics.get('governance', {}) if isinstance(metrics, dict) else {}
     objectives = [
         _eval_freshness(
             'audit_freshness',
@@ -126,6 +154,16 @@ def evaluate_observability(metrics: dict[str, Any], policy: dict[str, Any] | Non
             float(metering.get('total_cost_usd', 0.0) or 0.0),
             80.0,
             100.0,
+        ),
+        _eval_freshness(
+            'proof_settle_freshness',
+            governance.get('proof_settle_latest_at', ''),
+            7200,
+            172800,
+        ),
+        _eval_sanction_clean(
+            'governance_sanction_clean',
+            int(governance.get('active_sanctions', 0) or 0),
         ),
     ]
     ranked = max((_objective_status_rank(obj['status']) for obj in objectives), default=-1)
