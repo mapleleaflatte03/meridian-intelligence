@@ -19,6 +19,7 @@
    - Discord community update
 5. Execute automated lane:
    - `python3 company/launch/publish_live.py --channels x,reddit,hn,discord --site https://app.welliam.codes`
+   - `./scripts/acceptance_publish_live_real_lane.sh`
 6. Verify latest publish artifact:
    - `company/launch/artifacts/publish_live_latest.json`
    - every configured channel reports `status: posted`

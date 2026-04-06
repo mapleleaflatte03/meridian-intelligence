@@ -62,3 +62,10 @@ Acceptance lane (unit + mock-live):
 ```bash
 ./scripts/acceptance_publish_live_lane.sh
 ```
+
+Real publish acceptance lane (requires live credentials; verifies all channels
+report `status=posted`):
+
+```bash
+./scripts/acceptance_publish_live_real_lane.sh
+```
