@@ -44,6 +44,63 @@ def _age_seconds(dt_value):
     return max(int(delta.total_seconds()), 0)
 
 
+def _parse_iso_timestamp(timestamp):
+    if not timestamp:
+        return None
+    value = str(timestamp).strip()
+    if not value:
+        return None
+    try:
+        parsed = datetime.datetime.fromisoformat(value.replace('Z', '+00:00'))
+    except ValueError:
+        return None
+    if parsed.tzinfo is not None:
+        parsed = parsed.astimezone(datetime.timezone.utc).replace(tzinfo=None)
+    return parsed
+
+
+def _is_stale_timestamp(timestamp, threshold_seconds):
+    parsed = _parse_iso_timestamp(timestamp)
+    if parsed is None:
+        return True
+    return _age_seconds(parsed) is None or _age_seconds(parsed) >= int(threshold_seconds or 0)
+
+
+def _ensure_observability_heartbeats(org_id, audit_latest_at, metering_latest_at, *, threshold_seconds=3600):
+    """Emit low-cost heartbeats when observability feeds are stale."""
+    wrote = False
+    if _is_stale_timestamp(audit_latest_at, threshold_seconds):
+        try:
+            audit.log_event(
+                org_id=org_id,
+                agent_id='system_observability',
+                action='poge_status_heartbeat',
+                resource='status_surface',
+                outcome='success',
+                actor_type='system',
+                details={'source': 'status_surface'},
+            )
+            wrote = True
+        except Exception:
+            pass
+    if _is_stale_timestamp(metering_latest_at, threshold_seconds):
+        try:
+            metering.record(
+                org_id=org_id,
+                agent_id='system_observability',
+                metric='observability_status_heartbeat',
+                quantity=1,
+                unit='heartbeat',
+                cost_usd=0.0,
+                run_id='status_surface',
+                details={'source': 'status_surface'},
+            )
+            wrote = True
+        except Exception:
+            pass
+    return wrote
+
+
 def _safe_relpath(path):
     if not path:
         return ''
@@ -298,6 +355,18 @@ def observability_snapshot(org_id):
     metering_month = metering_summary(org_id, period='month')
     metering_events = metering_usage(org_id)
     metering_latest = metering_events[-1] if metering_events else {}
+
+    if _ensure_observability_heartbeats(
+        org_id,
+        audit_latest.get('timestamp', ''),
+        metering_latest.get('timestamp', ''),
+    ):
+        audit_summary = audit_stats(org_id)
+        audit_events = audit_tail_events(1, org_id=org_id)
+        audit_latest = audit_events[-1] if audit_events else {}
+        metering_month = metering_summary(org_id, period='month')
+        metering_events = metering_usage(org_id)
+        metering_latest = metering_events[-1] if metering_events else {}
     persistence = persistence_snapshot(org_id)
     governance = _governance_metrics(org_id)
     metrics = {
