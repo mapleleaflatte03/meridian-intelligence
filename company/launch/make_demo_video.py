@@ -1,82 +1,137 @@
 #!/usr/bin/env python3
-"""Build a 2-3 minute Meridian demo video from storyboard slides."""
+"""Build a Meridian demo video that matches live web style and brand assets."""
 
 from __future__ import annotations
 
+import shutil
 import subprocess
+import textwrap
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageOps
 
 
 ROOT = Path(__file__).resolve().parent
 ASSETS_DIR = ROOT / "assets"
-ASSETS_DIR.mkdir(parents=True, exist_ok=True)
-FRAMES_DIR = ASSETS_DIR / "frames"
-FRAMES_DIR.mkdir(parents=True, exist_ok=True)
+CAPTURE_DIR = ASSETS_DIR / "captures"
+SCENE_DIR = ASSETS_DIR / "scenes"
+CLIP_DIR = ASSETS_DIR / "clips"
+CONCAT_FILE = ASSETS_DIR / "meridian_demo_clips.ffconcat"
 OUTPUT_VIDEO = ASSETS_DIR / "meridian_demo_2m20s.mp4"
-CONCAT_FILE = ASSETS_DIR / "meridian_demo_frames.ffconcat"
 
-WIDTH = 1280
-HEIGHT = 720
-BG_TOP = (3, 6, 12)
-BG_BOTTOM = (8, 16, 28)
+WIDTH = 1920
+HEIGHT = 1080
+FPS = 30
+
+# Palette aligned to company/www/assets/meridian.css
+BG_TOP = (3, 5, 7)
+BG_BOTTOM = (2, 3, 5)
+PANEL = (9, 13, 22)
+PANEL_SOFT = (7, 11, 18)
+BORDER = (23, 37, 54)
 ACCENT = (135, 216, 255)
-TEXT = (232, 238, 246)
-DIM = (150, 165, 185)
+TEXT = (229, 235, 242)
+DIM = (141, 152, 168)
 
-SLIDES = [
-    (
-        "Meridian Loom",
-        "Governed local agent runtime\nwith inspectable receipts and proof surfaces.",
-        16,
-    ),
-    (
-        "Install in one command",
-        "curl -fsSL https://raw.githubusercontent.com/mapleleaflatte03/meridian-loom/main/scripts/install.sh | bash",
-        14,
-    ),
-    (
-        "Create + run first agent",
-        "loom new-agent --name my-assistant\nloom run-agent my-assistant --once",
-        14,
-    ),
-    (
-        "Connect lifecycle (operator-grade)",
-        "loom connect scaffold --name desktop_ops --transport desktop --action-schema meridian.runtime.v1\nloom connect validate|enable|test|health|scorecard",
-        18,
-    ),
-    (
-        "Failure semantics",
-        "Rate-limit, malformed payload, reconnect storm,\nand sanction path are explicit acceptance lanes.",
-        16,
-    ),
-    (
-        "Proof dashboard",
-        "Public viewer: /proofs\nRuntime state + queue pressure + proof boundary + realtime event stream.",
-        16,
-    ),
-    (
-        "Workflow growth surface",
-        "Public /workflows page shows first-party lanes\nand live USDC operating snapshot.",
-        16,
-    ),
-    (
-        "Architecture boundary",
-        "Loom = runtime\nKernel = authority/treasury/court core\nWorkflows = proof workloads",
-        14,
-    ),
-    (
-        "Live links",
-        "app.welliam.codes/demo\napp.welliam.codes/proofs\napp.welliam.codes/workflows",
-        18,
-    ),
-    (
-        "Request for feedback",
-        "Which adapter/failure mode still blocks production trust?\nWhich KPI is required before adoption?",
-        18,
-    ),
+LOGO_AVATAR = Path("/home/ubuntu/.meridian/workspace/company/www/assets/logo_avatar_192.png")
+LOGO_BANNER = Path("/home/ubuntu/.meridian/workspace/company/www/assets/logo_banner_1200x630.jpg")
+
+SCENES: list[dict[str, object]] = [
+    {
+        "kind": "brand",
+        "slug": "intro",
+        "duration": 12,
+        "title": "Meridian Loom",
+        "subtitle": "Governed local agent runtime with verifiable execution receipts.",
+    },
+    {
+        "kind": "web",
+        "slug": "home",
+        "duration": 14,
+        "url": "https://app.welliam.codes/",
+        "wait_ms": 2600,
+        "title": "Homepage surface",
+        "subtitle": "Single narrative shell with live runtime identity and clear boundary.",
+    },
+    {
+        "kind": "web",
+        "slug": "loom",
+        "duration": 14,
+        "url": "https://app.welliam.codes/loom",
+        "wait_ms": 2200,
+        "title": "Loom runtime page",
+        "subtitle": "Local runtime first, governance hooks explicit, no hidden execution claims.",
+    },
+    {
+        "kind": "web",
+        "slug": "proofs",
+        "duration": 14,
+        "url": "https://app.welliam.codes/proofs",
+        "wait_ms": 2800,
+        "title": "Public proof dashboard",
+        "subtitle": "Runtime proof status, queue pressure, and live operator event stream.",
+    },
+    {
+        "kind": "web",
+        "slug": "demo",
+        "duration": 14,
+        "url": "https://app.welliam.codes/demo",
+        "wait_ms": 2600,
+        "title": "Demo surface",
+        "subtitle": "Proof-backed workflow examples displayed on the same host boundary.",
+    },
+    {
+        "kind": "web",
+        "slug": "workflows",
+        "duration": 14,
+        "url": "https://app.welliam.codes/workflows",
+        "wait_ms": 2400,
+        "title": "Workflow portfolio",
+        "subtitle": "First-party execution lanes tied to runtime evidence and operating metrics.",
+    },
+    {
+        "kind": "web",
+        "slug": "compare",
+        "duration": 14,
+        "url": "https://app.welliam.codes/compare",
+        "wait_ms": 2200,
+        "title": "Competitive framing",
+        "subtitle": "Runtime-neutral comparison where governance and proof are first-class criteria.",
+    },
+    {
+        "kind": "web",
+        "slug": "community",
+        "duration": 14,
+        "url": "https://app.welliam.codes/community",
+        "wait_ms": 2200,
+        "title": "Community motion",
+        "subtitle": "Operational cadence for contributors and operator review loops.",
+    },
+    {
+        "kind": "card",
+        "slug": "desktop_lane",
+        "duration": 16,
+        "title": "Desktop / Browser / Shell lanes",
+        "subtitle": (
+            "loom connect scaffold --name desktop_ops --transport desktop --action-schema meridian.runtime.v1\n"
+            "loom connect validate | enable | test | health | scorecard\n"
+            "acceptance: ./scripts/acceptance_connect_desktop_lane.sh"
+        ),
+    },
+    {
+        "kind": "brand",
+        "slug": "outro",
+        "duration": 14,
+        "title": "Meridian",
+        "subtitle": "Loom runtime + Kernel governance + inspectable proofs on a live host.",
+    },
 ]
+
+_RESAMPLE = getattr(Image, "Resampling", Image).LANCZOS
+
+
+def _run(cmd: list[str]) -> None:
+    subprocess.run(cmd, check=True)
 
 
 def _font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
@@ -92,7 +147,14 @@ def _font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont | ImageFont.I
     return ImageFont.load_default()
 
 
-def _gradient_background() -> Image.Image:
+def _reset_dirs() -> None:
+    for path in (CAPTURE_DIR, SCENE_DIR, CLIP_DIR):
+        if path.exists():
+            shutil.rmtree(path)
+        path.mkdir(parents=True, exist_ok=True)
+
+
+def _gradient_canvas() -> Image.Image:
     img = Image.new("RGB", (WIDTH, HEIGHT), BG_TOP)
     draw = ImageDraw.Draw(img)
     for y in range(HEIGHT):
@@ -101,72 +163,201 @@ def _gradient_background() -> Image.Image:
         g = int(BG_TOP[1] * (1 - ratio) + BG_BOTTOM[1] * ratio)
         b = int(BG_TOP[2] * (1 - ratio) + BG_BOTTOM[2] * ratio)
         draw.line([(0, y), (WIDTH, y)], fill=(r, g, b))
+    draw.line([(WIDTH // 2, 0), (WIDTH // 2, HEIGHT)], fill=(50, 80, 104, 48), width=1)
     return img
 
 
-def _draw_slide(index: int, title: str, body: str) -> Path:
-    frame_path = FRAMES_DIR / f"slide_{index:02d}.png"
-    img = _gradient_background()
-    draw = ImageDraw.Draw(img)
-    title_font = _font(56, bold=True)
-    body_font = _font(30, bold=False)
-    mono_font = _font(20, bold=False)
-
-    draw.rounded_rectangle([(72, 62), (1208, 658)], radius=22, outline=(52, 84, 110), width=2, fill=(8, 14, 24))
-    draw.text((110, 120), title, fill=TEXT, font=title_font)
-    draw.text((110, 220), body, fill=TEXT, font=body_font, spacing=14)
-    draw.text((110, 610), "Meridian Loom · Governed Agent Runtime", fill=ACCENT, font=mono_font)
-    draw.text((1110, 610), f"{index + 1:02d}/{len(SLIDES):02d}", fill=DIM, font=mono_font)
-    img.save(frame_path)
-    return frame_path
+def _brand_header(canvas: Image.Image, draw: ImageDraw.ImageDraw, avatar: Image.Image, index: int, total: int) -> None:
+    draw.rounded_rectangle([(34, 24), (WIDTH - 34, 94)], radius=16, fill=PANEL_SOFT, outline=BORDER, width=2)
+    avatar_small = avatar.resize((52, 52), _RESAMPLE)
+    header_layer = Image.new("RGBA", (WIDTH, HEIGHT), (0, 0, 0, 0))
+    header_layer.paste(avatar_small, (52, 33), avatar_small)
+    draw_text = ImageDraw.Draw(header_layer)
+    draw_text.text((118, 38), "MERIDIAN", fill=ACCENT, font=_font(25, bold=True))
+    draw_text.text((118, 64), "Governed Runtime Surface", fill=DIM, font=_font(16, bold=False))
+    draw_text.text((WIDTH - 180, 48), f"{index:02d}/{total:02d}", fill=DIM, font=_font(22, bold=False))
+    canvas.alpha_composite(header_layer)
 
 
-def _render_frames() -> list[tuple[Path, int]]:
-    slides: list[tuple[Path, int]] = []
-    for idx, (title, body, duration) in enumerate(SLIDES):
-        slides.append((_draw_slide(idx, title, body), duration))
-    return slides
+def _draw_wrapped(draw: ImageDraw.ImageDraw, text: str, x: int, y: int, width_chars: int, font: ImageFont.ImageFont, fill: tuple[int, int, int]) -> None:
+    wrapped = "\n".join(textwrap.wrap(text, width=width_chars)) if "\n" not in text else text
+    draw.multiline_text((x, y), wrapped, fill=fill, font=font, spacing=8)
 
 
-def _write_concat(slides: list[tuple[Path, int]]) -> None:
+def _compose_web_scene(capture: Path, scene: dict[str, object], index: int, total: int, avatar: Image.Image) -> Path:
+    canvas = _gradient_canvas().convert("RGBA")
+    draw = ImageDraw.Draw(canvas)
+    _brand_header(canvas, draw, avatar, index, total)
+
+    panel_rect = (96, 118, WIDTH - 96, 878)
+    draw.rounded_rectangle(panel_rect, radius=22, fill=PANEL, outline=BORDER, width=2)
+
+    shot = Image.open(capture).convert("RGB")
+    shot_fit = ImageOps.fit(shot, (panel_rect[2] - panel_rect[0] - 28, panel_rect[3] - panel_rect[1] - 28), _RESAMPLE)
+    shot_layer = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+    shot_layer.paste(shot_fit, (panel_rect[0] + 14, panel_rect[1] + 14))
+    canvas.alpha_composite(shot_layer)
+
+    caption_rect = (96, 902, WIDTH - 96, HEIGHT - 70)
+    draw.rounded_rectangle(caption_rect, radius=16, fill=PANEL_SOFT, outline=BORDER, width=2)
+    title = str(scene["title"])
+    subtitle = str(scene["subtitle"])
+    draw.text((128, 928), title, fill=TEXT, font=_font(44, bold=True))
+    _draw_wrapped(draw, subtitle, 128, 986, 88, _font(24), DIM)
+
+    target = SCENE_DIR / f"{index:02d}_{scene['slug']}.png"
+    canvas.convert("RGB").save(target)
+    return target
+
+
+def _compose_card_scene(scene: dict[str, object], index: int, total: int, avatar: Image.Image, banner: Image.Image) -> Path:
+    canvas = _gradient_canvas().convert("RGBA")
+    draw = ImageDraw.Draw(canvas)
+    _brand_header(canvas, draw, avatar, index, total)
+
+    hero_rect = (110, 132, WIDTH - 110, 792)
+    draw.rounded_rectangle(hero_rect, radius=24, fill=PANEL, outline=BORDER, width=2)
+    banner_fit = ImageOps.fit(banner.convert("RGB"), (hero_rect[2] - hero_rect[0] - 30, hero_rect[3] - hero_rect[1] - 30), _RESAMPLE)
+    layer = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+    layer.paste(banner_fit, (hero_rect[0] + 15, hero_rect[1] + 15))
+    canvas.alpha_composite(layer)
+
+    caption_rect = (110, 830, WIDTH - 110, HEIGHT - 70)
+    draw.rounded_rectangle(caption_rect, radius=16, fill=PANEL_SOFT, outline=BORDER, width=2)
+    draw.text((144, 858), str(scene["title"]), fill=TEXT, font=_font(50, bold=True))
+    subtitle = str(scene["subtitle"])
+    _draw_wrapped(draw, subtitle, 144, 928, 86, _font(26), DIM)
+
+    target = SCENE_DIR / f"{index:02d}_{scene['slug']}.png"
+    canvas.convert("RGB").save(target)
+    return target
+
+
+def _capture_web_pages() -> dict[str, Path]:
+    captures: dict[str, Path] = {}
+    for scene in SCENES:
+        if scene["kind"] != "web":
+            continue
+        slug = str(scene["slug"])
+        url = str(scene["url"])
+        wait_ms = int(scene.get("wait_ms", 2200))
+        target = CAPTURE_DIR / f"{slug}.png"
+        _run(
+            [
+                "npx",
+                "-y",
+                "playwright@latest",
+                "screenshot",
+                "--browser",
+                "chromium",
+                "--viewport-size",
+                f"{WIDTH},{HEIGHT}",
+                "--color-scheme",
+                "dark",
+                "--wait-for-timeout",
+                str(wait_ms),
+                url,
+                str(target),
+            ]
+        )
+        captures[slug] = target
+    return captures
+
+
+def _build_clip(scene_image: Path, clip_path: Path, duration: int) -> None:
+    fade_out_start = max(0.0, float(duration) - 0.6)
+    vf = (
+        f"fps={FPS},format=yuv420p,"
+        "eq=contrast=1.03:saturation=1.04,"
+        "fade=t=in:st=0:d=0.45,"
+        f"fade=t=out:st={fade_out_start:.2f}:d=0.55"
+    )
+    _run(
+        [
+            "ffmpeg",
+            "-y",
+            "-loop",
+            "1",
+            "-i",
+            str(scene_image),
+            "-t",
+            str(duration),
+            "-vf",
+            vf,
+            "-c:v",
+            "libx264",
+            "-pix_fmt",
+            "yuv420p",
+            "-movflags",
+            "+faststart",
+            str(clip_path),
+        ]
+    )
+
+
+def _concat_clips(clips: list[Path]) -> None:
     lines = ["ffconcat version 1.0"]
-    for frame, duration in slides:
-        lines.append(f"file '{frame}'")
-        lines.append(f"duration {duration}")
-    # Repeat final frame per ffconcat rules.
-    lines.append(f"file '{slides[-1][0]}'")
+    for clip in clips:
+        lines.append(f"file '{clip}'")
     CONCAT_FILE.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    _run(
+        [
+            "ffmpeg",
+            "-y",
+            "-safe",
+            "0",
+            "-f",
+            "concat",
+            "-i",
+            str(CONCAT_FILE),
+            "-c:v",
+            "libx264",
+            "-pix_fmt",
+            "yuv420p",
+            "-movflags",
+            "+faststart",
+            str(OUTPUT_VIDEO),
+        ]
+    )
 
 
-def _build_video() -> None:
+def _check_dependencies() -> None:
+    if not LOGO_AVATAR.exists():
+        raise SystemExit(f"missing logo asset: {LOGO_AVATAR}")
+    if not LOGO_BANNER.exists():
+        raise SystemExit(f"missing logo asset: {LOGO_BANNER}")
     ffmpeg = subprocess.run(["bash", "-lc", "command -v ffmpeg"], capture_output=True, text=True)
     if ffmpeg.returncode != 0 or not ffmpeg.stdout.strip():
-        raise SystemExit("ffmpeg is required. Install it and rerun: sudo apt update && sudo apt install -y ffmpeg")
-    command = [
-        "ffmpeg",
-        "-y",
-        "-safe",
-        "0",
-        "-f",
-        "concat",
-        "-i",
-        str(CONCAT_FILE),
-        "-vf",
-        "format=yuv420p,fps=30",
-        "-c:v",
-        "libx264",
-        "-movflags",
-        "+faststart",
-        str(OUTPUT_VIDEO),
-    ]
-    subprocess.run(command, check=True)
+        raise SystemExit("ffmpeg is required: sudo apt update && sudo apt install -y ffmpeg")
 
 
 def main() -> None:
-    slides = _render_frames()
-    _write_concat(slides)
-    _build_video()
-    total_seconds = sum(duration for _, duration in slides)
+    _check_dependencies()
+    _reset_dirs()
+    captures = _capture_web_pages()
+    avatar = Image.open(LOGO_AVATAR).convert("RGBA")
+    banner = Image.open(LOGO_BANNER).convert("RGB")
+
+    scene_images: list[Path] = []
+    total = len(SCENES)
+    for idx, scene in enumerate(SCENES, start=1):
+        kind = str(scene["kind"])
+        if kind == "web":
+            capture = captures[str(scene["slug"])]
+            scene_image = _compose_web_scene(capture, scene, idx, total, avatar)
+        else:
+            scene_image = _compose_card_scene(scene, idx, total, avatar, banner)
+        scene_images.append(scene_image)
+
+    clips: list[Path] = []
+    for scene_image, scene in zip(scene_images, SCENES):
+        duration = int(scene["duration"])
+        clip = CLIP_DIR / f"{scene_image.stem}.mp4"
+        _build_clip(scene_image, clip, duration)
+        clips.append(clip)
+
+    _concat_clips(clips)
+    total_seconds = sum(int(scene["duration"]) for scene in SCENES)
     print(f"Built {OUTPUT_VIDEO} ({total_seconds}s)")
 
 
