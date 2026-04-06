@@ -918,6 +918,22 @@
     });
   }
 
+  async function fetchJsonWithTimeout(url, timeoutMs) {
+    var controller = new AbortController();
+    var timeout = window.setTimeout(function () {
+      controller.abort();
+    }, Math.max(300, timeoutMs || 6000));
+    try {
+      var response = await fetch(url, { signal: controller.signal });
+      if (!response.ok) {
+        throw new Error(url + ' returned HTTP ' + response.status);
+      }
+      return await response.json();
+    } finally {
+      window.clearTimeout(timeout);
+    }
+  }
+
   function renderSnapshotIntoShell(shell, status, proof) {
     var runtimeItems = [
       {
@@ -1045,15 +1061,13 @@
       });
     }
     try {
-      var responses = await Promise.all([
-        fetch('/api/status'),
-        fetch('/api/runtime-proof')
-      ]);
-      if (!responses[0].ok || !responses[1].ok) {
-        throw new Error('Live status routes did not return cleanly.');
+      var status = await fetchJsonWithTimeout('/api/status', 6000);
+      var proof = {};
+      try {
+        proof = await fetchJsonWithTimeout('/api/runtime-proof', 7000);
+      } catch (_proofError) {
+        proof = {};
       }
-      var status = await responses[0].json();
-      var proof = await responses[1].json();
       latestSnapshot = { status: status, proof: proof };
       snapshotFetchedAt = new Date();
       writeSnapshotCache(latestSnapshot);
@@ -1178,12 +1192,17 @@
     var timeLabel = serverTime
       ? 'Server ' + serverTime + ' · client ' + new Date().toLocaleTimeString()
       : 'Updated ' + new Date().toLocaleString();
-    setText(
-      '[data-proof-updated-at]',
-      timeLabel +
-        ' · runtime ' + safeText(proof.runtime_health && proof.runtime_health.status || 'unknown') +
-        ' · proof ' + safeText(proof.health && proof.health.status || 'unknown')
+    var runtimeHealth = safeText(
+      (proof && proof.runtime_health && proof.runtime_health.status) ||
+      (status && status.runtime_proof && status.runtime_proof.channel_surface_status) ||
+      'unknown'
     );
+    var proofHealth = safeText(
+      (proof && proof.health && proof.health.status) ||
+      (status && status.runtime_proof && status.runtime_proof.runtime_proof_status) ||
+      'unknown'
+    );
+    setText('[data-proof-updated-at]', timeLabel + ' · runtime ' + runtimeHealth + ' · proof ' + proofHealth);
   }
 
   async function refreshSummary() {
@@ -1191,15 +1210,13 @@
       return;
     }
     try {
-      var responses = await Promise.all([
-        fetch('/api/status'),
-        fetch('/api/runtime-proof')
-      ]);
-      if (!responses[0].ok || !responses[1].ok) {
-        throw new Error('proof routes returned non-200');
+      var status = await fetchJsonWithTimeout('/api/status', 6000);
+      var proof = {};
+      try {
+        proof = await fetchJsonWithTimeout('/api/runtime-proof', 7000);
+      } catch (_proofError) {
+        proof = {};
       }
-      var status = await responses[0].json();
-      var proof = await responses[1].json();
       renderSummary(status, proof);
     } catch (error) {
       if (lastGoodSummary) {
@@ -1210,6 +1227,25 @@
       } else {
         setText('[data-proof-updated-at]', 'Error: ' + safeText(error && error.message));
       }
+    }
+  }
+
+  async function hydrateRecentEvents() {
+    if (!streamLog) {
+      return;
+    }
+    try {
+      var response = await fetch('/api/events');
+      if (!response.ok) {
+        return;
+      }
+      var payload = await response.json();
+      var events = payload && payload.events ? payload.events : [];
+      events.forEach(function (item) {
+        appendStreamEvent('history', item);
+      });
+    } catch (_error) {
+      // Best-effort hydration only.
     }
   }
 
@@ -1271,6 +1307,7 @@
 
   refreshSummary();
   window.setInterval(refreshSummary, 15000);
+  hydrateRecentEvents();
   connectEventStream();
 })();
 
