@@ -4,7 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORKSPACE_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 LAUNCH_DIR="${WORKSPACE_DIR}/company/launch"
-ARTIFACT_DIR="${LAUNCH_DIR}/artifacts"
+ARTIFACT_DIR="$(mktemp -d /tmp/meridian_publish_artifacts.XXXXXX)"
 
 python3 "${WORKSPACE_DIR}/scripts/test_publish_live_lane.py"
 
@@ -83,7 +83,7 @@ PY
 
 python3 "${MOCK_SERVER_PY}" &
 MOCK_PID=$!
-trap 'kill ${MOCK_PID} >/dev/null 2>&1 || true; rm -f "${MOCK_SERVER_PY}"' EXIT
+trap 'kill ${MOCK_PID} >/dev/null 2>&1 || true; rm -f "${MOCK_SERVER_PY}"; rm -rf "${ARTIFACT_DIR}"' EXIT
 sleep 1
 
 MERIDIAN_X_API_TOKEN=mock-x-token \
