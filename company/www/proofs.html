@@ -73,19 +73,19 @@
       <span class="lane-kicker">Runtime</span>
       <h3>Footprint now</h3>
       <div class="live-chart-shell" data-live-chart="runtime"></div>
-      <p class="live-chart-caption" data-live-caption="runtime">Loading runtime footprint…</p>
+      <p class="live-chart-caption" data-live-caption="runtime">Awaiting first live runtime snapshot (15s cadence).</p>
     </div>
     <div class="live-chart-card">
       <span class="lane-kicker">Queue</span>
       <h3>Pressure now</h3>
       <div class="live-chart-shell" data-live-chart="queue"></div>
-      <p class="live-chart-caption" data-live-caption="queue">Loading queue state…</p>
+      <p class="live-chart-caption" data-live-caption="queue">Awaiting first live queue snapshot (15s cadence).</p>
     </div>
     <div class="live-chart-card">
       <span class="lane-kicker">Proof</span>
       <h3>Boundary now</h3>
       <div class="live-chart-shell" data-live-chart="proof"></div>
-      <p class="live-chart-caption" data-live-caption="proof">Loading proof status…</p>
+      <p class="live-chart-caption" data-live-caption="proof">Awaiting first live proof snapshot (15s cadence).</p>
     </div>
   </div>
 
@@ -93,14 +93,14 @@
   <p class="section-intro compact-copy">The table below stays compact: runtime ID, proof type, SLO status, and treasury floor pressure. This keeps operator decisions visible without opening multiple routes manually.</p>
   <div class="card reveal proof-summary-shell" data-proof-summary-shell>
     <div class="proof-summary-grid">
-      <div class="proof-summary-item"><span>runtime id</span><strong data-proof-runtime-id>loading</strong></div>
-      <div class="proof-summary-item"><span>proof type</span><strong data-proof-type>loading</strong></div>
-      <div class="proof-summary-item"><span>slo status</span><strong data-proof-slo>loading</strong></div>
-      <div class="proof-summary-item"><span>alerts</span><strong data-proof-alerts>loading</strong></div>
-      <div class="proof-summary-item"><span>treasury cash</span><strong data-proof-cash>loading</strong></div>
-      <div class="proof-summary-item"><span>reserve floor</span><strong data-proof-floor>loading</strong></div>
+      <div class="proof-summary-item"><span>runtime id</span><strong data-proof-runtime-id>pending</strong></div>
+      <div class="proof-summary-item"><span>proof type</span><strong data-proof-type>pending</strong></div>
+      <div class="proof-summary-item"><span>slo status</span><strong data-proof-slo>pending</strong></div>
+      <div class="proof-summary-item"><span>alerts</span><strong data-proof-alerts>pending</strong></div>
+      <div class="proof-summary-item"><span>treasury cash</span><strong data-proof-cash>pending</strong></div>
+      <div class="proof-summary-item"><span>reserve floor</span><strong data-proof-floor>pending</strong></div>
     </div>
-    <p class="dim small mt-sm" data-proof-updated-at>Loading proof summary…</p>
+    <p class="dim small mt-sm" data-proof-updated-at>Live proof summary sync started.</p>
   </div>
 
   <h2 class="reveal">Realtime operator alerts</h2>
@@ -111,7 +111,7 @@
       <span class="dim small" data-stream-note>Preparing realtime link…</span>
     </div>
     <div class="operator-stream-log" data-operator-stream-log>
-      <div class="operator-stream-empty">Waiting for events…</div>
+      <div class="operator-stream-empty">No events received yet.</div>
     </div>
   </div>
 

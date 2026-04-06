@@ -11058,6 +11058,8 @@ class WebAPIAdapter(ChannelAdapter):
                     "/api/workflows/showcase",
                     "/api/status",
                     "/api/runtime-proof",
+                    "/api/treasury",
+                    "/api/payouts",
                 }
 
             def _send_cors_headers(self) -> None:

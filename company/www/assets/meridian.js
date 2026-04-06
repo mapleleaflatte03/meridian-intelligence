@@ -715,7 +715,7 @@
       if (authTokenInput) {
         authTokenInput.value = '••••••••••••••••';
       }
-      setAuthStatus('Operator token stored. Loading queue…', false);
+      setAuthStatus('Operator token stored. Syncing queue…', false);
       loadOperatorSnapshot();
     });
   }
@@ -786,7 +786,55 @@
   if (!shells.length) {
     return;
   }
+  var LIVE_SNAPSHOT_CACHE_KEY = 'meridian.live_snapshot.v1';
+  var LIVE_SNAPSHOT_CACHE_MAX_AGE_MS = 10 * 60 * 1000;
   var latestSnapshot = null;
+
+  function readSnapshotCache() {
+    if (!window.localStorage) {
+      return null;
+    }
+    try {
+      var raw = window.localStorage.getItem(LIVE_SNAPSHOT_CACHE_KEY);
+      if (!raw) {
+        return null;
+      }
+      var parsed = JSON.parse(raw);
+      var savedAt = Number(parsed && parsed.saved_at_unix_ms);
+      if (!Number.isFinite(savedAt)) {
+        return null;
+      }
+      if (Date.now() - savedAt > LIVE_SNAPSHOT_CACHE_MAX_AGE_MS) {
+        return null;
+      }
+      var payload = parsed && parsed.payload ? parsed.payload : null;
+      if (!payload || typeof payload !== 'object') {
+        return null;
+      }
+      return payload;
+    } catch (_error) {
+      return null;
+    }
+  }
+
+  function writeSnapshotCache(payload) {
+    if (!window.localStorage) {
+      return;
+    }
+    try {
+      window.localStorage.setItem(
+        LIVE_SNAPSHOT_CACHE_KEY,
+        JSON.stringify({
+          saved_at_unix_ms: Date.now(),
+          payload: payload || {},
+        })
+      );
+    } catch (_error) {
+      // Cache write failure should never block rendering.
+    }
+  }
+
+  latestSnapshot = readSnapshotCache();
 
   function safeNumber(value) {
     var parsed = Number(value);
@@ -983,10 +1031,17 @@
 
   var snapshotFetchedAt = null;
 
+  if (latestSnapshot && latestSnapshot.status && latestSnapshot.proof) {
+    snapshotFetchedAt = new Date();
+    shells.forEach(function (shell) {
+      renderSnapshotIntoShell(shell, latestSnapshot.status, latestSnapshot.proof);
+    });
+  }
+
   async function loadLiveSnapshot() {
     if (!latestSnapshot) {
       shells.forEach(function (shell) {
-        setLoadingState(shell, 'Loading live host data…');
+        setLoadingState(shell, 'Syncing live host data (15s refresh cadence).');
       });
     }
     try {
@@ -1001,6 +1056,7 @@
       var proof = await responses[1].json();
       latestSnapshot = { status: status, proof: proof };
       snapshotFetchedAt = new Date();
+      writeSnapshotCache(latestSnapshot);
       shells.forEach(function (shell) {
         renderSnapshotIntoShell(shell, status, proof);
       });
@@ -1226,6 +1282,8 @@
   }
   var showcaseGrid = document.querySelector('[data-workflow-showcase-grid]');
   var showcaseUpdatedAt = document.querySelector('[data-workflow-showcase-updated-at]');
+  var WORKFLOW_SHOWCASE_CACHE_KEY = 'meridian.workflow_showcase.v1';
+  var WORKFLOW_SHOWCASE_CACHE_MAX_AGE_MS = 15 * 60 * 1000;
   var latestShowcase = null;
 
   function safeNumber(value) {
@@ -1251,6 +1309,50 @@
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;')
       .replace(/'/g, '&#39;');
+  }
+
+  function readShowcaseCache() {
+    if (!window.localStorage) {
+      return null;
+    }
+    try {
+      var raw = window.localStorage.getItem(WORKFLOW_SHOWCASE_CACHE_KEY);
+      if (!raw) {
+        return null;
+      }
+      var parsed = JSON.parse(raw);
+      var savedAt = Number(parsed && parsed.saved_at_unix_ms);
+      if (!Number.isFinite(savedAt)) {
+        return null;
+      }
+      if (Date.now() - savedAt > WORKFLOW_SHOWCASE_CACHE_MAX_AGE_MS) {
+        return null;
+      }
+      var payload = parsed && parsed.payload ? parsed.payload : null;
+      if (!payload || typeof payload !== 'object') {
+        return null;
+      }
+      return payload;
+    } catch (_error) {
+      return null;
+    }
+  }
+
+  function writeShowcaseCache(showcase) {
+    if (!window.localStorage) {
+      return;
+    }
+    try {
+      window.localStorage.setItem(
+        WORKFLOW_SHOWCASE_CACHE_KEY,
+        JSON.stringify({
+          saved_at_unix_ms: Date.now(),
+          payload: showcase || {},
+        })
+      );
+    } catch (_error) {
+      // Cache write failure should never block rendering.
+    }
   }
 
   function renderWorkflowShowcase(showcase) {
@@ -1286,6 +1388,11 @@
     }
   }
 
+  latestShowcase = readShowcaseCache();
+  if (latestShowcase) {
+    renderWorkflowShowcase(latestShowcase);
+  }
+
   var showcaseFetchedAt = null;
 
   async function refreshWorkflowShowcase() {
@@ -1301,6 +1408,7 @@
       var showcase = payload && payload.showcase ? payload.showcase : {};
       renderWorkflowShowcase(showcase);
       showcaseFetchedAt = new Date();
+      writeShowcaseCache(showcase);
       return showcase;
     } catch (error) {
       if (latestShowcase) {

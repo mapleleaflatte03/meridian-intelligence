@@ -157,6 +157,16 @@ Start with the demo and pilot surfaces:
 The honest current offer is a founder-led paid pilot plus an evidence-backed checkout capture rail. More cash in treasury only clears the reserve gate; broader automated delivery still waits for customer-backed phase progression, runtime preflight, and constitutional approval where required.
 If you want to back Meridian without pretending that support equals customer delivery, use the dedicated support path instead of the pilot flow.
 
+### 5-Step Cash Path (Current Live Boundary)
+
+If your goal is "agent work -> paid output -> treasury visibility", use this exact sequence:
+
+1. Install Loom and run one-command first proof (`loom quickstart`) on your own host.
+2. Open `/pilot`, complete checkout capture, and activate the bounded 7-day founder path.
+3. Confirm delivery events in `/proofs` (`/api/events/stream`) and workflow state in `/workflows` (`/api/workflows/showcase`).
+4. Verify treasury and payout state from the public surfaces (`/api/workflows/showcase`, `/api/treasury`, `/api/payouts`).
+5. Keep all claims bounded to what receipts and treasury state can currently prove on-host.
+
 If you are confused about support vs pilot vs customer revenue vs future contributor payouts, read:
 - [Meridian Doctrine](company/MERIDIAN_DOCTRINE.md)
 

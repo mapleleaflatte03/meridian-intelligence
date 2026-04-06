@@ -272,6 +272,17 @@ class GatewayBrainRouterIntegrationTests(unittest.TestCase):
         self.assertEqual(len(payload["workflows"]), 3)
         self.assertIn("telegram_delivery", payload)
 
+    def test_web_adapter_public_read_routes_include_live_workflow_and_usdc_surfaces(self):
+        adapter = meridian_gateway.WebAPIAdapter(mock.Mock(), "https://app.welliam.codes")
+        handler_cls = adapter._make_handler()
+        handler = handler_cls.__new__(handler_cls)
+
+        self.assertTrue(handler._public_read_allowed("/api/workflows/showcase"))
+        self.assertTrue(handler._public_read_allowed("/api/treasury"))
+        self.assertTrue(handler._public_read_allowed("/api/payouts"))
+        self.assertFalse(handler._public_read_allowed("/api/treasury/accounts"))
+        self.assertFalse(handler._public_read_allowed("/api/unknown"))
+
 
 if __name__ == "__main__":
     unittest.main()
