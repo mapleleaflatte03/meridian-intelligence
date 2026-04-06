@@ -1192,6 +1192,8 @@
   if (!shell) {
     return;
   }
+  var showcaseGrid = document.querySelector('[data-workflow-showcase-grid]');
+  var showcaseUpdatedAt = document.querySelector('[data-workflow-showcase-updated-at]');
 
   function safeNumber(value) {
     var parsed = Number(value);
@@ -1207,6 +1209,68 @@
 
   function formatUsd(value) {
     return '$' + safeNumber(value).toFixed(2);
+  }
+
+  function escapeHtml(value) {
+    return String(value == null ? '' : value)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  function renderWorkflowShowcase(showcase) {
+    if (!showcaseGrid) {
+      return;
+    }
+    var workflows = showcase && Array.isArray(showcase.workflows) ? showcase.workflows : [];
+    if (!workflows.length) {
+      showcaseGrid.innerHTML = '<article class="feature-card"><h3>No workflow data</h3><p>Gateway returned no live showcase payload.</p></article>';
+      if (showcaseUpdatedAt) {
+        showcaseUpdatedAt.textContent = 'Workflow showcase unavailable.';
+      }
+      return;
+    }
+    showcaseGrid.innerHTML = workflows.map(function (item) {
+      var hooks = Array.isArray(item.proof_hooks) ? item.proof_hooks.join(', ') : '';
+      return '' +
+        '<article class="feature-card">' +
+          '<h3>' + escapeHtml(item.title) + '</h3>' +
+          '<p><strong>Status:</strong> ' + escapeHtml(item.status) + '</p>' +
+          '<p><strong>Signal:</strong> ' + escapeHtml(item.operator_signal) + ' = ' + escapeHtml(item.operator_value) + '</p>' +
+          '<p><strong>Proof hooks:</strong> ' + escapeHtml(hooks) + '</p>' +
+        '</article>';
+    }).join('');
+    if (showcaseUpdatedAt) {
+      var phase = showcase && showcase.payout_phase ? showcase.payout_phase : {};
+      showcaseUpdatedAt.textContent =
+        'Runtime ' + String(showcase.runtime_id || 'unknown') +
+        ', proof ' + String(showcase.proof_type || 'unknown') +
+        ', payout gate ' + (phase.execution_gate_ok ? 'open' : 'blocked') +
+        ' (updated ' + new Date().toLocaleString() + ').';
+    }
+  }
+
+  async function refreshWorkflowShowcase() {
+    if (!showcaseGrid) {
+      return;
+    }
+    try {
+      var response = await fetch('/api/workflows/showcase');
+      if (!response.ok) {
+        throw new Error('workflow showcase unavailable');
+      }
+      var payload = await response.json();
+      renderWorkflowShowcase(payload && payload.showcase ? payload.showcase : {});
+    } catch (error) {
+      showcaseGrid.innerHTML = '<article class="feature-card"><h3>Workflow showcase error</h3><p>' +
+        escapeHtml(String(error && error.message || 'unknown_error')) +
+        '</p></article>';
+      if (showcaseUpdatedAt) {
+        showcaseUpdatedAt.textContent = 'Unable to load /api/workflows/showcase.';
+      }
+    }
   }
 
   async function refreshUsdSurface() {
@@ -1233,5 +1297,7 @@
   }
 
   refreshUsdSurface();
+  refreshWorkflowShowcase();
   window.setInterval(refreshUsdSurface, 20000);
+  window.setInterval(refreshWorkflowShowcase, 20000);
 })();

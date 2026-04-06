@@ -1631,6 +1631,98 @@ def _build_meridian_council_truth_packet() -> dict[str, Any]:
     }
 
 
+def _build_workflow_showcase_snapshot() -> dict[str, Any]:
+    status = _workspace_api_get_json("/api/status")
+    proof = _workspace_api_get_json("/api/runtime-proof")
+    payouts = _workspace_api_get_json("/api/payouts")
+    treasury = _workspace_api_get_json("/api/treasury")
+
+    status_payload = dict(status.get("payload") or {}) if status.get("ok") else {}
+    proof_payload = dict(proof.get("payload") or {}) if proof.get("ok") else {}
+    payouts_payload = dict(payouts.get("payload") or {}) if payouts.get("ok") else {}
+    treasury_payload = dict(treasury.get("payload") or {}) if treasury.get("ok") else {}
+
+    authority = dict(status_payload.get("authority") or {})
+    cases = dict(status_payload.get("cases") or {})
+    alert_queue = dict(status_payload.get("alert_queue") or {})
+    status_treasury = dict(status_payload.get("treasury") or {})
+    execution_gate = dict(payouts_payload.get("execution_gate") or {})
+    phase_machine = dict(payouts_payload.get("phase_machine") or {})
+    proposals = list(payouts_payload.get("proposals") or [])
+    telegram = _recent_telegram_delivery_summary(limit=10)
+
+    treasury_balance = float(
+        treasury_payload.get("balance_usd")
+        or status_treasury.get("balance_usd")
+        or 0.0
+    )
+    reserve_floor = float(
+        treasury_payload.get("reserve_floor_usd")
+        or status_treasury.get("reserve_floor_usd")
+        or 0.0
+    )
+    paid_orders = int(treasury_payload.get("paid_orders") or status_treasury.get("paid_orders") or 0)
+    proof_type = str(
+        proof_payload.get("proof_type")
+        or proof_payload.get("status")
+        or "unknown"
+    ).strip() or "unknown"
+    runtime_id = str(
+        status_payload.get("runtime_id")
+        or proof_payload.get("runtime_id")
+        or "unknown"
+    ).strip() or "unknown"
+
+    workflows = [
+        {
+            "workflow_id": "ai_stack_watch",
+            "title": "AI Stack Watch",
+            "status": "live",
+            "pricing_hint_usd": 0.50,
+            "proof_hooks": ["cited_findings", "route_decision_trace", "delivery_receipts"],
+            "operator_signal": "queued_alerts",
+            "operator_value": int(alert_queue.get("queue_count") or 0),
+        },
+        {
+            "workflow_id": "security_questionnaire_assist",
+            "title": "Security Questionnaire Assist",
+            "status": "live_with_review_queue",
+            "pricing_hint_usd": 1.50,
+            "proof_hooks": ["evidence_lifecycle", "approval_queue", "review_audit"],
+            "operator_signal": "pending_approvals",
+            "operator_value": len(authority.get("pending_approvals") or []),
+        },
+        {
+            "workflow_id": "trust_ops_delivery",
+            "title": "Trust Ops Delivery",
+            "status": "live_with_fallback",
+            "pricing_hint_usd": 3.00,
+            "proof_hooks": ["channel_health", "fallback_path", "sanction_path"],
+            "operator_signal": "open_cases",
+            "operator_value": int(cases.get("open") or 0),
+        },
+    ]
+
+    return {
+        "schema_version": "meridian.workflow_showcase.v1",
+        "generated_at_unix_ms": int(time.time() * 1000),
+        "runtime_id": runtime_id,
+        "proof_type": proof_type,
+        "treasury_balance_usd": treasury_balance,
+        "treasury_reserve_floor_usd": reserve_floor,
+        "paid_orders": paid_orders,
+        "payout_proposals": len(proposals),
+        "payout_phase": {
+            "number": phase_machine.get("number"),
+            "name": phase_machine.get("name"),
+            "execution_gate_ok": bool(execution_gate.get("phase_ok")),
+            "execution_gate_reason": str(execution_gate.get("reason") or "").strip(),
+        },
+        "telegram_delivery": telegram,
+        "workflows": workflows,
+    }
+
+
 def _load_council_context() -> str:
     try:
         return COUNCIL_CONTEXT_PATH.read_text(encoding="utf-8").strip()
@@ -11016,6 +11108,9 @@ class WebAPIAdapter(ChannelAdapter):
                             ),
                         },
                     )
+                    return
+                if request_path == "/api/workflows/showcase":
+                    self._send_json(200, {"status": "success", "showcase": _build_workflow_showcase_snapshot()})
                     return
                 if request_path in {
                     "/api/context",

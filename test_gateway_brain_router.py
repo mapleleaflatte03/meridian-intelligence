@@ -213,6 +213,65 @@ class GatewayBrainRouterIntegrationTests(unittest.TestCase):
         self.assertEqual(defaults["provider_profile"], "manager_primary")
         self.assertEqual(defaults["model"], "reasoner-small")
 
+    def test_build_workflow_showcase_snapshot_returns_live_growth_shape(self):
+        responses = {
+            "/api/status": {
+                "ok": True,
+                "payload": {
+                    "runtime_id": "loom_runtime_test",
+                    "treasury": {"balance_usd": 123.45, "reserve_floor_usd": 50.0},
+                    "authority": {"pending_approvals": [{"id": "a1"}]},
+                    "cases": {"open": 2},
+                    "alert_queue": {"queue_count": 4},
+                },
+            },
+            "/api/runtime-proof": {
+                "ok": True,
+                "payload": {"proof_type": "receipt_merkle_root", "runtime_id": "loom_runtime_test"},
+            },
+            "/api/payouts": {
+                "ok": True,
+                "payload": {
+                    "proposals": [{"id": "p1"}, {"id": "p2"}],
+                    "execution_gate": {"phase_ok": False, "reason": "phase_gate_pending"},
+                    "phase_machine": {"number": 2, "name": "manual_review"},
+                },
+            },
+            "/api/treasury": {
+                "ok": True,
+                "payload": {"balance_usd": 123.45, "reserve_floor_usd": 50.0, "paid_orders": 7},
+            },
+        }
+
+        def fake_workspace_get(path: str):
+            return responses.get(path, {"ok": False, "payload": {}})
+
+        with mock.patch.object(
+            meridian_gateway,
+            "_workspace_api_get_json",
+            side_effect=fake_workspace_get,
+        ), mock.patch.object(
+            meridian_gateway,
+            "_recent_telegram_delivery_summary",
+            return_value={
+                "checked_count": 3,
+                "delivered_count": 2,
+                "failed_count": 1,
+                "pending_count": 0,
+                "latest_status": "delivered",
+                "latest_delivery_id": "delivery-1",
+            },
+        ):
+            payload = meridian_gateway._build_workflow_showcase_snapshot()
+
+        self.assertEqual(payload["schema_version"], "meridian.workflow_showcase.v1")
+        self.assertEqual(payload["runtime_id"], "loom_runtime_test")
+        self.assertEqual(payload["proof_type"], "receipt_merkle_root")
+        self.assertEqual(payload["paid_orders"], 7)
+        self.assertEqual(payload["payout_proposals"], 2)
+        self.assertEqual(len(payload["workflows"]), 3)
+        self.assertIn("telegram_delivery", payload)
+
 
 if __name__ == "__main__":
     unittest.main()

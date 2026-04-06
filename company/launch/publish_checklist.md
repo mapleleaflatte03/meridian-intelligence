@@ -16,6 +16,12 @@
    - X thread
    - Reddit (`r/LLMDevs`, then `r/LocalLLaMA`)
    - Show HN
-5. After publish:
+   - Discord community update
+5. Execute automated lane:
+   - `python3 company/launch/publish_live.py --channels x,reddit,hn,discord --site https://app.welliam.codes`
+6. Verify latest publish artifact:
+   - `company/launch/artifacts/publish_live_latest.json`
+   - every configured channel reports `status: posted`
+7. After publish:
    - open one pinned discussion on Loom repo for feedback triage
    - log first 24h responses into `company/LEAD_TRACKER.md`

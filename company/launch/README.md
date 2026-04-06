@@ -24,6 +24,7 @@ These assets avoid provider-specific wording and keep the runtime/governance bou
 - `publish_checklist.md`
 - `make_demo_video.py`
 - `community_ops.py`
+- `publish_live.py`
 - `COMMUNITY_MOTION.md`
 
 ## Community ops lane
@@ -32,4 +33,32 @@ Dry-run weekly community update payload and artifact:
 
 ```bash
 python3 company/launch/community_ops.py --dry-run
+```
+
+## Live publish lane
+
+Run X + Reddit + HN + Discord publish orchestration with one command and audit
+artifact output:
+
+```bash
+python3 company/launch/publish_live.py \
+  --channels x,reddit,hn,discord \
+  --site https://app.welliam.codes
+```
+
+Required credentials are resolved from environment variables:
+
+- `MERIDIAN_X_API_TOKEN`
+- `MERIDIAN_REDDIT_CLIENT_ID`
+- `MERIDIAN_REDDIT_CLIENT_SECRET`
+- `MERIDIAN_REDDIT_USERNAME`
+- `MERIDIAN_REDDIT_PASSWORD`
+- `MERIDIAN_HN_USERNAME`
+- `MERIDIAN_HN_PASSWORD`
+- `MERIDIAN_DISCORD_WEBHOOK_URL`
+
+Acceptance lane (unit + mock-live):
+
+```bash
+./scripts/acceptance_publish_live_lane.sh
 ```
