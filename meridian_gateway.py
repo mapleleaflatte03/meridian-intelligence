@@ -129,6 +129,10 @@ TELEGRAM_OUTBOUND_DEDUP_WINDOW_SECONDS = int(os.environ.get("MERIDIAN_TELEGRAM_O
 SKILL_AUTONOMY_LOCK = threading.RLock()
 ROUTE_LOAD_CACHE_LOCK = threading.RLock()
 ROUTE_LOAD_CACHE: dict[str, Any] = {"fetched_at_unix_ms": 0, "snapshot": {}}
+WORKSPACE_STATUS_CACHE_LOCK = threading.RLock()
+WORKSPACE_STATUS_CACHE: dict[str, Any] = {"fetched_at_unix_ms": 0, "snapshot": None}
+WORKFLOW_SHOWCASE_CACHE_LOCK = threading.RLock()
+WORKFLOW_SHOWCASE_CACHE: dict[str, Any] = {"fetched_at_unix_ms": 0, "snapshot": None}
 LOOM_ORG_ID = (
     os.environ.get("MERIDIAN_LOOM_ORG_ID")
     or os.environ.get("MERIDIAN_WORKSPACE_ORG_ID")
@@ -151,6 +155,8 @@ ROUTE_SCORE_TEAM_MARGIN_SHORT = int(os.environ.get("MERIDIAN_ROUTE_TEAM_MARGIN_S
 ROUTE_SCORE_TEAM_MARGIN_DEFAULT = int(os.environ.get("MERIDIAN_ROUTE_TEAM_MARGIN_DEFAULT", "4"))
 ROUTE_SCORE_DIRECT_GUARD_CONFIDENCE = int(os.environ.get("MERIDIAN_ROUTE_DIRECT_GUARD_CONFIDENCE", "55"))
 ROUTE_LOAD_CACHE_TTL_SECONDS = int(os.environ.get("MERIDIAN_ROUTE_LOAD_CACHE_TTL_SECONDS", "5"))
+WORKSPACE_STATUS_CACHE_TTL_SECONDS = int(os.environ.get("MERIDIAN_WORKSPACE_STATUS_CACHE_TTL_SECONDS", "5"))
+WORKFLOW_SHOWCASE_CACHE_TTL_SECONDS = int(os.environ.get("MERIDIAN_WORKFLOW_SHOWCASE_CACHE_TTL_SECONDS", "10"))
 WORKSPACE_API_BASE = os.environ.get("MERIDIAN_WORKSPACE_API_BASE", "http://127.0.0.1:18901").rstrip("/")
 WORKSPACE_CREDENTIALS_FILE = Path(
     os.environ.get("MERIDIAN_WORKSPACE_CREDENTIALS_FILE", "/home/ubuntu/.meridian/.workspace_credentials")
@@ -1632,7 +1638,7 @@ def _build_meridian_council_truth_packet() -> dict[str, Any]:
 
 
 def _build_workflow_showcase_snapshot() -> dict[str, Any]:
-    status = _workspace_api_get_json("/api/status")
+    status = _workspace_status_snapshot_cached()
     proof = _workspace_api_get_json("/api/runtime-proof")
     payouts = _workspace_api_get_json("/api/payouts")
     treasury = _workspace_api_get_json("/api/treasury")
@@ -10346,6 +10352,97 @@ def _workspace_api_post_json(path: str, payload: dict[str, Any]) -> dict[str, An
         }
 
 
+def _workspace_status_snapshot_cached() -> dict[str, Any]:
+    now_ms = int(time.time() * 1000)
+    with WORKSPACE_STATUS_CACHE_LOCK:
+        cached_at = int(WORKSPACE_STATUS_CACHE.get("fetched_at_unix_ms") or 0)
+        cached_snapshot = WORKSPACE_STATUS_CACHE.get("snapshot")
+        if (
+            isinstance(cached_snapshot, dict)
+            and cached_at > 0
+            and (now_ms - cached_at) <= max(1, WORKSPACE_STATUS_CACHE_TTL_SECONDS) * 1000
+        ):
+            payload = dict(cached_snapshot)
+            payload["gateway_cache"] = {
+                "state": "fresh",
+                "cached_at_unix_ms": cached_at,
+                "age_ms": now_ms - cached_at,
+            }
+            return {"ok": True, "status_code": 200, "payload": payload}
+
+    proxied = _workspace_api_get_json("/api/status")
+    if proxied.get("ok") and isinstance(proxied.get("payload"), dict):
+        snapshot = dict(proxied["payload"])
+        with WORKSPACE_STATUS_CACHE_LOCK:
+            WORKSPACE_STATUS_CACHE["fetched_at_unix_ms"] = now_ms
+            WORKSPACE_STATUS_CACHE["snapshot"] = snapshot
+        payload = dict(snapshot)
+        payload["gateway_cache"] = {
+            "state": "fresh",
+            "cached_at_unix_ms": now_ms,
+            "age_ms": 0,
+        }
+        return {"ok": True, "status_code": 200, "payload": payload}
+
+    with WORKSPACE_STATUS_CACHE_LOCK:
+        cached_at = int(WORKSPACE_STATUS_CACHE.get("fetched_at_unix_ms") or 0)
+        cached_snapshot = WORKSPACE_STATUS_CACHE.get("snapshot")
+    if isinstance(cached_snapshot, dict):
+        payload = dict(cached_snapshot)
+        payload["gateway_cache"] = {
+            "state": "stale_fallback",
+            "cached_at_unix_ms": cached_at,
+            "age_ms": max(0, now_ms - cached_at),
+            "upstream_status_code": int(proxied.get("status_code") or 0),
+        }
+        return {"ok": True, "status_code": 200, "payload": payload}
+    return proxied
+
+
+def _workflow_showcase_snapshot_cached() -> dict[str, Any]:
+    now_ms = int(time.time() * 1000)
+    with WORKFLOW_SHOWCASE_CACHE_LOCK:
+        cached_at = int(WORKFLOW_SHOWCASE_CACHE.get("fetched_at_unix_ms") or 0)
+        cached_snapshot = WORKFLOW_SHOWCASE_CACHE.get("snapshot")
+        if (
+            isinstance(cached_snapshot, dict)
+            and cached_at > 0
+            and (now_ms - cached_at) <= max(1, WORKFLOW_SHOWCASE_CACHE_TTL_SECONDS) * 1000
+        ):
+            snapshot = dict(cached_snapshot)
+            snapshot["gateway_cache"] = {
+                "state": "fresh",
+                "cached_at_unix_ms": cached_at,
+                "age_ms": now_ms - cached_at,
+            }
+            return snapshot
+    try:
+        snapshot = _build_workflow_showcase_snapshot()
+        with WORKFLOW_SHOWCASE_CACHE_LOCK:
+            WORKFLOW_SHOWCASE_CACHE["fetched_at_unix_ms"] = now_ms
+            WORKFLOW_SHOWCASE_CACHE["snapshot"] = dict(snapshot)
+        snapshot["gateway_cache"] = {
+            "state": "fresh",
+            "cached_at_unix_ms": now_ms,
+            "age_ms": 0,
+        }
+        return snapshot
+    except Exception as exc:
+        with WORKFLOW_SHOWCASE_CACHE_LOCK:
+            cached_at = int(WORKFLOW_SHOWCASE_CACHE.get("fetched_at_unix_ms") or 0)
+            cached_snapshot = WORKFLOW_SHOWCASE_CACHE.get("snapshot")
+        if isinstance(cached_snapshot, dict):
+            snapshot = dict(cached_snapshot)
+            snapshot["gateway_cache"] = {
+                "state": "stale_fallback",
+                "cached_at_unix_ms": cached_at,
+                "age_ms": max(0, now_ms - cached_at),
+                "error": f"{exc.__class__.__name__}: {exc}",
+            }
+            return snapshot
+        raise
+
+
 class AgentRuntime:
     def __init__(self, skills: SkillRegistry) -> None:
         self.skills = skills
@@ -11164,11 +11261,14 @@ class WebAPIAdapter(ChannelAdapter):
                     )
                     return
                 if request_path == "/api/workflows/showcase":
-                    self._send_json(200, {"status": "success", "showcase": _build_workflow_showcase_snapshot()})
+                    self._send_json(200, {"status": "success", "showcase": _workflow_showcase_snapshot_cached()})
+                    return
+                if request_path == "/api/status":
+                    proxied = _workspace_status_snapshot_cached()
+                    self._send_json(int(proxied.get("status_code") or 200), dict(proxied.get("payload") or {}))
                     return
                 if request_path in {
                     "/api/context",
-                    "/api/status",
                     "/api/institution",
                     "/api/agents",
                     "/api/authority",

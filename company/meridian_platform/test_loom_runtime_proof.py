@@ -279,9 +279,45 @@ class LoomRuntimeProofTests(unittest.TestCase):
         }, bound_org_id='org_1')
 
         self.assertEqual(receipt['runtime_health']['status'], 'healthy')
+        self.assertEqual(receipt['runtime_health']['source_status'], 'unknown')
         self.assertTrue(receipt['runtime_health']['health_ok'])
         self.assertEqual(receipt['health']['status'], 'healthy')
         self.assertTrue(receipt['health']['health_ok'])
+
+    def test_public_receipt_normalizes_degraded_source_when_runtime_checks_are_green(self):
+        receipt = proof.public_loom_runtime_receipt({
+            'runtime_id': 'loom_native',
+            'proof_type': 'live_single_host_loom_deployment',
+            'checked_at': '2026-04-06T00:00:00Z',
+            'deployment_truth': {'scope': 'single_host', 'generic_runtime_claim': False},
+            'health': {
+                'status': 'degraded',
+                'health_ok': True,
+                'telegram': {'ok': True},
+                'agent_count': 7,
+                'agents': [{'handle': 'leviathann'}],
+                'heartbeat': {'interval': '15s', 'primary_agent': 'leviathann'},
+                'session_total': 144,
+                'session_runtime': {'total_count': 144, 'active_count': 144, 'archived_count': 0},
+                'channel_runtime': {'total_count': 3, 'enabled_count': 3, 'ingress_count': 0, 'active_delivery_count': 0, 'archived_delivery_count': 0},
+            },
+            'service_probe': {
+                'checked': True,
+                'ok': True,
+                'output': 'service running',
+                'service_status': 'running',
+                'health': 'healthy',
+                'transport': 'socket+http',
+            },
+            'memory_context': {'checked': False, 'memory_ok': False, 'context_ok': False},
+            'governed_agents': [],
+            'handle_overlap': [],
+            'handle_gap': [],
+        }, bound_org_id='org_1')
+
+        self.assertEqual(receipt['runtime_health']['source_status'], 'degraded')
+        self.assertEqual(receipt['runtime_health']['status'], 'healthy')
+        self.assertEqual(receipt['health']['status'], 'healthy')
 
     def test_public_surface_contract_binds_omni_channel_and_memory_claims(self):
         contract = proof.public_loom_surface_contract_receipt({

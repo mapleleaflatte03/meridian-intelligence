@@ -504,8 +504,11 @@ def public_loom_runtime_receipt(
     )
     if effective_health_status == 'unknown' and service_probe.get('ok'):
         effective_health_status = service_probe.get('health') or service_probe.get('service_status') or 'healthy'
+    source_health_status = str(health.get('status') or 'unknown').strip().lower() or 'unknown'
+    effective_health_status = str(effective_health_status or source_health_status).strip().lower() or source_health_status
     runtime_health = {
         'status': effective_health_status,
+        'source_status': source_health_status,
         'health_ok': bool(health.get('health_ok') or service_probe.get('ok')),
         'service_probe_ok': bool(service_probe.get('ok')),
     }
@@ -514,6 +517,11 @@ def public_loom_runtime_receipt(
     memory_ok = bool(memory_context.get('checked') and memory_context.get('memory_ok') and memory_context.get('context_ok'))
     channel_ok = bool(service_probe.get('ok') and int(channel_surface.get('enabled_count') or 0) > 0)
     runtime_ok = bool(runtime_health.get('health_ok'))
+    # Keep runtime status consistent with runtime_ok/service_probe truth to avoid
+    # contradictory "degraded" labels when all checks are actually healthy.
+    if runtime_ok and runtime_health['status'] in {'unknown', 'warning', 'degraded'}:
+        runtime_health['status'] = 'healthy'
+    effective_health_status = runtime_health.get('status') or source_health_status
     runtime_proof_contract = {
         'version': RUNTIME_PROOF_CONTRACT_VERSION,
         'runtime_proof_status': 'proven' if runtime_ok else 'degraded',

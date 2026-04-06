@@ -385,9 +385,38 @@ def observability_snapshot(org_id):
         'governance': governance,
     }
     slo = slo_policy.evaluate_observability(metrics)
-    alert_run = alerting.record_slo_alerts(slo, org_id=org_id)
-    alert_log = alerting.alert_surface_snapshot(org_id)
-    alert_queue = alerting.alert_queue_snapshot(org_id)
+    alert_run = {
+        'policy_name': slo.get('policy_name', ''),
+        'evaluated_at': slo.get('evaluated_at', ''),
+        'changed_objectives': [],
+        'event_count': 0,
+        'delivery_count': 0,
+        'objectives': [],
+    }
+    alert_log = {
+        'route': '/api/alerts',
+        'queue_route': '/api/alerts/dispatch',
+        'policy_name': slo.get('policy_name', ''),
+        'active_count': 0,
+        'events': [],
+    }
+    alert_queue = {
+        'route': '/api/alerts',
+        'dispatch_route': '/api/alerts/dispatch',
+        'policy_name': slo.get('policy_name', ''),
+        'active_count': 0,
+        'alerts': [],
+    }
+    try:
+        alert_run = alerting.record_slo_alerts(slo, org_id=org_id)
+        alert_log = alerting.alert_surface_snapshot(org_id)
+        alert_queue = alerting.alert_queue_snapshot(org_id)
+    except Exception as exc:
+        message = f'observability alerting degraded: {exc}'
+        slo.setdefault('issues', []).append(message)
+        alert_run['error'] = message
+        alert_log['error'] = message
+        alert_queue['error'] = message
 
     return {
         'backend': persistence.get('backend', 'file-backed-jsonl'),

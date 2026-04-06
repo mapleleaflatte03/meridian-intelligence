@@ -295,15 +295,19 @@ from app import (
     WORKSPACE_MUTATION_ROLE_REQUIREMENTS,
     is_workspace_protected_path,
 )
-from warrants import (
-    list_warrants,
-    get_warrant,
-    issue_warrant,
-    review_warrant,
-    validate_warrant_for_execution,
-    mark_warrant_executed,
-    warrant_action_for_message,
+_warrants_spec = importlib.util.spec_from_file_location(
+    'meridian_workspace_warrants',
+    os.path.join(PLATFORM_DIR, 'warrants.py'),
 )
+_warrants_mod = importlib.util.module_from_spec(_warrants_spec)
+_warrants_spec.loader.exec_module(_warrants_mod)
+list_warrants = _warrants_mod.list_warrants
+get_warrant = _warrants_mod.get_warrant
+issue_warrant = _warrants_mod.issue_warrant
+review_warrant = _warrants_mod.review_warrant
+validate_warrant_for_execution = _warrants_mod.validate_warrant_for_execution
+mark_warrant_executed = _warrants_mod.mark_warrant_executed
+warrant_action_for_message = _warrants_mod.warrant_action_for_message
 import commitments
 import cases
 import accounting_service
@@ -639,8 +643,35 @@ def _federation_snapshot(bound_org_id, host_identity=None, admission_registry=No
         admission_registry=admission_registry,
     )
     snapshot.update(_federation_management_state(host_identity))
-    snapshot['inbox_summary'] = summarize_inbox_entries(bound_org_id)
-    snapshot['execution_job_summary'] = execution_job_summary(bound_org_id)
+    try:
+        snapshot['inbox_summary'] = summarize_inbox_entries(bound_org_id)
+    except Exception as exc:
+        snapshot['inbox_summary'] = {
+            'org_id': (bound_org_id or '').strip(),
+            'total': 0,
+            'received': 0,
+            'processed': 0,
+            'state_counts': {},
+            'message_type_counts': {},
+            'updatedAt': _now(),
+            'unavailable_reason': f'{exc.__class__.__name__}: {exc}',
+        }
+    try:
+        snapshot['execution_job_summary'] = execution_job_summary(bound_org_id)
+    except Exception as exc:
+        snapshot['execution_job_summary'] = {
+            'org_id': (bound_org_id or '').strip(),
+            'total': 0,
+            'pending_local_warrant': 0,
+            'ready': 0,
+            'executed': 0,
+            'blocked': 0,
+            'rejected': 0,
+            'state_counts': {},
+            'message_type_counts': {},
+            'updatedAt': _now(),
+            'unavailable_reason': f'{exc.__class__.__name__}: {exc}',
+        }
     snapshot['witness_archive'] = _witness_archive_snapshot(
         bound_org_id,
         host_identity=host_identity,
@@ -3702,14 +3733,61 @@ def _permission_snapshot(auth_context):
     }
 
 
+def _list_warrants_compat(
+    org_id,
+    *,
+    action_class=None,
+    review_state=None,
+    execution_state=None,
+    include_archived=True,
+    archived_only=False,
+    expired_only=False,
+):
+    """Call list_warrants across old/new signatures and normalize filters."""
+    try:
+        return list_warrants(
+            org_id,
+            action_class=action_class,
+            review_state=review_state,
+            execution_state=execution_state,
+            include_archived=include_archived,
+            archived_only=archived_only,
+            expired_only=expired_only,
+        )
+    except TypeError:
+        try:
+            warrants = list_warrants(
+                org_id,
+                action_class=action_class,
+                review_state=review_state,
+                execution_state=execution_state,
+            )
+        except TypeError:
+            warrants = list_warrants(org_id)
+        if action_class:
+            warrants = [w for w in warrants if w.get('action_class') == action_class]
+        if review_state:
+            warrants = [w for w in warrants if w.get('court_review_state') == review_state]
+        if execution_state:
+            warrants = [w for w in warrants if w.get('execution_state') == execution_state]
+        if expired_only:
+            warrants = [w for w in warrants if bool(w.get('expired'))]
+        elif archived_only:
+            warrants = [w for w in warrants if bool(w.get('archived'))]
+        elif not include_archived:
+            warrants = [w for w in warrants if not bool(w.get('archived'))]
+        warrants.sort(key=lambda row: row.get('issued_at', ''), reverse=True)
+        return warrants
+
+
 def _warrant_summary(org_id, *, include_archived=True, archived_only=False, expired_only=False):
-    warrants = list_warrants(
+    warrants = _list_warrants_compat(
         org_id,
         include_archived=include_archived,
         archived_only=archived_only,
         expired_only=expired_only,
     )
-    all_warrants = list_warrants(org_id, include_archived=True)
+    all_warrants = _list_warrants_compat(org_id, include_archived=True)
     pending_review = 0
     executable = 0
     executed = 0
@@ -4987,7 +5065,7 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
             expired_only = parse_qs(parsed.query).get('expired_only', ['0'])[-1].lower() in ('1', 'true', 'yes', 'on')
             archived_only = parse_qs(parsed.query).get('archived_only', ['0'])[-1].lower() in ('1', 'true', 'yes', 'on')
             return self._json({
-                'warrants': list_warrants(
+                'warrants': _list_warrants_compat(
                     org_id,
                     include_archived=include_archived or include_expired or archived_only or expired_only,
                     archived_only=archived_only,

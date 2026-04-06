@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Workspace-facing snapshots for institution-owned live services."""
 import datetime
+import importlib.util
 import json
 import os
 
@@ -37,6 +38,16 @@ ACCOUNTING_MUTATION_PATHS = [
     '/api/accounting/reimburse',
     '/api/accounting/draw',
 ]
+
+
+if not hasattr(subscription_service, 'loom_delivery_queue_snapshot'):
+    _subscription_spec = importlib.util.spec_from_file_location(
+        'meridian_workspace_subscription_service',
+        os.path.join(PLATFORM_DIR, 'subscription_service.py'),
+    )
+    _subscription_mod = importlib.util.module_from_spec(_subscription_spec)
+    _subscription_spec.loader.exec_module(_subscription_mod)
+    subscription_service = _subscription_mod
 
 
 def _normalize_storage_model(value):

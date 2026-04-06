@@ -17,9 +17,15 @@ def db_path_for_log(log_path: str) -> str:
 
 def _connect(db_path: str) -> sqlite3.Connection:
     os.makedirs(os.path.dirname(db_path), exist_ok=True)
-    conn = sqlite3.connect(db_path, timeout=5.0)
+    timeout = float(os.environ.get('MERIDIAN_OBSERVABILITY_SQLITE_TIMEOUT_SEC', '0.25') or '0.25')
+    conn = sqlite3.connect(db_path, timeout=max(0.05, timeout))
     conn.row_factory = sqlite3.Row
-    conn.execute('PRAGMA journal_mode=WAL')
+    conn.execute(f'PRAGMA busy_timeout={int(max(50.0, timeout * 1000.0))}')
+    try:
+        conn.execute('PRAGMA journal_mode=WAL')
+    except sqlite3.OperationalError:
+        # Continue in default journal mode when WAL negotiation is temporarily unavailable.
+        pass
     conn.execute('PRAGMA synchronous=NORMAL')
     conn.execute('PRAGMA foreign_keys=ON')
     return conn
