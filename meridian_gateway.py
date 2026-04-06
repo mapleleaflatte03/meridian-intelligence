@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import base64
 import ast
+import concurrent.futures
 import datetime as dt
 import hashlib
 import importlib.util
@@ -133,6 +134,10 @@ WORKSPACE_STATUS_CACHE_LOCK = threading.RLock()
 WORKSPACE_STATUS_CACHE: dict[str, Any] = {"fetched_at_unix_ms": 0, "snapshot": None}
 WORKFLOW_SHOWCASE_CACHE_LOCK = threading.RLock()
 WORKFLOW_SHOWCASE_CACHE: dict[str, Any] = {"fetched_at_unix_ms": 0, "snapshot": None}
+WORKSPACE_STATUS_REFRESH_LOCK = threading.RLock()
+WORKSPACE_STATUS_REFRESH_IN_FLIGHT = False
+WORKFLOW_SHOWCASE_REFRESH_LOCK = threading.RLock()
+WORKFLOW_SHOWCASE_REFRESH_IN_FLIGHT = False
 LOOM_ORG_ID = (
     os.environ.get("MERIDIAN_LOOM_ORG_ID")
     or os.environ.get("MERIDIAN_WORKSPACE_ORG_ID")
@@ -157,6 +162,9 @@ ROUTE_SCORE_DIRECT_GUARD_CONFIDENCE = int(os.environ.get("MERIDIAN_ROUTE_DIRECT_
 ROUTE_LOAD_CACHE_TTL_SECONDS = int(os.environ.get("MERIDIAN_ROUTE_LOAD_CACHE_TTL_SECONDS", "5"))
 WORKSPACE_STATUS_CACHE_TTL_SECONDS = int(os.environ.get("MERIDIAN_WORKSPACE_STATUS_CACHE_TTL_SECONDS", "5"))
 WORKFLOW_SHOWCASE_CACHE_TTL_SECONDS = int(os.environ.get("MERIDIAN_WORKFLOW_SHOWCASE_CACHE_TTL_SECONDS", "10"))
+WORKSPACE_STATUS_UPSTREAM_TIMEOUT_SECONDS = float(
+    os.environ.get("MERIDIAN_WORKSPACE_STATUS_UPSTREAM_TIMEOUT_SECONDS", "6")
+)
 WORKSPACE_API_BASE = os.environ.get("MERIDIAN_WORKSPACE_API_BASE", "http://127.0.0.1:18901").rstrip("/")
 WORKSPACE_CREDENTIALS_FILE = Path(
     os.environ.get("MERIDIAN_WORKSPACE_CREDENTIALS_FILE", "/home/ubuntu/.meridian/.workspace_credentials")
@@ -1639,14 +1647,28 @@ def _build_meridian_council_truth_packet() -> dict[str, Any]:
 
 def _build_workflow_showcase_snapshot() -> dict[str, Any]:
     status = _workspace_status_snapshot_cached()
-    proof = _workspace_api_get_json("/api/runtime-proof")
-    payouts = _workspace_api_get_json("/api/payouts")
-    treasury = _workspace_api_get_json("/api/treasury")
+    aux_routes = ["/api/runtime-proof", "/api/payouts", "/api/treasury"]
+    aux_payloads: dict[str, dict[str, Any]] = {}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(aux_routes)) as pool:
+        futures = {
+            pool.submit(_workspace_api_get_json_with_timeout, route, 8.0): route
+            for route in aux_routes
+        }
+        for future in concurrent.futures.as_completed(futures):
+            route = futures[future]
+            try:
+                result = future.result()
+            except Exception:
+                result = {"ok": False, "payload": {}}
+            aux_payloads[route] = result if isinstance(result, dict) else {"ok": False, "payload": {}}
 
     status_payload = dict(status.get("payload") or {}) if status.get("ok") else {}
-    proof_payload = dict(proof.get("payload") or {}) if proof.get("ok") else {}
-    payouts_payload = dict(payouts.get("payload") or {}) if payouts.get("ok") else {}
-    treasury_payload = dict(treasury.get("payload") or {}) if treasury.get("ok") else {}
+    proof_result = dict(aux_payloads.get("/api/runtime-proof") or {})
+    payouts_result = dict(aux_payloads.get("/api/payouts") or {})
+    treasury_result = dict(aux_payloads.get("/api/treasury") or {})
+    proof_payload = dict(proof_result.get("payload") or {}) if proof_result.get("ok") else {}
+    payouts_payload = dict(payouts_result.get("payload") or {}) if payouts_result.get("ok") else {}
+    treasury_payload = dict(treasury_result.get("payload") or {}) if treasury_result.get("ok") else {}
 
     authority = dict(status_payload.get("authority") or {})
     cases = dict(status_payload.get("cases") or {})
@@ -1671,6 +1693,7 @@ def _build_workflow_showcase_snapshot() -> dict[str, Any]:
     proof_type = str(
         proof_payload.get("proof_type")
         or proof_payload.get("status")
+        or status_payload.get("proof_mode")
         or "unknown"
     ).strip() or "unknown"
     runtime_id = str(
@@ -10265,7 +10288,7 @@ def _load_workspace_basic_credentials() -> tuple[str, str]:
     return user, password
 
 
-def _workspace_api_get_json(path: str) -> dict[str, Any]:
+def _workspace_api_get_json(path: str, *, timeout_seconds: float = 20.0) -> dict[str, Any]:
     normalized_path = path if path.startswith("/") else f"/{path}"
     url = f"{WORKSPACE_API_BASE}{normalized_path}"
     headers = {
@@ -10278,7 +10301,7 @@ def _workspace_api_get_json(path: str) -> dict[str, Any]:
         headers["Authorization"] = f"Basic {token}"
     request = urllib.request.Request(url, headers=headers, method="GET")
     try:
-        with urllib.request.urlopen(request, timeout=20) as response:
+        with urllib.request.urlopen(request, timeout=max(0.1, float(timeout_seconds or 20.0))) as response:
             payload = json.loads(response.read().decode("utf-8", "replace"))
             return {
                 "ok": True,
@@ -10352,13 +10375,22 @@ def _workspace_api_post_json(path: str, payload: dict[str, Any]) -> dict[str, An
         }
 
 
+def _workspace_api_get_json_with_timeout(path: str, timeout_seconds: float) -> dict[str, Any]:
+    try:
+        return _workspace_api_get_json(path, timeout_seconds=timeout_seconds)
+    except TypeError:
+        # Backward compatibility for tests that patch _workspace_api_get_json(path).
+        return _workspace_api_get_json(path)
+
+
 def _workspace_status_snapshot_cached() -> dict[str, Any]:
     now_ms = int(time.time() * 1000)
     with WORKSPACE_STATUS_CACHE_LOCK:
         cached_at = int(WORKSPACE_STATUS_CACHE.get("fetched_at_unix_ms") or 0)
         cached_snapshot = WORKSPACE_STATUS_CACHE.get("snapshot")
+        has_cached = isinstance(cached_snapshot, dict)
         if (
-            isinstance(cached_snapshot, dict)
+            has_cached
             and cached_at > 0
             and (now_ms - cached_at) <= max(1, WORKSPACE_STATUS_CACHE_TTL_SECONDS) * 1000
         ):
@@ -10370,7 +10402,42 @@ def _workspace_status_snapshot_cached() -> dict[str, Any]:
             }
             return {"ok": True, "status_code": 200, "payload": payload}
 
-    proxied = _workspace_api_get_json("/api/status")
+    if has_cached:
+        with WORKSPACE_STATUS_REFRESH_LOCK:
+            global WORKSPACE_STATUS_REFRESH_IN_FLIGHT
+            if not WORKSPACE_STATUS_REFRESH_IN_FLIGHT:
+                WORKSPACE_STATUS_REFRESH_IN_FLIGHT = True
+
+                def _refresh_workspace_status() -> None:
+                    try:
+                        refreshed = _workspace_api_get_json_with_timeout(
+                            "/api/status",
+                            WORKSPACE_STATUS_UPSTREAM_TIMEOUT_SECONDS,
+                        )
+                        if refreshed.get("ok") and isinstance(refreshed.get("payload"), dict):
+                            with WORKSPACE_STATUS_CACHE_LOCK:
+                                WORKSPACE_STATUS_CACHE["fetched_at_unix_ms"] = int(time.time() * 1000)
+                                WORKSPACE_STATUS_CACHE["snapshot"] = dict(refreshed["payload"])
+                    finally:
+                        with WORKSPACE_STATUS_REFRESH_LOCK:
+                            global WORKSPACE_STATUS_REFRESH_IN_FLIGHT
+                            WORKSPACE_STATUS_REFRESH_IN_FLIGHT = False
+
+                threading.Thread(target=_refresh_workspace_status, daemon=True).start()
+
+        payload = dict(cached_snapshot)
+        payload["gateway_cache"] = {
+            "state": "stale_fallback",
+            "cached_at_unix_ms": cached_at,
+            "age_ms": max(0, now_ms - cached_at),
+            "refreshing": True,
+        }
+        return {"ok": True, "status_code": 200, "payload": payload}
+
+    proxied = _workspace_api_get_json_with_timeout(
+        "/api/status",
+        WORKSPACE_STATUS_UPSTREAM_TIMEOUT_SECONDS,
+    )
     if proxied.get("ok") and isinstance(proxied.get("payload"), dict):
         snapshot = dict(proxied["payload"])
         with WORKSPACE_STATUS_CACHE_LOCK:
@@ -10384,19 +10451,37 @@ def _workspace_status_snapshot_cached() -> dict[str, Any]:
         }
         return {"ok": True, "status_code": 200, "payload": payload}
 
-    with WORKSPACE_STATUS_CACHE_LOCK:
-        cached_at = int(WORKSPACE_STATUS_CACHE.get("fetched_at_unix_ms") or 0)
-        cached_snapshot = WORKSPACE_STATUS_CACHE.get("snapshot")
-    if isinstance(cached_snapshot, dict):
-        payload = dict(cached_snapshot)
-        payload["gateway_cache"] = {
-            "state": "stale_fallback",
-            "cached_at_unix_ms": cached_at,
-            "age_ms": max(0, now_ms - cached_at),
+    degraded = {
+        "runtime_id": "loom_native",
+        "proof_mode": "live_single_host_loom_deployment",
+        "queue_count": 0,
+        "pending_delivery_count": 0,
+        "delivered_count": 0,
+        "slo": {
+            "policy_name": "meridian_observability_slo_v1",
+            "status": "degraded",
+            "alert_count": 1,
+            "objective_count": 0,
+            "healthy_objective_count": 0,
+            "alerts": [],
+        },
+        "runtime_proof": {
+            "runtime_proof_status": "degraded",
+            "channel_surface_status": "degraded",
+            "trust_ops_status": "degraded",
+        },
+        "treasury": {
+            "balance_usd": 0.0,
+            "reserve_floor_usd": 0.0,
+        },
+        "gateway_cache": {
+            "state": "degraded_fallback",
             "upstream_status_code": int(proxied.get("status_code") or 0),
-        }
-        return {"ok": True, "status_code": 200, "payload": payload}
-    return proxied
+            "upstream_error": str((proxied.get("payload") or {}).get("output") or "workspace_status_unavailable"),
+            "generated_at_unix_ms": now_ms,
+        },
+    }
+    return {"ok": True, "status_code": 200, "payload": degraded}
 
 
 def _workflow_showcase_snapshot_cached() -> dict[str, Any]:
@@ -10404,8 +10489,9 @@ def _workflow_showcase_snapshot_cached() -> dict[str, Any]:
     with WORKFLOW_SHOWCASE_CACHE_LOCK:
         cached_at = int(WORKFLOW_SHOWCASE_CACHE.get("fetched_at_unix_ms") or 0)
         cached_snapshot = WORKFLOW_SHOWCASE_CACHE.get("snapshot")
+        has_cached = isinstance(cached_snapshot, dict)
         if (
-            isinstance(cached_snapshot, dict)
+            has_cached
             and cached_at > 0
             and (now_ms - cached_at) <= max(1, WORKFLOW_SHOWCASE_CACHE_TTL_SECONDS) * 1000
         ):
@@ -10416,6 +10502,35 @@ def _workflow_showcase_snapshot_cached() -> dict[str, Any]:
                 "age_ms": now_ms - cached_at,
             }
             return snapshot
+
+    if has_cached:
+        with WORKFLOW_SHOWCASE_REFRESH_LOCK:
+            global WORKFLOW_SHOWCASE_REFRESH_IN_FLIGHT
+            if not WORKFLOW_SHOWCASE_REFRESH_IN_FLIGHT:
+                WORKFLOW_SHOWCASE_REFRESH_IN_FLIGHT = True
+
+                def _refresh_workflow_showcase() -> None:
+                    try:
+                        refreshed = _build_workflow_showcase_snapshot()
+                        with WORKFLOW_SHOWCASE_CACHE_LOCK:
+                            WORKFLOW_SHOWCASE_CACHE["fetched_at_unix_ms"] = int(time.time() * 1000)
+                            WORKFLOW_SHOWCASE_CACHE["snapshot"] = dict(refreshed)
+                    finally:
+                        with WORKFLOW_SHOWCASE_REFRESH_LOCK:
+                            global WORKFLOW_SHOWCASE_REFRESH_IN_FLIGHT
+                            WORKFLOW_SHOWCASE_REFRESH_IN_FLIGHT = False
+
+                threading.Thread(target=_refresh_workflow_showcase, daemon=True).start()
+
+        snapshot = dict(cached_snapshot)
+        snapshot["gateway_cache"] = {
+            "state": "stale_fallback",
+            "cached_at_unix_ms": cached_at,
+            "age_ms": max(0, now_ms - cached_at),
+            "refreshing": True,
+        }
+        return snapshot
+
     try:
         snapshot = _build_workflow_showcase_snapshot()
         with WORKFLOW_SHOWCASE_CACHE_LOCK:
@@ -10440,7 +10555,29 @@ def _workflow_showcase_snapshot_cached() -> dict[str, Any]:
                 "error": f"{exc.__class__.__name__}: {exc}",
             }
             return snapshot
-        raise
+        return {
+            "schema_version": "meridian.workflow_showcase.v1",
+            "generated_at_unix_ms": now_ms,
+            "runtime_id": "loom_native",
+            "proof_type": "degraded",
+            "treasury_balance_usd": 0.0,
+            "treasury_reserve_floor_usd": 0.0,
+            "paid_orders": 0,
+            "payout_proposals": 0,
+            "payout_phase": {
+                "number": None,
+                "name": "degraded_fallback",
+                "execution_gate_ok": False,
+                "execution_gate_reason": f"{exc.__class__.__name__}: {exc}",
+            },
+            "telegram_delivery": {"recent_count": 0, "last_delivery_at": "", "recent": []},
+            "workflows": [],
+            "gateway_cache": {
+                "state": "degraded_fallback",
+                "generated_at_unix_ms": now_ms,
+                "error": f"{exc.__class__.__name__}: {exc}",
+            },
+        }
 
 
 class AgentRuntime:
