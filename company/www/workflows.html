@@ -92,37 +92,37 @@
   <p class="section-intro compact-copy">This panel is fed by <code>/api/workflows/showcase</code> and reflects live runtime/proof/treasury context on this host.</p>
   <div class="feature-grid reveal" data-workflow-showcase-grid>
     <article class="feature-card">
-      <h3>Live workflow sync in progress</h3>
-      <p>First payload should appear within one refresh cycle (20s).</p>
+      <h3>Workflow showcase baseline</h3>
+      <p>Bootstrap cards are visible immediately and replaced with live payload from <code>/api/workflows/showcase</code> every 20 seconds.</p>
     </article>
   </div>
-  <p class="note" data-workflow-showcase-updated-at>Workflow showcase sync started.</p>
+  <p class="note" data-workflow-showcase-updated-at>Workflow showcase baseline loaded; live updates run every 20 seconds.</p>
 
   <h2 class="reveal">USDC operating snapshot</h2>
   <p class="section-intro compact-copy">Live values below are fetched from treasury and payout routes on this host.</p>
   <div class="metric-strip reveal" data-usdc-surface>
     <div class="metric-card">
       <span class="metric-label">treasury cash</span>
-      <div class="metric-value" data-usdc-balance>pending</div>
+      <div class="metric-value" data-usdc-balance>$0.00</div>
       <p>Current liquid USD balance in treasury snapshot.</p>
     </div>
     <div class="metric-card">
       <span class="metric-label">reserve floor</span>
-      <div class="metric-value" data-usdc-floor>pending</div>
+      <div class="metric-value" data-usdc-floor>$0.00</div>
       <p>Configured reserve floor for safe execution.</p>
     </div>
     <div class="metric-card">
       <span class="metric-label">paid orders</span>
-      <div class="metric-value" data-usdc-orders>pending</div>
+      <div class="metric-value" data-usdc-orders>0</div>
       <p>Recorded paid orders in treasury snapshot.</p>
     </div>
     <div class="metric-card">
       <span class="metric-label">payout proposals</span>
-      <div class="metric-value" data-usdc-payouts>pending</div>
+      <div class="metric-value" data-usdc-payouts>0</div>
       <p>Current proposal count from payout surface.</p>
     </div>
   </div>
-  <p class="note" data-usdc-updated-at>USDC snapshot sync started.</p>
+  <p class="note" data-usdc-updated-at>USDC baseline loaded; live refresh every 20 seconds.</p>
 
   <div class="footer">
     <div class="footer-brand">
@@ -145,6 +145,6 @@
   </div>
 </div>
 
-<script src="/assets/meridian.js" defer></script>
+<script src="/assets/meridian.js?v=20260406-live2" defer></script>
 </body>
 </html>

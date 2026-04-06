@@ -1041,7 +1041,7 @@
   async function loadLiveSnapshot() {
     if (!latestSnapshot) {
       shells.forEach(function (shell) {
-        setLoadingState(shell, 'Syncing live host data (15s refresh cadence).');
+        setLoadingState(shell, 'Refreshing live host data (15s cadence) while keeping bootstrap baseline visible.');
       });
     }
     try {
