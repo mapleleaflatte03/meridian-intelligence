@@ -981,6 +981,8 @@
     );
   }
 
+  var snapshotFetchedAt = null;
+
   async function loadLiveSnapshot() {
     if (!latestSnapshot) {
       shells.forEach(function (shell) {
@@ -998,17 +1000,22 @@
       var status = await responses[0].json();
       var proof = await responses[1].json();
       latestSnapshot = { status: status, proof: proof };
+      snapshotFetchedAt = new Date();
       shells.forEach(function (shell) {
         renderSnapshotIntoShell(shell, status, proof);
       });
     } catch (error) {
       shells.forEach(function (shell) {
-        ['runtime', 'queue', 'proof'].forEach(function (name) {
-          setCaption(shell, name, error.message || 'Unable to load live host data.');
-        });
         if (latestSnapshot) {
           renderSnapshotIntoShell(shell, latestSnapshot.status, latestSnapshot.proof);
+          var staleLabel = snapshotFetchedAt
+            ? 'Stale data from ' + snapshotFetchedAt.toLocaleTimeString() + ' — refresh failed: ' + (error.message || 'unknown')
+            : 'Stale data — refresh failed: ' + (error.message || 'unknown');
+          setCaption(shell, 'runtime', staleLabel);
         } else {
+          ['runtime', 'queue', 'proof'].forEach(function (name) {
+            setCaption(shell, name, 'Error: ' + (error.message || 'Unable to load live host data.'));
+          });
           renderLoadingChart(shell.querySelector('[data-live-chart="runtime"]'));
           renderLoadingChart(shell.querySelector('[data-live-chart="queue"]'));
           renderLoadingChart(shell.querySelector('[data-live-chart="proof"]'));
@@ -1096,19 +1103,28 @@
     }
   }
 
+  var summaryFetchedAt = null;
+  var lastGoodSummary = null;
+
   function renderSummary(status, proof) {
     if (!summaryShell) {
       return;
     }
+    lastGoodSummary = { status: status, proof: proof };
+    summaryFetchedAt = new Date();
     setText('[data-proof-runtime-id]', proof.runtime_id || status.runtime_id || 'unknown');
     setText('[data-proof-type]', proof.proof_type || status.proof_mode || 'unknown');
     setText('[data-proof-slo]', (status.slo && status.slo.status) || 'unknown');
     setText('[data-proof-alerts]', safeNumber(status.slo && status.slo.alert_count));
     setText('[data-proof-cash]', formatUsd(status.treasury && status.treasury.balance_usd));
     setText('[data-proof-floor]', formatUsd(status.treasury && status.treasury.reserve_floor_usd));
+    var serverTime = safeText(proof.checked_at || (status.slo && status.slo.evaluated_at) || '');
+    var timeLabel = serverTime
+      ? 'Server ' + serverTime + ' · client ' + new Date().toLocaleTimeString()
+      : 'Updated ' + new Date().toLocaleString();
     setText(
       '[data-proof-updated-at]',
-      'Updated ' + new Date().toLocaleString() +
+      timeLabel +
         ' · runtime ' + safeText(proof.runtime_health && proof.runtime_health.status || 'unknown') +
         ' · proof ' + safeText(proof.health && proof.health.status || 'unknown')
     );
@@ -1130,7 +1146,14 @@
       var proof = await responses[1].json();
       renderSummary(status, proof);
     } catch (error) {
-      setText('[data-proof-updated-at]', 'Unable to refresh proof summary: ' + safeText(error && error.message));
+      if (lastGoodSummary) {
+        var staleLabel = summaryFetchedAt
+          ? 'Stale (last success ' + summaryFetchedAt.toLocaleTimeString() + ') — ' + safeText(error && error.message)
+          : 'Stale — ' + safeText(error && error.message);
+        setText('[data-proof-updated-at]', staleLabel);
+      } else {
+        setText('[data-proof-updated-at]', 'Error: ' + safeText(error && error.message));
+      }
     }
   }
 
@@ -1263,6 +1286,8 @@
     }
   }
 
+  var showcaseFetchedAt = null;
+
   async function refreshWorkflowShowcase() {
     if (!showcaseGrid) {
       return null;
@@ -1275,13 +1300,23 @@
       var payload = await response.json();
       var showcase = payload && payload.showcase ? payload.showcase : {};
       renderWorkflowShowcase(showcase);
+      showcaseFetchedAt = new Date();
       return showcase;
     } catch (error) {
-      showcaseGrid.innerHTML = '<article class="feature-card"><h3>Workflow showcase error</h3><p>' +
-        escapeHtml(String(error && error.message || 'unknown_error')) +
-        '</p></article>';
-      if (showcaseUpdatedAt) {
-        showcaseUpdatedAt.textContent = 'Unable to load /api/workflows/showcase.';
+      if (latestShowcase) {
+        if (showcaseUpdatedAt) {
+          var staleLabel = showcaseFetchedAt
+            ? 'Stale (last success ' + showcaseFetchedAt.toLocaleTimeString() + ') — ' + escapeHtml(String(error && error.message || ''))
+            : 'Stale — ' + escapeHtml(String(error && error.message || ''));
+          showcaseUpdatedAt.textContent = staleLabel;
+        }
+      } else {
+        showcaseGrid.innerHTML = '<article class="feature-card"><h3>Workflow showcase error</h3><p>' +
+          escapeHtml(String(error && error.message || 'unknown_error')) +
+          '</p></article>';
+        if (showcaseUpdatedAt) {
+          showcaseUpdatedAt.textContent = 'Error: Unable to load /api/workflows/showcase.';
+        }
       }
       return null;
     }
