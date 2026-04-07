@@ -92,7 +92,10 @@ li { padding: 0.2rem 0; }
 
 /* ── Site header ── */
 .site-header {
-  position: sticky; top: 0; z-index: 100;
+  position: -webkit-sticky;
+  position: sticky;
+  top: 0;
+  z-index: 100;
   background: rgba(3,5,7,0.88);
   backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
   border-bottom: 1px solid rgba(255,255,255,0.05);
@@ -2132,6 +2135,9 @@ h3 { font-family: var(--display); color: #fff; font-size: 1rem; margin: 1.1rem 0
   .premium-pricing {
     grid-template-columns: 1fr;
   }
+  .pricing-grid {
+    grid-template-columns: 1fr;
+  }
   .trust-bar {
     gap: 1rem;
     padding: 0.9rem 1rem;
@@ -2156,6 +2162,10 @@ h3 { font-family: var(--display); color: #fff; font-size: 1rem; margin: 1.1rem 0
     grid-template-columns: 1fr;
   }
   .checkout-card {
-    padding: 1.25rem;
+    padding: 1rem;
+  }
+  .form-actions .cta {
+    width: 100%;
+    justify-content: center;
   }
 }

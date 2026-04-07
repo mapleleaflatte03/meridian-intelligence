@@ -130,6 +130,8 @@ checks = [
     ("/api/institution/template", "json"),
     ("/api/institution/license/catalog", "json"),
     ("/", "html"),
+    ("/proofs", "html_proofs"),
+    ("/workflows", "html_workflows"),
 ]
 
 def fetch(path: str):
@@ -148,7 +150,7 @@ for path, mode in checks:
             assert catalog.get("default_plan") == "institution-license-foundation", payload
             assert (catalog.get("checkout_capture_path") or "").endswith("/api/institution/license/checkout-capture"), payload
             assert len(catalog.get("plans") or []) >= 2, payload
-    else:
+    elif mode == "html":
         assert "Constitutional Institution License" in body, "Missing 'Constitutional Institution License' in homepage"
         assert "data-institution-license-checkout-form" in body, "Missing checkout form marker"
         assert "/api/institution/license/catalog" in body, "Missing catalog API reference"
@@ -159,6 +161,16 @@ for path, mode in checks:
         assert "trust-bar" in body or "Local-first" in body, "Missing trust bar section"
         assert "pricing" in body.lower(), "Missing pricing section"
         assert "premium-footer" in body or "footer-nav-group" in body, "Missing premium footer"
+    elif mode == "html_proofs":
+        assert "site-nav" in body, "Missing site nav on /proofs"
+        assert "Docs" in body, "Missing Docs nav item on /proofs"
+        assert "nav-cta" in body, "Missing nav CTA on /proofs"
+        assert "premium-footer" in body or "footer-nav-group" in body, "Missing premium footer on /proofs"
+    elif mode == "html_workflows":
+        assert "site-nav" in body, "Missing site nav on /workflows"
+        assert "Docs" in body, "Missing Docs nav item on /workflows"
+        assert "nav-cta" in body, "Missing nav CTA on /workflows"
+        assert "premium-footer" in body or "footer-nav-group" in body, "Missing premium footer on /workflows"
 PY
 
 echo "acceptance_publish_live_lane: PASS"
