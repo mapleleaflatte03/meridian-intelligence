@@ -283,16 +283,16 @@ class GatewayBrainRouterIntegrationTests(unittest.TestCase):
         self.assertTrue(handler._public_read_allowed("/api/payouts"))
         self.assertTrue(handler._public_read_allowed("/api/kernel-proof-bundle"))
         self.assertTrue(handler._public_read_allowed("/api/institution/template"))
-        self.assertTrue(handler._public_read_allowed("/api/institution/license/catalog"))
+        self.assertFalse(handler._public_read_allowed("/api/institution/license/catalog"))
         self.assertFalse(handler._public_read_allowed("/api/treasury/accounts"))
         self.assertFalse(handler._public_read_allowed("/api/unknown"))
 
-    def test_gateway_includes_public_institution_license_checkout_proxy_route(self):
+    def test_gateway_returns_410_for_deprecated_institution_license_routes(self):
         gateway_source = (WORKSPACE / "meridian_gateway.py").read_text(encoding="utf-8")
         self.assertIn(
-            '"/api/institution/license/checkout-capture"',
+            '"open_source_mode"',
             gateway_source,
-            "gateway must proxy institution-license checkout capture route",
+            "gateway must return open_source_mode deprecation for institution license routes",
         )
 
 

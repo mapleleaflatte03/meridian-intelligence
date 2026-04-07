@@ -127,31 +127,39 @@ import urllib.request
 
 BASE = "https://app.welliam.codes"
 checks = [
-    ("/api/institution/template", "json"),
-    ("/api/institution/license/catalog", "json"),
+    ("/api/institution/template", "json_template"),
+    ("/api/institution/license/catalog", "json_deprecated_410"),
     ("/api/kernel-proof-bundle", "json_kernel_bundle"),
     ("/", "html"),
-    ("/proofs", "html_proofs"),
-    ("/workflows", "html_workflows"),
+    ("/proofs", "html_secondary"),
+    ("/workflows", "html_secondary"),
 ]
 
-def fetch(path: str):
-    with urllib.request.urlopen(BASE + path, timeout=20) as response:
-        return response.read().decode("utf-8", "ignore")
+def fetch(path: str, allow_error: bool = False):
+    try:
+        req = urllib.request.Request(BASE + path)
+        with urllib.request.urlopen(req, timeout=20) as response:
+            return response.status, response.read().decode("utf-8", "ignore")
+    except urllib.error.HTTPError as e:
+        if allow_error:
+            return e.code, e.read().decode("utf-8", "ignore")
+        raise
 
 for path, mode in checks:
-    body = fetch(path)
-    if mode == "json":
+    if mode == "json_deprecated_410":
+        status, body = fetch(path, allow_error=True)
         payload = json.loads(body)
-        if path.endswith("/template"):
-            assert payload.get("schema_version") == "meridian.institution_template.v1", payload
-            assert len(payload.get("court_rule_set") or []) >= 3, payload
-        if path.endswith("/catalog"):
-            catalog = payload.get("catalog") or {}
-            assert catalog.get("default_plan") == "institution-license-foundation", payload
-            assert (catalog.get("checkout_capture_path") or "").endswith("/api/institution/license/checkout-capture"), payload
-            assert len(catalog.get("plans") or []) >= 2, payload
+        assert status == 410, f"Expected HTTP 410 for {path}, got {status}"
+        assert payload.get("status") == "deprecated", payload
+        assert payload.get("reason") == "open_source_mode", payload
+        assert isinstance(payload.get("next_steps"), list), payload
+    elif mode == "json_template":
+        _, body = fetch(path)
+        payload = json.loads(body)
+        assert payload.get("schema_version") == "meridian.institution_template.v1", payload
+        assert len(payload.get("court_rule_set") or []) >= 3, payload
     elif mode == "json_kernel_bundle":
+        _, body = fetch(path)
         payload = json.loads(body)
         assert isinstance(payload, dict), payload
         assert payload.get("proof_bundle_version"), payload
@@ -159,32 +167,33 @@ for path, mode in checks:
         cache = payload.get("cache") or {}
         assert cache.get("state") in {"fresh", "stale_fallback", "building", "error_fallback", "bootstrap"}, payload
     elif mode == "html":
-        assert "Constitutional Institution License" in body, "Missing 'Constitutional Institution License' in homepage"
-        assert "data-institution-license-checkout-form" in body, "Missing checkout form marker"
-        assert "/api/institution/license/catalog" in body, "Missing catalog API reference"
-        assert "$299" in body or "299" in body, "Missing foundation pricing value"
-        assert "$79" in body or "79" in body, "Missing maintenance pricing value"
-        assert "data-checkout-submit" in body, "Missing checkout submit button marker"
-        assert "data-tx-hash-input" in body, "Missing tx-hash input marker"
+        _, body = fetch(path)
+        # Open-source positioning present
+        assert "open-source" in body.lower() or "open source" in body.lower(), "Missing open-source positioning on homepage"
+        assert "Get Started" in body, "Missing 'Get Started' CTA on homepage"
         assert "trust-bar" in body or "Local-first" in body, "Missing trust bar section"
-        assert "pricing" in body.lower(), "Missing pricing section"
         assert "premium-footer" in body or "footer-nav-group" in body, "Missing premium footer"
-        for nav_label in ("Product", "Governance", "Pricing", "Docs", "Community", "Get License"):
+        assert "Contribute" in body, "Missing contribution link on homepage"
+        assert "/support" in body, "Missing support link on homepage"
+        # Legacy commercial strings must be absent
+        assert "Constitutional Institution License" not in body, "Legacy 'Constitutional Institution License' found on homepage"
+        assert "Get License" not in body, "Legacy 'Get License' found on homepage"
+        assert "$299" not in body, "Legacy '$299' pricing found on homepage"
+        assert "$79" not in body, "Legacy '$79' pricing found on homepage"
+        assert "checkout-capture" not in body, "Legacy checkout-capture reference found on homepage"
+        # Consistent nav
+        for nav_label in ("Product", "Governance", "Proofs", "Workflows", "Community", "Support", "Docs"):
             assert nav_label in body, f"Missing nav label '{nav_label}' on homepage"
-    elif mode == "html_proofs":
-        assert "site-nav" in body, "Missing site nav on /proofs"
-        assert "Docs" in body, "Missing Docs nav item on /proofs"
-        assert "nav-cta" in body, "Missing nav CTA on /proofs"
-        assert "premium-footer" in body or "footer-nav-group" in body, "Missing premium footer on /proofs"
-        for nav_label in ("Product", "Governance", "Pricing", "Community", "Get License"):
-            assert nav_label in body, f"Missing nav label '{nav_label}' on /proofs"
-    elif mode == "html_workflows":
-        assert "site-nav" in body, "Missing site nav on /workflows"
-        assert "Docs" in body, "Missing Docs nav item on /workflows"
-        assert "nav-cta" in body, "Missing nav CTA on /workflows"
-        assert "premium-footer" in body or "footer-nav-group" in body, "Missing premium footer on /workflows"
-        for nav_label in ("Product", "Governance", "Pricing", "Community", "Get License"):
-            assert nav_label in body, f"Missing nav label '{nav_label}' on /workflows"
+    elif mode == "html_secondary":
+        _, body = fetch(path)
+        assert "site-nav" in body, f"Missing site nav on {path}"
+        assert "Docs" in body, f"Missing Docs nav item on {path}"
+        assert "nav-cta" in body, f"Missing nav CTA on {path}"
+        assert "Get Started" in body, f"Missing 'Get Started' CTA on {path}"
+        assert "premium-footer" in body or "footer-nav-group" in body, f"Missing premium footer on {path}"
+        assert "Get License" not in body, f"Legacy 'Get License' found on {path}"
+        for nav_label in ("Product", "Governance", "Community", "Support"):
+            assert nav_label in body, f"Missing nav label '{nav_label}' on {path}"
 PY
 
 echo "acceptance_publish_live_lane: PASS"

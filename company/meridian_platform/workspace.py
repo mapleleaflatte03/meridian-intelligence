@@ -5040,7 +5040,16 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
         elif path == '/api/institution/template':
             return self._json(_institution_template_snapshot(org_id, org=org))
         elif path == '/api/institution/license/catalog':
-            return self._json(_institution_license_catalog_snapshot(org_id, org=org))
+            return self._json({
+                'status': 'deprecated',
+                'reason': 'open_source_mode',
+                'message': 'The institution license catalog has been deprecated. Meridian is now fully open source.',
+                'next_steps': [
+                    'Install Loom: curl -fsSL https://raw.githubusercontent.com/mapleleaflatte03/meridian-loom/main/scripts/install.sh | bash',
+                    'Visit https://github.com/mapleleaflatte03/meridian-loom for source and documentation',
+                    'The institution template remains available at /api/institution/template',
+                ],
+            }, 410)
         elif path == '/api/agents':
             reg = load_registry()
             return self._json([
@@ -5559,6 +5568,17 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                 return self._json({'error': str(e)}, 400)
 
         if path == '/api/institution/license/checkout-capture':
+            return self._json({
+                'status': 'deprecated',
+                'reason': 'open_source_mode',
+                'message': 'Institution license checkout has been deprecated. Meridian is now fully open source.',
+                'next_steps': [
+                    'Install Loom: curl -fsSL https://raw.githubusercontent.com/mapleleaflatte03/meridian-loom/main/scripts/install.sh | bash',
+                    'Visit https://github.com/mapleleaflatte03/meridian-loom for source and documentation',
+                    'The institution template remains available at /api/institution/template',
+                ],
+            }, 410)
+        if False:  # Preserved for ledger continuity reference
             try:
                 inst_ctx = _resolve_workspace_context()
                 body = self._read_body()

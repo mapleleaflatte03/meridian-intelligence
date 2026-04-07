@@ -11340,7 +11340,6 @@ class WebAPIAdapter(ChannelAdapter):
                     "/api/runtime-proof",
                     "/api/kernel-proof-bundle",
                     "/api/institution/template",
-                    "/api/institution/license/catalog",
                     "/api/treasury",
                     "/api/payouts",
                 }
@@ -11453,11 +11452,22 @@ class WebAPIAdapter(ChannelAdapter):
                     proxied = _workspace_status_snapshot_cached()
                     self._send_json(int(proxied.get("status_code") or 200), dict(proxied.get("payload") or {}))
                     return
+                if request_path == "/api/institution/license/catalog":
+                    self._send_json(410, {
+                        "status": "deprecated",
+                        "reason": "open_source_mode",
+                        "message": "The institution license catalog has been deprecated. Meridian is now fully open source.",
+                        "next_steps": [
+                            "Install Loom: curl -fsSL https://raw.githubusercontent.com/mapleleaflatte03/meridian-loom/main/scripts/install.sh | bash",
+                            "Visit https://github.com/mapleleaflatte03/meridian-loom for source and documentation",
+                            "The institution template remains available at /api/institution/template",
+                        ],
+                    })
+                    return
                 if request_path in {
                     "/api/context",
                     "/api/institution",
                     "/api/institution/template",
-                    "/api/institution/license/catalog",
                     "/api/agents",
                     "/api/authority",
                     "/api/runtime-proof",
@@ -11575,6 +11585,18 @@ class WebAPIAdapter(ChannelAdapter):
                         },
                     )
                     return
+                if request_path == "/api/institution/license/checkout-capture":
+                    self._send_json(410, {
+                        "status": "deprecated",
+                        "reason": "open_source_mode",
+                        "message": "Institution license checkout has been deprecated. Meridian is now fully open source.",
+                        "next_steps": [
+                            "Install Loom: curl -fsSL https://raw.githubusercontent.com/mapleleaflatte03/meridian-loom/main/scripts/install.sh | bash",
+                            "Visit https://github.com/mapleleaflatte03/meridian-loom for source and documentation",
+                            "The institution template remains available at /api/institution/template",
+                        ],
+                    })
+                    return
                 if request_path in {
                     "/api/authority/kill-switch",
                     "/api/authority/approve",
@@ -11627,7 +11649,6 @@ class WebAPIAdapter(ChannelAdapter):
                     "/api/subscriptions/add",
                     "/api/subscriptions/draft-from-preview",
                     "/api/subscriptions/checkout-capture",
-                    "/api/institution/license/checkout-capture",
                     "/api/subscriptions/activate-from-preview",
                     "/api/subscriptions/loom-delivery-jobs/run",
                     "/api/subscriptions/convert",

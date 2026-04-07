@@ -85,7 +85,8 @@ class SubscriptionServiceTests(unittest.TestCase):
         self.assertEqual(normalized['loom_delivery_jobs'], {})
         self.assertEqual(normalized['loom_delivery_runs'], [])
 
-    def test_institution_license_catalog_exposes_pricing_and_revenue_share(self):
+    def test_institution_license_catalog_internal_still_returns_valid_structure(self):
+        """Internal catalog function preserved for backward compat; gateway returns 410."""
         catalog = subscription_service.institution_license_catalog()
         self.assertEqual(catalog['schema_version'], 'meridian.institution_license_catalog.v1')
         self.assertEqual(catalog['default_plan'], subscription_service.INSTITUTION_LICENSE_DEFAULT_PLAN)
@@ -98,7 +99,8 @@ class SubscriptionServiceTests(unittest.TestCase):
         self.assertGreater(default_plan['price_usd'], 0)
         self.assertGreater(default_plan['revenue_share_pct'], 0)
 
-    def test_capture_institution_license_checkout_is_idempotent_for_binding_event(self):
+    def test_capture_institution_license_checkout_internal_is_idempotent_for_binding_event(self):
+        """Internal function preserved for ledger continuity; gateway returns 410."""
         payment_ref = '0xinstlicense01'
         tx_hash = '0x' + ('ab' * 32)
         settlement = {
