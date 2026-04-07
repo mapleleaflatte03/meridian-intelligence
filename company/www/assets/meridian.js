@@ -238,6 +238,7 @@ window.__meridianFetchJsonWithTimeout = window.__meridianFetchJsonWithTimeout ||
 
   function setLoading(loading) {
     if (submitButton) { submitButton.disabled = loading; }
+    if (submitButton) { submitButton.classList.toggle('is-loading', Boolean(loading)); }
     if (btnText) { btnText.textContent = loading ? 'Processing…' : 'Capture Institution License'; }
     if (btnSpinner) { btnSpinner.hidden = !loading; }
   }
@@ -371,11 +372,13 @@ window.__meridianFetchJsonWithTimeout = window.__meridianFetchJsonWithTimeout ||
       }
       var capture = result && result.capture ? result.capture : {};
       var sharePct = Number(capture.revenue_share_pct || 0) * 100;
+      var planName = capture.plan || payload.plan || 'institution-license-foundation';
+      var licenseId = capture.license_id || '';
       var successMsg = 'Captured ' + (capture.license_id || 'license') + ' on plan ' + (capture.plan || payload.plan) +
         ' with recurring plan ' + (capture.maintenance_plan || 'n/a') +
         ' and revenue-share ' + sharePct.toFixed(1) + '%.';
       setStatus(successMsg, false);
-      showToast('License captured successfully! ' + (capture.license_id || ''), 'success');
+      showToast('Captured ' + planName + ' · ' + (licenseId || 'license') + ' · ' + sharePct.toFixed(1) + '% share', 'success');
       if (result && result.catalog) {
         renderCatalog(result.catalog);
       }

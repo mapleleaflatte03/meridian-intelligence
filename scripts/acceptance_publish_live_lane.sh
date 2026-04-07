@@ -161,16 +161,22 @@ for path, mode in checks:
         assert "trust-bar" in body or "Local-first" in body, "Missing trust bar section"
         assert "pricing" in body.lower(), "Missing pricing section"
         assert "premium-footer" in body or "footer-nav-group" in body, "Missing premium footer"
+        for nav_label in ("Product", "Governance", "Pricing", "Docs", "Community", "Get License"):
+            assert nav_label in body, f"Missing nav label '{nav_label}' on homepage"
     elif mode == "html_proofs":
         assert "site-nav" in body, "Missing site nav on /proofs"
         assert "Docs" in body, "Missing Docs nav item on /proofs"
         assert "nav-cta" in body, "Missing nav CTA on /proofs"
         assert "premium-footer" in body or "footer-nav-group" in body, "Missing premium footer on /proofs"
+        for nav_label in ("Product", "Governance", "Pricing", "Community", "Get License"):
+            assert nav_label in body, f"Missing nav label '{nav_label}' on /proofs"
     elif mode == "html_workflows":
         assert "site-nav" in body, "Missing site nav on /workflows"
         assert "Docs" in body, "Missing Docs nav item on /workflows"
         assert "nav-cta" in body, "Missing nav CTA on /workflows"
         assert "premium-footer" in body or "footer-nav-group" in body, "Missing premium footer on /workflows"
+        for nav_label in ("Product", "Governance", "Pricing", "Community", "Get License"):
+            assert nav_label in body, f"Missing nav label '{nav_label}' on /workflows"
 PY
 
 echo "acceptance_publish_live_lane: PASS"
