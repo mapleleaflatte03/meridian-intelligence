@@ -191,7 +191,7 @@ PUBLIC_BASE_URL = (os.environ.get('MERIDIAN_PUBLIC_BASE_URL') or 'https://app.we
 PUBLIC_PROOF_CACHE_TTL_SECONDS = max(0, int(os.environ.get('MERIDIAN_PUBLIC_PROOF_CACHE_TTL_SECONDS', '300') or '300'))
 sys.path.insert(0, PLATFORM_DIR)
 
-from organizations import (load_orgs, set_charter, set_policy_defaults,
+from organizations import (load_orgs, set_charter, set_policy_defaults, DEFAULT_POLICY_DEFAULTS,
                            transition_lifecycle as org_transition_lifecycle)
 from agent_registry import (
     load_registry,
@@ -317,6 +317,14 @@ import status_surface
 import pilot_intake
 import subscription_preview_queue
 import subscription_service
+if not hasattr(subscription_service, 'institution_license_catalog'):
+    _subscription_service_spec = importlib.util.spec_from_file_location(
+        'meridian_workspace_subscription_service',
+        os.path.join(PLATFORM_DIR, 'subscription_service.py'),
+    )
+    _subscription_service_mod = importlib.util.module_from_spec(_subscription_service_spec)
+    _subscription_service_spec.loader.exec_module(_subscription_service_mod)
+    subscription_service = _subscription_service_mod
 from telegram_history import import_telegram_history
 from constitutional_model import constitutional_model
 from federation import (
@@ -495,6 +503,72 @@ def _public_org_record(org):
         for member in (record.get('members') or [])
     ]
     return record
+
+
+def _institution_template_snapshot(org_id, org=None):
+    org_record = _public_org_record(org or load_orgs().get('organizations', {}).get(org_id) or {})
+    policy_defaults = dict(DEFAULT_POLICY_DEFAULTS)
+    policy_defaults.update(dict(org_record.get('policy_defaults') or {}))
+    charter_text = str(org_record.get('charter') or '').strip()
+    if not charter_text:
+        charter_text = (
+            "Operate a governed institution where every delegated action requires "
+            "warranted authority, budget discipline, and verifiable receipts."
+        )
+    return {
+        'schema_version': 'meridian.institution_template.v1',
+        'org_id': org_id,
+        'institution_name': org_record.get('name', 'Meridian Institution'),
+        'charter_template': charter_text,
+        'policy_defaults': policy_defaults,
+        'court_rule_set': [
+            {
+                'rule_id': 'budget_overspend_guard',
+                'trigger': 'runtime_budget_denied_or_unapproved_spend',
+                'default_sanction': 'probation',
+            },
+            {
+                'rule_id': 'proof_integrity_guard',
+                'trigger': 'missing_or_invalid_poge_receipt',
+                'default_sanction': 'remediation_only',
+            },
+            {
+                'rule_id': 'authority_breach_guard',
+                'trigger': 'executed_action_without_authority',
+                'default_sanction': 'zero_authority',
+            },
+        ],
+        'rollback_contract': {
+            'strategy': 'capsule_snapshot_restore',
+            'requires_owner_approval': True,
+            'api_paths': [
+                '/api/authority/kill-switch',
+                '/api/court/remediate',
+                '/api/treasury/reserve-floor',
+            ],
+        },
+        'boundary': {
+            'service_scope': 'founding_service_only',
+            'note': 'Template is production-ready for the founding host path; multi-institution self-serve remains intentionally bounded.',
+        },
+    }
+
+
+def _institution_license_catalog_snapshot(org_id, org=None):
+    catalog = subscription_service.institution_license_catalog()
+    try:
+        offer = subscription_service.institution_license_checkout_offer(catalog.get('default_plan', ''))
+    except Exception as exc:
+        offer = {
+            'requested_offer': catalog.get('default_plan', ''),
+            'availability': 'degraded',
+            'error': f'{exc.__class__.__name__}: {exc}',
+        }
+    return {
+        'catalog': catalog,
+        'default_offer': offer,
+        'template': _institution_template_snapshot(org_id, org=org),
+    }
 
 
 def _public_sprint_lead(lead_id, lead_auth, reg=None):
@@ -4837,6 +4911,10 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
             return self._json(response)
         elif path == '/api/institution':
             return self._json(_public_org_record(org))
+        elif path == '/api/institution/template':
+            return self._json(_institution_template_snapshot(org_id, org=org))
+        elif path == '/api/institution/license/catalog':
+            return self._json(_institution_license_catalog_snapshot(org_id, org=org))
         elif path == '/api/agents':
             reg = load_registry()
             return self._json([
@@ -5351,6 +5429,54 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                 return self._service_unavailable(str(e), is_api=True)
             except LookupError as e:
                 return self._json({'error': str(e)}, 404)
+            except ValueError as e:
+                return self._json({'error': str(e)}, 400)
+
+        if path == '/api/institution/license/checkout-capture':
+            try:
+                inst_ctx = _resolve_workspace_context()
+                body = self._read_body()
+                plan_name = str(body.get('plan') or '').strip()
+                payment_ref = str(body.get('payment_ref') or '').strip()
+                payment_evidence = body.get('payment_evidence') or {}
+                tx_hash = ''
+                if isinstance(payment_evidence, dict):
+                    tx_hash = str(payment_evidence.get('tx_hash') or '').strip()
+                    if not payment_ref:
+                        payment_ref = str(payment_evidence.get('payment_ref') or tx_hash).strip()
+                if not tx_hash:
+                    tx_hash = str(body.get('tx_hash') or payment_ref).strip()
+                capture = subscription_service.capture_institution_license_checkout(
+                    plan_name=plan_name,
+                    payment_ref=payment_ref,
+                    tx_hash=tx_hash,
+                    institution_name=str(body.get('institution_name') or '').strip(),
+                    buyer_name=str(body.get('buyer_name') or '').strip(),
+                    buyer_contact=str(body.get('buyer_contact') or body.get('email') or '').strip(),
+                    org_id=inst_ctx.org_id,
+                )
+                log_event(
+                    inst_ctx.org_id,
+                    'public:institution-license',
+                    'institution_license_checkout_captured',
+                    resource=capture.get('license_id', ''),
+                    outcome='success',
+                    actor_type='external',
+                    details={
+                        'plan': capture.get('plan', ''),
+                        'payment_ref': capture.get('payment_ref', ''),
+                        'tx_hash': capture.get('tx_hash', ''),
+                        'revenue_share_pct': capture.get('revenue_share_pct', 0.0),
+                        'maintenance_plan': capture.get('maintenance_plan', ''),
+                    },
+                )
+                return self._json({
+                    'message': 'Institution license payment captured and ledger-bound evidence recorded.',
+                    'capture': capture,
+                    'catalog': _institution_license_catalog_snapshot(inst_ctx.org_id),
+                }, 201)
+            except RuntimeError as e:
+                return self._service_unavailable(str(e), is_api=True)
             except ValueError as e:
                 return self._json({'error': str(e)}, 400)
 

@@ -183,6 +183,43 @@
     </ol>
   </div>
 
+  <h2 class="reveal">Constitutional Institution License</h2>
+  <p class="section-intro compact-copy">Meridian’s core offer is a governed Institution package: charter + policy defaults + Court rules + Treasury discipline, with payment evidence and ledger binding captured on-chain-compatible rails.</p>
+  <div class="card small reveal" data-license-shell>
+    <p><strong data-license-title>Loading institution license catalog…</strong></p>
+    <p class="compact-copy" data-license-summary>Fetching current pricing and recurring terms from <code>/api/institution/license/catalog</code>.</p>
+    <div class="sample-box"><code data-license-pricing>Institution license pricing will appear here when the catalog is available.</code></div>
+    <p class="dim small mt-md" data-license-boundary>Boundary note pending.</p>
+    <form class="mt-md" data-institution-license-checkout-form action="/api/institution/license/checkout-capture">
+      <div class="form-row">
+        <label for="license-plan">Plan</label>
+        <select id="license-plan" name="plan" data-license-plan-select required>
+          <option value="">Loading plans…</option>
+        </select>
+      </div>
+      <div class="form-row">
+        <label for="license-institution">Institution name</label>
+        <input id="license-institution" name="institution_name" type="text" placeholder="Acme Constitutional Ops" required>
+      </div>
+      <div class="form-row">
+        <label for="license-buyer">Buyer name</label>
+        <input id="license-buyer" name="buyer_name" type="text" placeholder="Jane Founder" required>
+      </div>
+      <div class="form-row">
+        <label for="license-contact">Buyer contact</label>
+        <input id="license-contact" name="buyer_contact" type="text" placeholder="jane@acme.example" required>
+      </div>
+      <div class="form-row">
+        <label for="license-tx-hash">Base transaction hash</label>
+        <input id="license-tx-hash" name="tx_hash" type="text" placeholder="0x…" required>
+      </div>
+      <div class="form-row">
+        <button type="submit" class="cta cta-primary">Capture Institution License</button>
+      </div>
+      <p class="dim small" data-institution-license-status>Submit after sending exact USDC amount to the wallet in the catalog response.</p>
+    </form>
+  </div>
+
   <h2 class="reveal">What Loom ships right now</h2>
   <p class="section-intro compact-copy">Loom already has enough surface to feel like a real runtime product: install, personal-agent loop, terminal and browser jobs, channels, memory, and proof receipts.</p>
   <div class="lane-grid reveal">
@@ -325,6 +362,6 @@
   </div>
 </div>
 
-<script src="/assets/meridian.js?v=20260407-live4" defer></script>
+<script src="/assets/meridian.js?v=20260407-live5" defer></script>
 </body>
 </html>

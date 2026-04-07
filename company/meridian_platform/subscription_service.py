@@ -56,6 +56,9 @@ BASE_RPC_URLS = tuple(
 )
 PUBLIC_CHECKOUT_PLAN = 'founder-pilot-week'
 PUBLIC_CHECKOUT_PAYMENT_METHOD = 'base_usdc'
+INSTITUTION_LICENSE_CHECKOUT_PAYMENT_METHOD = 'base_usdc'
+INSTITUTION_LICENSE_DEFAULT_PLAN = 'institution-license-foundation'
+INSTITUTION_LICENSE_MAINTENANCE_PLAN = 'institution-license-maintenance-monthly'
 
 PLANS = {
     PUBLIC_CHECKOUT_PLAN:         {'price_usd': 49.00, 'duration_days': 7,  'type': 'one-time'},
@@ -63,6 +66,22 @@ PLANS = {
     'premium-brief-weekly':  {'price_usd': 2.99, 'duration_days': 7,  'type': 'recurring'},
     'deep-dive-single':      {'price_usd': 9.99, 'duration_days': 0,  'type': 'one-time'},
     'trial':                 {'price_usd': 0.00, 'duration_days': TRIAL_DAYS,  'type': 'trial'},
+    INSTITUTION_LICENSE_DEFAULT_PLAN: {
+        'price_usd': 299.00,
+        'duration_days': 365,
+        'type': 'one-time',
+        'product_category': 'constitutional_institution_license',
+        'recurring_plan': INSTITUTION_LICENSE_MAINTENANCE_PLAN,
+        'revenue_share_pct': 0.10,
+    },
+    INSTITUTION_LICENSE_MAINTENANCE_PLAN: {
+        'price_usd': 79.00,
+        'duration_days': 30,
+        'type': 'recurring',
+        'product_category': 'constitutional_institution_maintenance',
+        'renewal_of': INSTITUTION_LICENSE_DEFAULT_PLAN,
+        'revenue_share_pct': 0.10,
+    },
 }
 
 LOOM_DELIVERY_CAPABILITY_ENV_VARS = (
@@ -115,6 +134,144 @@ def public_checkout_offer():
             'payment_ref_mode': 'tx_hash',
             'checkout_capture_path': '/api/subscriptions/checkout-capture',
             'note': 'Pay the exact USDC amount on Base, then submit the transaction hash as payment_ref.',
+        },
+    }
+
+
+def institution_license_catalog():
+    foundation = dict(PLANS[INSTITUTION_LICENSE_DEFAULT_PLAN])
+    maintenance = dict(PLANS[INSTITUTION_LICENSE_MAINTENANCE_PLAN])
+    return {
+        'schema_version': 'meridian.institution_license_catalog.v1',
+        'default_plan': INSTITUTION_LICENSE_DEFAULT_PLAN,
+        'checkout_capture_path': '/api/institution/license/checkout-capture',
+        'payment_method': INSTITUTION_LICENSE_CHECKOUT_PAYMENT_METHOD,
+        'maintenance_plan': INSTITUTION_LICENSE_MAINTENANCE_PLAN,
+        'plans': [
+            {
+                'plan': INSTITUTION_LICENSE_DEFAULT_PLAN,
+                'price_usd': float(foundation['price_usd']),
+                'duration_days': int(foundation['duration_days']),
+                'billing_type': foundation['type'],
+                'revenue_share_pct': float(foundation.get('revenue_share_pct') or 0.0),
+                'recurring_plan': str(foundation.get('recurring_plan') or '').strip(),
+                'positioning': 'One-time constitutional institution license setup.',
+            },
+            {
+                'plan': INSTITUTION_LICENSE_MAINTENANCE_PLAN,
+                'price_usd': float(maintenance['price_usd']),
+                'duration_days': int(maintenance['duration_days']),
+                'billing_type': maintenance['type'],
+                'revenue_share_pct': float(maintenance.get('revenue_share_pct') or 0.0),
+                'renewal_of': str(maintenance.get('renewal_of') or '').strip(),
+                'positioning': 'Monthly maintenance for policy updates and managed support.',
+            },
+        ],
+        'boundary': {
+            'institution_scope': 'founding_service_only',
+            'customer_settlement': 'base_usdc_checkout_capture',
+            'note': 'Founding-host implementation: verifiable payment evidence and ledger capture are live; multi-institution external settlement remains intentionally bounded.',
+        },
+    }
+
+
+def institution_license_checkout_offer(plan_name=''):
+    catalog = institution_license_catalog()
+    selected = str(plan_name or catalog['default_plan']).strip() or catalog['default_plan']
+    if selected not in PLANS:
+        raise ValueError(f"unknown plan '{selected}'. Available: {', '.join(sorted(PLANS.keys()))}")
+    if selected not in {INSTITUTION_LICENSE_DEFAULT_PLAN, INSTITUTION_LICENSE_MAINTENANCE_PLAN}:
+        raise ValueError(f"plan '{selected}' is not an institution-license plan")
+    plan = dict(PLANS[selected])
+    return {
+        'requested_offer': selected,
+        'plan': selected,
+        'price_usd': float(plan['price_usd']),
+        'duration_days': int(plan['duration_days']),
+        'billing_type': str(plan.get('type') or '').strip(),
+        'revenue_share_pct': float(plan.get('revenue_share_pct') or 0.0),
+        'payment_method': INSTITUTION_LICENSE_CHECKOUT_PAYMENT_METHOD,
+        'payment_instructions': {
+            'method': INSTITUTION_LICENSE_CHECKOUT_PAYMENT_METHOD,
+            'network': 'Base L2',
+            'chain_id': BASE_CHAIN_ID,
+            'asset': 'USDC',
+            'asset_address': BASE_USDC_ASSET,
+            'amount_usd': float(plan['price_usd']),
+            'recipient_wallet': _load_base_wallet_address(),
+            'payment_ref_mode': 'tx_hash',
+            'checkout_capture_path': '/api/institution/license/checkout-capture',
+            'note': 'Pay exact USDC on Base, then submit transaction hash for institution-license capture.',
+        },
+        'maintenance_plan': str(plan.get('recurring_plan') or '').strip(),
+    }
+
+
+def capture_institution_license_checkout(*, plan_name='', payment_ref='', tx_hash='',
+                                         institution_name='', buyer_name='', buyer_contact='',
+                                         org_id=None):
+    offer = institution_license_checkout_offer(plan_name)
+    resolved_plan = offer['plan']
+    payment_ref = str(payment_ref or tx_hash).strip()
+    tx_hash = str(tx_hash or payment_ref).strip()
+    if not payment_ref:
+        raise ValueError('payment_ref is required')
+    if not tx_hash:
+        raise ValueError('tx_hash is required')
+
+    preview = {
+        'preview_id': f'inst_license_{payment_ref}',
+        'company': str(institution_name or buyer_name or '').strip(),
+        'name': str(buyer_name or institution_name or '').strip(),
+        'email': str(buyer_contact or '').strip(),
+    }
+    settlement = ensure_base_usdc_customer_payment(
+        preview,
+        plan_name=resolved_plan,
+        payment_ref=payment_ref,
+        tx_hash=tx_hash,
+        org_id=org_id,
+    )
+
+    existing_events = _revenue_mod.load_transactions()
+    binding_exists = False
+    for entry in existing_events:
+        if str(entry.get('type') or '').strip() != 'institution_license_binding':
+            continue
+        if str(entry.get('payment_ref') or '').strip() == payment_ref:
+            binding_exists = True
+            break
+    if not binding_exists:
+        _revenue_mod.append_tx({
+            'type': 'institution_license_binding',
+            'plan': resolved_plan,
+            'payment_ref': payment_ref,
+            'tx_hash': tx_hash,
+            'institution_name': str(institution_name or '').strip(),
+            'buyer_name': str(buyer_name or '').strip(),
+            'buyer_contact': str(buyer_contact or '').strip(),
+            'maintenance_plan': offer.get('maintenance_plan', ''),
+            'revenue_share_pct': float(offer.get('revenue_share_pct') or 0.0),
+            'evidence_mode': str(settlement.get('mode') or '').strip(),
+            'boundary_scope': 'founding_service_only',
+        })
+
+    evidence = dict(settlement.get('evidence') or {})
+    order_id = str(evidence.get('order_id') or f'order_{payment_ref}')
+    license_id = _revenue_mod.stable_short_id(f'institution-license:{resolved_plan}:{payment_ref}')
+    return {
+        'license_id': license_id,
+        'plan': resolved_plan,
+        'maintenance_plan': offer.get('maintenance_plan', ''),
+        'price_usd': float(offer.get('price_usd') or 0.0),
+        'revenue_share_pct': float(offer.get('revenue_share_pct') or 0.0),
+        'payment_ref': payment_ref,
+        'tx_hash': tx_hash,
+        'order_id': order_id,
+        'settlement': settlement,
+        'boundary': {
+            'institution_scope': 'founding_service_only',
+            'ledger_binding_event': 'institution_license_binding',
         },
     }
 

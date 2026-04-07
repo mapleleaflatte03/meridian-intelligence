@@ -281,8 +281,18 @@ class GatewayBrainRouterIntegrationTests(unittest.TestCase):
         self.assertTrue(handler._public_read_allowed("/api/workflows/showcase"))
         self.assertTrue(handler._public_read_allowed("/api/treasury"))
         self.assertTrue(handler._public_read_allowed("/api/payouts"))
+        self.assertTrue(handler._public_read_allowed("/api/institution/template"))
+        self.assertTrue(handler._public_read_allowed("/api/institution/license/catalog"))
         self.assertFalse(handler._public_read_allowed("/api/treasury/accounts"))
         self.assertFalse(handler._public_read_allowed("/api/unknown"))
+
+    def test_gateway_includes_public_institution_license_checkout_proxy_route(self):
+        gateway_source = (WORKSPACE / "meridian_gateway.py").read_text(encoding="utf-8")
+        self.assertIn(
+            '"/api/institution/license/checkout-capture"',
+            gateway_source,
+            "gateway must proxy institution-license checkout capture route",
+        )
 
 
 class GatewayLiveSurfaceAssetTests(unittest.TestCase):

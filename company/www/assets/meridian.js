@@ -195,6 +195,155 @@ window.__meridianFetchJsonWithTimeout = window.__meridianFetchJsonWithTimeout ||
 
 (function () {
   'use strict';
+  var licenseShell = document.querySelector('[data-license-shell]');
+  var checkoutForm = document.querySelector('[data-institution-license-checkout-form]');
+  if (!licenseShell || !checkoutForm) {
+    return;
+  }
+
+  var fetchJsonWithTimeout = window.__meridianFetchJsonWithTimeout;
+  var titleNode = licenseShell.querySelector('[data-license-title]');
+  var summaryNode = licenseShell.querySelector('[data-license-summary]');
+  var pricingNode = licenseShell.querySelector('[data-license-pricing]');
+  var boundaryNode = licenseShell.querySelector('[data-license-boundary]');
+  var statusNode = licenseShell.querySelector('[data-institution-license-status]');
+  var planSelect = licenseShell.querySelector('[data-license-plan-select]');
+  var submitButton = checkoutForm.querySelector('button[type="submit"]');
+  var planCatalog = {};
+
+  function setStatus(message, isError) {
+    if (!statusNode) {
+      return;
+    }
+    statusNode.textContent = message;
+    statusNode.style.color = isError ? '#ff9b9b' : '';
+  }
+
+  function formatUsd(value) {
+    var amount = Number(value || 0);
+    if (!Number.isFinite(amount)) {
+      amount = 0;
+    }
+    return '$' + amount.toFixed(2);
+  }
+
+  function renderCatalog(payload) {
+    var catalog = payload && payload.catalog ? payload.catalog : {};
+    var offer = payload && payload.default_offer ? payload.default_offer : {};
+    var plans = Array.isArray(catalog.plans) ? catalog.plans : [];
+    var boundary = catalog && catalog.boundary ? catalog.boundary : {};
+    planCatalog = {};
+
+    if (titleNode) {
+      titleNode.textContent = 'Constitutional Institution License (default: ' + (catalog.default_plan || 'n/a') + ')';
+    }
+    if (summaryNode) {
+      summaryNode.textContent = 'One-time license + recurring maintenance + ledger-bound revenue-share metadata.';
+    }
+    if (pricingNode) {
+      pricingNode.textContent = plans.map(function (plan) {
+        var recurring = plan.billing_type === 'recurring' ? ' recurring' : '';
+        var share = Number(plan.revenue_share_pct || 0) * 100;
+        return plan.plan + ': ' + formatUsd(plan.price_usd) + recurring + ', revenue-share ' + share.toFixed(1) + '%';
+      }).join(' | ');
+    }
+    if (boundaryNode) {
+      boundaryNode.textContent = boundary.note || 'Boundary note unavailable.';
+    }
+
+    if (planSelect) {
+      planSelect.innerHTML = '';
+      plans.forEach(function (plan) {
+        planCatalog[plan.plan] = plan;
+        var option = document.createElement('option');
+        option.value = plan.plan;
+        option.textContent = plan.plan + ' — ' + formatUsd(plan.price_usd);
+        if (plan.plan === catalog.default_plan) {
+          option.selected = true;
+        }
+        planSelect.appendChild(option);
+      });
+      if (!planSelect.value && offer && offer.plan) {
+        planSelect.value = offer.plan;
+      }
+    }
+
+    var wallet = '';
+    if (offer && offer.payment_instructions) {
+      wallet = offer.payment_instructions.recipient_wallet || '';
+    }
+    setStatus(
+      wallet
+        ? 'Catalog loaded. Send exact USDC to ' + wallet + ' on Base, then submit the tx hash below.'
+        : 'Catalog loaded. Wallet instructions unavailable; verify backend payment instructions before capture.',
+      false
+    );
+  }
+
+  async function loadCatalog() {
+    try {
+      var payload = await fetchJsonWithTimeout('/api/institution/license/catalog', 8000);
+      renderCatalog(payload || {});
+    } catch (error) {
+      setStatus(error.message || 'Failed to load institution license catalog', true);
+    }
+  }
+
+  checkoutForm.addEventListener('submit', async function (event) {
+    event.preventDefault();
+    var formData = new FormData(checkoutForm);
+    var txHash = String(formData.get('tx_hash') || '').trim();
+    var payload = {
+      plan: String(formData.get('plan') || '').trim(),
+      institution_name: String(formData.get('institution_name') || '').trim(),
+      buyer_name: String(formData.get('buyer_name') || '').trim(),
+      buyer_contact: String(formData.get('buyer_contact') || '').trim(),
+      tx_hash: txHash,
+      payment_ref: txHash,
+      payment_evidence: {
+        tx_hash: txHash,
+        payment_ref: txHash,
+      },
+    };
+    if (submitButton) {
+      submitButton.disabled = true;
+    }
+    setStatus('Capturing institution license checkout and binding ledger evidence…', false);
+    try {
+      var response = await fetch(checkoutForm.getAttribute('action') || '/api/institution/license/checkout-capture', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      var result = await response.json();
+      if (!response.ok) {
+        throw new Error(result && result.error ? result.error : 'Institution license capture failed');
+      }
+      var capture = result && result.capture ? result.capture : {};
+      var sharePct = Number(capture.revenue_share_pct || 0) * 100;
+      setStatus(
+        'Captured ' + (capture.license_id || 'license') + ' on plan ' + (capture.plan || payload.plan) +
+        ' with recurring plan ' + (capture.maintenance_plan || 'n/a') +
+        ' and revenue-share ' + sharePct.toFixed(1) + '%.',
+        false
+      );
+      if (result && result.catalog) {
+        renderCatalog(result.catalog);
+      }
+    } catch (error) {
+      setStatus(error.message || 'Institution license capture failed', true);
+    } finally {
+      if (submitButton) {
+        submitButton.disabled = false;
+      }
+    }
+  });
+
+  loadCatalog();
+})();
+
+(function () {
+  'use strict';
   var shell = document.querySelector('[data-trust-ops-shell]');
   if (!shell) {
     return;

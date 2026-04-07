@@ -85,6 +85,74 @@ class SubscriptionServiceTests(unittest.TestCase):
         self.assertEqual(normalized['loom_delivery_jobs'], {})
         self.assertEqual(normalized['loom_delivery_runs'], [])
 
+    def test_institution_license_catalog_exposes_pricing_and_revenue_share(self):
+        catalog = subscription_service.institution_license_catalog()
+        self.assertEqual(catalog['schema_version'], 'meridian.institution_license_catalog.v1')
+        self.assertEqual(catalog['default_plan'], subscription_service.INSTITUTION_LICENSE_DEFAULT_PLAN)
+        self.assertEqual(catalog['checkout_capture_path'], '/api/institution/license/checkout-capture')
+        self.assertGreaterEqual(len(catalog['plans']), 2)
+        default_plan = next(
+            plan for plan in catalog['plans']
+            if plan['plan'] == subscription_service.INSTITUTION_LICENSE_DEFAULT_PLAN
+        )
+        self.assertGreater(default_plan['price_usd'], 0)
+        self.assertGreater(default_plan['revenue_share_pct'], 0)
+
+    def test_capture_institution_license_checkout_is_idempotent_for_binding_event(self):
+        payment_ref = '0xinstlicense01'
+        tx_hash = '0x' + ('ab' * 32)
+        settlement = {
+            'mode': 'verified_base_usdc_recorded',
+            'payment_ref': payment_ref,
+            'tx_hash': tx_hash,
+            'evidence': {
+                'order_id': 'ord_inst_license',
+                'payment_ref': payment_ref,
+                'tx_hash': tx_hash,
+                'amount': 299.0,
+            },
+        }
+
+        with mock.patch.object(
+            subscription_service,
+            'ensure_base_usdc_customer_payment',
+            return_value=settlement,
+        ), mock.patch.object(
+            subscription_service._revenue_mod,
+            'append_tx',
+            side_effect=lambda entry: self._append_tx(entry),
+        ):
+            first = subscription_service.capture_institution_license_checkout(
+                plan_name=subscription_service.INSTITUTION_LICENSE_DEFAULT_PLAN,
+                payment_ref=payment_ref,
+                tx_hash=tx_hash,
+                institution_name='Acme Ops',
+                buyer_name='Jane',
+                buyer_contact='jane@example.com',
+                org_id=self.org_id,
+            )
+            second = subscription_service.capture_institution_license_checkout(
+                plan_name=subscription_service.INSTITUTION_LICENSE_DEFAULT_PLAN,
+                payment_ref=payment_ref,
+                tx_hash=tx_hash,
+                institution_name='Acme Ops',
+                buyer_name='Jane',
+                buyer_contact='jane@example.com',
+                org_id=self.org_id,
+            )
+
+        self.assertEqual(first['license_id'], second['license_id'])
+        self.assertEqual(first['order_id'], 'ord_inst_license')
+        self.assertEqual(first['plan'], subscription_service.INSTITUTION_LICENSE_DEFAULT_PLAN)
+        self.assertGreater(first['revenue_share_pct'], 0.0)
+
+        events = [
+            row for row in subscription_service._revenue_mod.load_transactions()
+            if row.get('type') == 'institution_license_binding'
+        ]
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0].get('payment_ref'), payment_ref)
+
     def test_create_trial_subscription_returns_active_record(self):
         result = subscription_service.create_subscription(
             '100',

@@ -12,6 +12,8 @@ PUBLIC_SURFACE_GET_ROUTES = (
     ('/api/status', 'Full system snapshot'),
     ('/api/context', 'Bound institution/runtime context'),
     ('/api/runtimes', 'Runtime registry with contract compliance and binding usage'),
+    ('/api/institution/template', 'Institution template contract for constitutional deployments'),
+    ('/api/institution/license/catalog', 'Institution-license catalog with pricing and boundary notes'),
     ('/api/subscriptions', 'Subscription service state'),
     ('/api/pilot/intake', 'Public pilot intake queue snapshot'),
     ('/api/federation/manifest', 'Public host federation manifest'),
@@ -23,6 +25,7 @@ PUBLIC_SURFACE_GET_ROUTES = (
 PUBLIC_SURFACE_POST_ROUTES = (
     ('/api/pilot/intake', 'Public pilot intake submission with optional checkout preview publication'),
     ('/api/subscriptions/checkout-capture', 'Customer-initiated captured checkout activation with payment-evidence validation'),
+    ('/api/institution/license/checkout-capture', 'Customer-initiated institution-license capture with payment-evidence validation'),
     ('/api/federation/receive', 'Inbound federation envelope validation/receipt'),
 )
 

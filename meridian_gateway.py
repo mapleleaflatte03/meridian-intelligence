@@ -11338,6 +11338,8 @@ class WebAPIAdapter(ChannelAdapter):
                     "/api/workflows/showcase",
                     "/api/status",
                     "/api/runtime-proof",
+                    "/api/institution/template",
+                    "/api/institution/license/catalog",
                     "/api/treasury",
                     "/api/payouts",
                 }
@@ -11453,6 +11455,8 @@ class WebAPIAdapter(ChannelAdapter):
                 if request_path in {
                     "/api/context",
                     "/api/institution",
+                    "/api/institution/template",
+                    "/api/institution/license/catalog",
                     "/api/agents",
                     "/api/authority",
                     "/api/runtime-proof",
@@ -11621,6 +11625,7 @@ class WebAPIAdapter(ChannelAdapter):
                     "/api/subscriptions/add",
                     "/api/subscriptions/draft-from-preview",
                     "/api/subscriptions/checkout-capture",
+                    "/api/institution/license/checkout-capture",
                     "/api/subscriptions/activate-from-preview",
                     "/api/subscriptions/loom-delivery-jobs/run",
                     "/api/subscriptions/convert",
