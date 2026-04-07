@@ -820,6 +820,18 @@ h2 {
   font-family: var(--mono); font-size: 0.875rem;
   line-height: 1.55; color: #c9d1d9; max-height: 480px; overflow-y: auto;
 }
+.sample-box code {
+  background: transparent;
+  padding: 0;
+  border-radius: 0;
+  font-size: inherit;
+  color: inherit;
+  display: block;
+  white-space: inherit;
+}
+pre.sample-box {
+  margin: 1rem 0;
+}
 .sample-meta { color: var(--dim); font-size: 0.82rem; margin-top: 0.5rem; }
 .lane-card .sample-box {
   margin: 0.85rem 0 0;
