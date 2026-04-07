@@ -137,6 +137,7 @@ boundaries, and mutation-role map.
 """
 import argparse
 import base64
+import concurrent.futures
 import copy
 import datetime
 import hashlib
@@ -144,6 +145,7 @@ import hmac
 import json
 import os
 import sys
+import threading
 import time
 from http.server import HTTPServer, ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib import error as urllib_error, request as urllib_request
@@ -189,6 +191,14 @@ KERNEL_RUNTIME_ADAPTER_FILE = os.path.join(KERNEL_ROOT, 'kernel', 'runtime_adapt
 KERNEL_PUBLIC_PROOF_BUNDLE_FILE = os.path.join(KERNEL_ROOT, 'examples', 'generate_public_proof_bundle.py')
 PUBLIC_BASE_URL = (os.environ.get('MERIDIAN_PUBLIC_BASE_URL') or 'https://app.welliam.codes').strip() or 'https://app.welliam.codes'
 PUBLIC_PROOF_CACHE_TTL_SECONDS = max(0, int(os.environ.get('MERIDIAN_PUBLIC_PROOF_CACHE_TTL_SECONDS', '300') or '300'))
+PUBLIC_PROOF_BUILD_SYNC_TIMEOUT_SECONDS = max(
+    0.5,
+    float(os.environ.get('MERIDIAN_PUBLIC_PROOF_BUILD_SYNC_TIMEOUT_SECONDS', '4') or '4'),
+)
+PUBLIC_PROOF_FALLBACK_MAX_AGE_SECONDS = max(
+    PUBLIC_PROOF_CACHE_TTL_SECONDS,
+    int(os.environ.get('MERIDIAN_PUBLIC_PROOF_FALLBACK_MAX_AGE_SECONDS', '3600') or '3600'),
+)
 sys.path.insert(0, PLATFORM_DIR)
 
 from organizations import (load_orgs, set_charter, set_policy_defaults, DEFAULT_POLICY_DEFAULTS,
@@ -226,6 +236,13 @@ kernel_check_all_contracts = _runtime_adapter_mod.check_all_contracts
 kernel_check_contract = _runtime_adapter_mod.check_contract
 _kernel_public_proof_bundle_mod = None
 _public_kernel_proof_cache = {}
+_public_kernel_proof_cache_lock = threading.RLock()
+_public_kernel_proof_build_futures = {}
+_public_kernel_proof_last_error = {}
+_public_kernel_proof_executor = concurrent.futures.ThreadPoolExecutor(
+    max_workers=2,
+    thread_name_prefix='meridian_public_proof_bundle',
+)
 
 if KERNEL_MODULE_DIR not in sys.path:
     sys.path.append(KERNEL_MODULE_DIR)
@@ -450,35 +467,144 @@ def _kernel_public_proof_bundle(*, base_url=None):
         raise RuntimeError(
             f'Kernel public proof bundle builder unavailable at {KERNEL_PUBLIC_PROOF_BUNDLE_FILE}'
         )
-
     normalized_base = _normalized_public_base_url(base_url)
-    cache_entry = _public_kernel_proof_cache.get(normalized_base)
     now = time.time()
-    if cache_entry and PUBLIC_PROOF_CACHE_TTL_SECONDS > 0:
-        age = now - float(cache_entry.get('cached_at_epoch', 0.0))
-        if age <= PUBLIC_PROOF_CACHE_TTL_SECONDS:
-            return copy.deepcopy(cache_entry['payload'])
 
-    payload = builder(
-        live_manifest_url=f'{normalized_base}/api/federation/manifest',
-        live_runtime_proof_url=f'{normalized_base}/api/runtime-proof',
-    )
-    payload['public_routes'] = {
-        'kernel_proof_bundle': '/api/kernel-proof-bundle',
-        'federation_manifest': '/api/federation/manifest',
-        'runtime_proof': '/api/runtime-proof',
-        'runtime_proof_contract': '/api/runtime-proof-contract',
-    }
-    payload['generated_from'] = {
-        'kernel_root': KERNEL_ROOT,
-        'bundle_builder': KERNEL_PUBLIC_PROOF_BUNDLE_FILE,
-        'public_base_url': normalized_base,
-    }
-    _public_kernel_proof_cache[normalized_base] = {
-        'cached_at_epoch': now,
-        'payload': copy.deepcopy(payload),
-    }
-    return payload
+    def _decorate_payload(payload, *, cache_state):
+        enriched = copy.deepcopy(payload)
+        generated_from = dict(enriched.get('generated_from') or {})
+        generated_from.update({
+            'kernel_root': KERNEL_ROOT,
+            'bundle_builder': KERNEL_PUBLIC_PROOF_BUNDLE_FILE,
+            'public_base_url': normalized_base,
+        })
+        enriched['generated_from'] = generated_from
+        enriched['public_routes'] = {
+            'kernel_proof_bundle': '/api/kernel-proof-bundle',
+            'federation_manifest': '/api/federation/manifest',
+            'runtime_proof': '/api/runtime-proof',
+            'runtime_proof_contract': '/api/runtime-proof-contract',
+        }
+        enriched['cache'] = cache_state
+        return enriched
+
+    def _placeholder_payload(reason, *, cache_state='bootstrap'):
+        return _decorate_payload({
+            'proof_bundle_version': 4,
+            'generated_at': datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat(),
+            'reference_scope': 'oss_kernel_reference',
+            'status': 'degraded',
+            'degraded_reason': reason,
+            'live_host_receipt': {
+                'included': False,
+                'attempted': False,
+                'route': f'{normalized_base}/api/federation/manifest',
+                'reason': 'live_receipt_refresh_pending',
+            },
+            'live_runtime_receipt': {
+                'included': False,
+                'attempted': False,
+                'route': f'{normalized_base}/api/runtime-proof',
+                'reason': 'live_receipt_refresh_pending',
+            },
+            'local_loom_runtime_receipt': {
+                'included': False,
+                'attempted': False,
+                'path': '',
+                'reason': 'public_bundle_refresh_pending',
+            },
+            'not_live_proven': [
+                'live multi-host federation between independent deployments',
+                'live end-to-end hosted runtime wiring',
+                'live non-internal settlement execution',
+            ],
+        }, cache_state={
+            'state': cache_state,
+            'reason': reason,
+            'generated_at_epoch': now,
+        })
+
+    def _build_payload():
+        raw_payload = builder(
+            live_manifest_url=f'{normalized_base}/api/federation/manifest',
+            live_runtime_proof_url=f'{normalized_base}/api/runtime-proof',
+        )
+        cached_payload = _decorate_payload(raw_payload, cache_state={
+            'state': 'fresh',
+            'generated_at_epoch': now,
+            'ttl_seconds': PUBLIC_PROOF_CACHE_TTL_SECONDS,
+        })
+        with _public_kernel_proof_cache_lock:
+            _public_kernel_proof_cache[normalized_base] = {
+                'cached_at_epoch': time.time(),
+                'payload': copy.deepcopy(cached_payload),
+            }
+            _public_kernel_proof_last_error.pop(normalized_base, None)
+        return cached_payload
+
+    def _future_done(base_key, future):
+        with _public_kernel_proof_cache_lock:
+            _public_kernel_proof_build_futures.pop(base_key, None)
+            if future.cancelled():
+                _public_kernel_proof_last_error[base_key] = 'public_bundle_refresh_cancelled'
+                return
+            exc = future.exception()
+            if exc is not None:
+                _public_kernel_proof_last_error[base_key] = f'{type(exc).__name__}: {exc}'
+
+    def _ensure_refresh_in_flight():
+        with _public_kernel_proof_cache_lock:
+            existing = _public_kernel_proof_build_futures.get(normalized_base)
+            if existing and not existing.done():
+                return existing
+            future = _public_kernel_proof_executor.submit(_build_payload)
+            _public_kernel_proof_build_futures[normalized_base] = future
+            future.add_done_callback(lambda done_future, base_key=normalized_base: _future_done(base_key, done_future))
+            return future
+
+    with _public_kernel_proof_cache_lock:
+        cache_entry = copy.deepcopy(_public_kernel_proof_cache.get(normalized_base))
+        last_error = _public_kernel_proof_last_error.get(normalized_base)
+
+    if cache_entry:
+        cache_age = max(0.0, now - float(cache_entry.get('cached_at_epoch', 0.0)))
+        payload = dict(cache_entry.get('payload') or {})
+        if PUBLIC_PROOF_CACHE_TTL_SECONDS > 0 and cache_age <= PUBLIC_PROOF_CACHE_TTL_SECONDS:
+            payload['cache'] = {
+                'state': 'fresh',
+                'age_seconds': round(cache_age, 3),
+                'ttl_seconds': PUBLIC_PROOF_CACHE_TTL_SECONDS,
+                'last_error': last_error,
+            }
+            return payload
+
+        _ensure_refresh_in_flight()
+        payload['cache'] = {
+            'state': 'stale_fallback',
+            'age_seconds': round(cache_age, 3),
+            'ttl_seconds': PUBLIC_PROOF_CACHE_TTL_SECONDS,
+            'fallback_max_age_seconds': PUBLIC_PROOF_FALLBACK_MAX_AGE_SECONDS,
+            'refresh': 'in_progress',
+            'last_error': last_error,
+        }
+        if cache_age <= PUBLIC_PROOF_FALLBACK_MAX_AGE_SECONDS:
+            return payload
+
+    refresh_future = _ensure_refresh_in_flight()
+    try:
+        return refresh_future.result(timeout=PUBLIC_PROOF_BUILD_SYNC_TIMEOUT_SECONDS)
+    except concurrent.futures.TimeoutError:
+        return _placeholder_payload(
+            'public_bundle_build_in_progress',
+            cache_state='building',
+        )
+    except Exception as exc:
+        with _public_kernel_proof_cache_lock:
+            _public_kernel_proof_last_error[normalized_base] = f'{type(exc).__name__}: {exc}'
+        return _placeholder_payload(
+            f'public_bundle_build_failed: {type(exc).__name__}',
+            cache_state='error_fallback',
+        )
 
 
 def _canonical_meridian_user_id(user_id):

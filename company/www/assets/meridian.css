@@ -1257,10 +1257,11 @@ h3 { font-family: var(--display); color: #fff; font-size: 1rem; margin: 1.1rem 0
 
 /* ── Scroll reveal ── */
 .reveal {
-  opacity: 0; transform: translateY(12px);
-  transition: opacity 0.5s ease-out, transform 0.5s ease-out;
+  opacity: 1;
+  transform: none;
+  transition: opacity 0.22s ease-out, transform 0.22s ease-out;
 }
-.reveal.visible { opacity: 1; transform: translateY(0); }
+.reveal.visible { opacity: 1; transform: none; }
 
 /* ── Keyframes ── */
 @keyframes fadeInUp {

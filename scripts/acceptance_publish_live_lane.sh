@@ -129,6 +129,7 @@ BASE = "https://app.welliam.codes"
 checks = [
     ("/api/institution/template", "json"),
     ("/api/institution/license/catalog", "json"),
+    ("/api/kernel-proof-bundle", "json_kernel_bundle"),
     ("/", "html"),
     ("/proofs", "html_proofs"),
     ("/workflows", "html_workflows"),
@@ -150,6 +151,13 @@ for path, mode in checks:
             assert catalog.get("default_plan") == "institution-license-foundation", payload
             assert (catalog.get("checkout_capture_path") or "").endswith("/api/institution/license/checkout-capture"), payload
             assert len(catalog.get("plans") or []) >= 2, payload
+    elif mode == "json_kernel_bundle":
+        payload = json.loads(body)
+        assert isinstance(payload, dict), payload
+        assert payload.get("proof_bundle_version"), payload
+        assert payload.get("public_routes", {}).get("kernel_proof_bundle") == "/api/kernel-proof-bundle", payload
+        cache = payload.get("cache") or {}
+        assert cache.get("state") in {"fresh", "stale_fallback", "building", "error_fallback", "bootstrap"}, payload
     elif mode == "html":
         assert "Constitutional Institution License" in body, "Missing 'Constitutional Institution License' in homepage"
         assert "data-institution-license-checkout-form" in body, "Missing checkout form marker"

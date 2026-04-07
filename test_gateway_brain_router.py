@@ -281,6 +281,7 @@ class GatewayBrainRouterIntegrationTests(unittest.TestCase):
         self.assertTrue(handler._public_read_allowed("/api/workflows/showcase"))
         self.assertTrue(handler._public_read_allowed("/api/treasury"))
         self.assertTrue(handler._public_read_allowed("/api/payouts"))
+        self.assertTrue(handler._public_read_allowed("/api/kernel-proof-bundle"))
         self.assertTrue(handler._public_read_allowed("/api/institution/template"))
         self.assertTrue(handler._public_read_allowed("/api/institution/license/catalog"))
         self.assertFalse(handler._public_read_allowed("/api/treasury/accounts"))

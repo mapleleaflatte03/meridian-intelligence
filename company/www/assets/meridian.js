@@ -18,8 +18,12 @@ window.__meridianFetchJsonWithTimeout = window.__meridianFetchJsonWithTimeout ||
 (function () {
   'use strict';
   var els = document.querySelectorAll('.reveal');
-  if (!els.length || !('IntersectionObserver' in window)) {
-    els.forEach(function (el) { el.classList.add('visible'); });
+  if (!els.length) {
+    return;
+  }
+  // Keep structure visible immediately; observer now only normalizes class state.
+  els.forEach(function (el) { el.classList.add('visible'); });
+  if (!('IntersectionObserver' in window)) {
     return;
   }
   var io = new IntersectionObserver(function (entries) {
