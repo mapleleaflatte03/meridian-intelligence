@@ -58,7 +58,6 @@ from warrants import (
 from loom_runtime_client import estimate_capability_cost_usd, format_estimated_cost_usd
 from loom_runtime_discovery import preferred_loom_bin, preferred_loom_root, runtime_value
 from session_history import append_session_event, load_session_events
-from subscription_service import public_checkout_offer, subscription_summary
 from team_topology import SPECIALIST_KEYS, load_team_topology, sync_loom_team_profiles
 from telegram_history import imported_history_context
 import brain_router
@@ -1564,55 +1563,44 @@ def _build_meridian_council_truth_packet() -> dict[str, Any]:
     readiness = _workspace_api_get_json("/api/treasury/settlement-adapters/readiness")
     status_payload = dict(status.get("payload") or {}) if status.get("ok") else {}
     service_state = dict(status_payload.get("service_state") or {})
-    preview_state = dict(service_state.get("subscription_preview") or {})
-    pilot_state = dict(service_state.get("pilot_intake") or {})
-    subscriptions_state = dict(service_state.get("subscriptions") or {})
     readiness_payload = dict(readiness.get("payload") or {}) if readiness.get("ok") else {}
     readiness_summary = dict(readiness_payload.get("summary") or {})
-    try:
-        live_offer = dict(public_checkout_offer() or {})
-    except Exception as exc:
-        live_offer = {"error": f"{exc.__class__.__name__}: {exc}"}
-    try:
-        live_subscriptions = dict(subscription_summary(LOOM_ORG_ID) or {})
-    except Exception as exc:
-        live_subscriptions = {"error": f"{exc.__class__.__name__}: {exc}"}
     return {
         "operator_truth": operator_truth,
-        "public_offer": {
-            "name": "Paid 7-Day Founder Pilot",
-            "requested_offer": live_offer.get("requested_offer"),
-            "price_usd": live_offer.get("price_usd"),
-            "duration_days": live_offer.get("duration_days"),
-            "billing_type": live_offer.get("billing_type"),
-            "payment_method": live_offer.get("payment_method"),
-            "payment_instructions": dict(live_offer.get("payment_instructions") or {}),
-            "buy_path_live": True,
-            "buy_path_description": "exact_amount_usdc_on_base_with_tx_hash_capture",
-            "checkout_preview_path": dict(live_offer.get("payment_instructions") or {}).get("checkout_capture_path") and "/api/pilot/intake" or "",
-            "checkout_capture_path": dict(live_offer.get("payment_instructions") or {}).get("checkout_capture_path"),
-            "continuation_mode": "by_arrangement_after_pilot",
+        "open_source_posture": {
+            "mode": "full_open_source",
+            "commercial_checkout_live": False,
+            "support_model": "voluntary_support_and_research_collaboration",
+            "setup_path": "/pilot",
+            "catalog_path_status": {
+                "path": "/api/institution/license/catalog",
+                "status": "deprecated_410",
+                "reason": "open_source_mode",
+            },
         },
         "delivery_truth": {
             "email_bounded_delivery_live": True,
             "telegram_bounded_delivery_live": True,
             "broad_customer_automation_live": False,
             "nightly_pipeline_state": "treasury_gated_and_preflight_gated",
-            "founder_led_customer_offer": True,
+            "founder_led_customer_offer": False,
         },
         "payment_truth": {
             "card_checkout_live": False,
             "paypal_checkout_live": False,
             "manual_bank_wire_primary": False,
             "x402_external_customer_proof": False,
-            "base_usdc_public_checkout_live": True,
+            "base_usdc_public_checkout_live": False,
         },
         "service_state_truth": {
-            "pilot_intake_mode": pilot_state.get("management_mode"),
-            "subscription_preview_public_path": preview_state.get("public_intake_path"),
-            "public_checkout_paths": dict(subscriptions_state.get("public_checkout_paths") or {}),
+            "pilot_intake_mode": "deprecated_public_route",
+            "subscription_preview_public_path": "",
+            "public_checkout_paths": {},
         },
-        "subscription_truth": live_subscriptions,
+        "subscription_truth": {
+            "status": "internal_subscription_state_preserved_for_ledger_continuity",
+            "public_checkout_enabled": False,
+        },
         "settlement_truth": {
             "ready_adapter_ids": list(readiness_payload.get("ready_adapter_ids") or []),
             "blocked_adapter_ids": list(readiness_payload.get("blocked_adapter_ids") or []),
@@ -1638,7 +1626,7 @@ def _build_meridian_council_truth_packet() -> dict[str, Any]:
             "context_pack": str(COUNCIL_CONTEXT_PATH.relative_to(WORKSPACE_DIR)),
             "homepage": "company/www/index.html",
             "demo": "company/www/demo.html",
-            "pilot": "company/www/pilot.html",
+            "get_started": "company/www/pilot.html",
             "boundary": "company/www/OPEN_SOURCE_BOUNDARY.html",
             "kernel_readme": "/opt/meridian-kernel/README.md",
             "public_readme": "README.md",
@@ -11464,6 +11452,30 @@ class WebAPIAdapter(ChannelAdapter):
                         ],
                     })
                     return
+                if request_path == "/api/pilot/intake":
+                    self._send_json(410, {
+                        "status": "deprecated",
+                        "reason": "open_source_mode",
+                        "message": "Public pilot intake has been deprecated. Use /pilot for open-source setup.",
+                        "next_steps": [
+                            "Open /pilot and follow the local bootstrap path",
+                            "Install Loom: curl -fsSL https://raw.githubusercontent.com/mapleleaflatte03/meridian-loom/main/scripts/install.sh | bash",
+                            "Use the monorepo: https://github.com/mapleleaflatte03/meridian",
+                        ],
+                    })
+                    return
+                if request_path == "/api/subscriptions/checkout-capture":
+                    self._send_json(410, {
+                        "status": "deprecated",
+                        "reason": "open_source_mode",
+                        "message": "Subscription checkout capture has been deprecated. Meridian is now fully open source.",
+                        "next_steps": [
+                            "Run local setup from /pilot",
+                            "Use /api/workflows/showcase and /api/proofs to verify runtime behavior",
+                            "Contribute via https://github.com/mapleleaflatte03/meridian/issues",
+                        ],
+                    })
+                    return
                 if request_path in {
                     "/api/context",
                     "/api/institution",
@@ -11594,6 +11606,30 @@ class WebAPIAdapter(ChannelAdapter):
                             "Install Loom: curl -fsSL https://raw.githubusercontent.com/mapleleaflatte03/meridian-loom/main/scripts/install.sh | bash",
                             "Visit https://github.com/mapleleaflatte03/meridian-loom for source and documentation",
                             "The institution template remains available at /api/institution/template",
+                        ],
+                    })
+                    return
+                if request_path == "/api/pilot/intake":
+                    self._send_json(410, {
+                        "status": "deprecated",
+                        "reason": "open_source_mode",
+                        "message": "Public pilot intake has been deprecated. Use /pilot for open-source setup.",
+                        "next_steps": [
+                            "Open /pilot and follow the local bootstrap path",
+                            "Install Loom: curl -fsSL https://raw.githubusercontent.com/mapleleaflatte03/meridian-loom/main/scripts/install.sh | bash",
+                            "Use the monorepo: https://github.com/mapleleaflatte03/meridian",
+                        ],
+                    })
+                    return
+                if request_path == "/api/subscriptions/checkout-capture":
+                    self._send_json(410, {
+                        "status": "deprecated",
+                        "reason": "open_source_mode",
+                        "message": "Subscription checkout capture has been deprecated. Meridian is now fully open source.",
+                        "next_steps": [
+                            "Run local setup from /pilot",
+                            "Use /api/workflows/showcase and /api/proofs to verify runtime behavior",
+                            "Contribute via https://github.com/mapleleaflatte03/meridian/issues",
                         ],
                     })
                     return

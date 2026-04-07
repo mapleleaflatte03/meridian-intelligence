@@ -5137,7 +5137,16 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
         elif path == '/api/accounting':
             return self._json(service_state.accounting_snapshot(org_id))
         elif path == '/api/pilot/intake':
-            return self._json(pilot_intake.queue_snapshot(org_id))
+            return self._json({
+                'status': 'deprecated',
+                'reason': 'open_source_mode',
+                'message': 'Public pilot intake has been deprecated. Use /pilot for open-source setup.',
+                'next_steps': [
+                    'Open /pilot and follow the local bootstrap path',
+                    'Use the monorepo: https://github.com/mapleleaflatte03/meridian',
+                    'Use /api/workflows/showcase and /api/proofs for runtime verification',
+                ],
+            }, 410)
         elif path == '/api/pilot/intake/operator':
             return self._json(pilot_intake.operator_review_snapshot(org_id))
         elif path == '/api/payouts':
@@ -5395,6 +5404,17 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                 return self._json({'error': str(e)}, 400)
 
         if path == '/api/pilot/intake':
+            return self._json({
+                'status': 'deprecated',
+                'reason': 'open_source_mode',
+                'message': 'Public pilot intake has been deprecated. Use /pilot for open-source setup.',
+                'next_steps': [
+                    'Open /pilot and follow the local bootstrap path',
+                    'Use the monorepo: https://github.com/mapleleaflatte03/meridian',
+                    'Use /api/workflows/showcase and /api/proofs for runtime verification',
+                ],
+            }, 410)
+        if False:  # Preserved for ledger continuity reference
             try:
                 inst_ctx = _resolve_workspace_context()
                 body = self._read_body()
@@ -5458,6 +5478,17 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
                 return self._json({'error': str(e)}, 400)
 
         if path == '/api/subscriptions/checkout-capture':
+            return self._json({
+                'status': 'deprecated',
+                'reason': 'open_source_mode',
+                'message': 'Subscription checkout capture has been deprecated. Meridian is now fully open source.',
+                'next_steps': [
+                    'Open /pilot and follow the local bootstrap path',
+                    'Use /api/workflows/showcase and /api/proofs for runtime verification',
+                    'Contribute via https://github.com/mapleleaflatte03/meridian/issues',
+                ],
+            }, 410)
+        if False:  # Preserved for ledger continuity reference
             try:
                 inst_ctx = _resolve_workspace_context()
                 body = self._read_body()

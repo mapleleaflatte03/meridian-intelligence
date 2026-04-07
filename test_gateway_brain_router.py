@@ -287,12 +287,22 @@ class GatewayBrainRouterIntegrationTests(unittest.TestCase):
         self.assertFalse(handler._public_read_allowed("/api/treasury/accounts"))
         self.assertFalse(handler._public_read_allowed("/api/unknown"))
 
-    def test_gateway_returns_410_for_deprecated_institution_license_routes(self):
+    def test_gateway_returns_410_for_deprecated_open_source_routes(self):
         gateway_source = (WORKSPACE / "meridian_gateway.py").read_text(encoding="utf-8")
         self.assertIn(
             '"open_source_mode"',
             gateway_source,
             "gateway must return open_source_mode deprecation for institution license routes",
+        )
+        self.assertIn(
+            '"/api/pilot/intake"',
+            gateway_source,
+            "gateway must explicitly gate deprecated pilot intake path in open-source mode",
+        )
+        self.assertIn(
+            '"/api/subscriptions/checkout-capture"',
+            gateway_source,
+            "gateway must explicitly gate deprecated subscription checkout path in open-source mode",
         )
 
 
