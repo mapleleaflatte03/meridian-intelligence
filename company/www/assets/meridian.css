@@ -29,6 +29,12 @@
   --mono:     'JetBrains Mono', monospace;
   --body:     'IBM Plex Sans', sans-serif;
   --display:  'IBM Plex Sans Condensed', 'Space Grotesk', sans-serif;
+  --radius-xs: 8px;
+  --radius-sm: 10px;
+  --radius-md: 12px;
+  --radius-lg: 14px;
+  --surface-shadow: 0 16px 38px rgba(0,0,0,0.24);
+  --surface-shadow-hover: 0 24px 54px rgba(0,0,0,0.3);
 }
 
 /* ── Reset ── */
@@ -127,36 +133,36 @@ li { padding: 0.2rem 0; }
 }
 .brand {
   display: flex; align-items: center; gap: 0.62rem; text-decoration: none; color: inherit; min-width: 0;
-  height: 50px;
-  padding: 0.18rem 0.35rem 0.18rem 0.2rem;
-  border: 1px solid rgba(255,255,255,0.08);
-  border-radius: 10px;
-  background: linear-gradient(180deg, rgba(11,16,24,0.68), rgba(7,10,15,0.58));
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.05), 0 8px 20px rgba(0,0,0,0.16);
+  height: 54px;
+  padding: 0.2rem 0.45rem 0.2rem 0.26rem;
+  border: 1px solid rgba(255,255,255,0.11);
+  border-radius: var(--radius-sm);
+  background: linear-gradient(180deg, rgba(12,17,26,0.86), rgba(8,12,18,0.72));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), 0 10px 24px rgba(0,0,0,0.2);
   transition: border-color 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
 }
 .brand-mark {
-  width: 36px; height: 36px; flex-shrink: 0;
+  width: 40px; height: 40px; flex-shrink: 0;
   padding: 4px;
   object-fit: contain;
-  border-radius: 8px;
-  border: 1px solid rgba(135,216,255,0.26);
-  background: linear-gradient(180deg, rgba(8,14,22,0.96), rgba(5,9,14,0.92));
-  filter: brightness(0) invert(0.94) drop-shadow(0 0 10px rgba(135,216,255,0.18));
+  border-radius: var(--radius-xs);
+  border: 1px solid rgba(135,216,255,0.34);
+  background: linear-gradient(180deg, rgba(12,20,32,0.98), rgba(7,12,19,0.95));
+  filter: brightness(0) invert(0.99) drop-shadow(0 0 13px rgba(135,216,255,0.28));
   transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
 }
 .brand-wordmark {
   display: block;
-  height: 31px;
+  height: 33px;
   width: auto;
   max-width: min(52vw, 252px);
-  opacity: 0.98;
-  filter: drop-shadow(0 0 6px rgba(0,0,0,0.28));
+  opacity: 1;
+  filter: drop-shadow(0 0 8px rgba(0,0,0,0.34));
 }
 .brand:hover {
-  border-color: rgba(255,215,0,0.24);
-  background: linear-gradient(180deg, rgba(12,18,27,0.78), rgba(7,11,16,0.66));
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.06), 0 10px 24px rgba(0,0,0,0.2);
+  border-color: rgba(255,215,0,0.3);
+  background: linear-gradient(180deg, rgba(14,21,32,0.86), rgba(9,13,20,0.74));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), 0 14px 30px rgba(0,0,0,0.24);
 }
 .brand:hover .brand-mark {
   border-color: rgba(255,215,0,0.38);
@@ -168,10 +174,10 @@ li { padding: 0.2rem 0; }
   color: var(--dim); text-decoration: none; font-size: 0.75rem; transition: color 0.15s, border-color 0.15s, background 0.15s;
   text-transform: uppercase; letter-spacing: 0.12em; font-family: var(--mono);
   display: inline-flex; align-items: center; justify-content: center;
-  min-height: 38px;
+  min-height: 40px;
   line-height: 1;
   white-space: nowrap;
-  padding: 0 0.66rem;
+  padding: 0 0.72rem;
   border: 1px solid transparent;
   border-radius: 999px;
   box-sizing: border-box;
@@ -222,6 +228,7 @@ li { padding: 0.2rem 0; }
     inset 0 1px 0 rgba(255,255,255,0.05),
     inset 0 0 0 1px rgba(255,255,255,0.02),
     0 36px 80px rgba(0,0,0,0.3);
+  border-radius: var(--radius-lg);
   overflow: hidden;
 }
 .hero-shell::before,
@@ -366,7 +373,9 @@ li { padding: 0.2rem 0; }
 .hero-copy .cta-group { justify-content: flex-start; }
 .cta-section .cta { margin: 0.5rem; }
 .cta {
-  display: inline-block; padding: 12px 28px; border-radius: 6px;
+  display: inline-flex; align-items: center; justify-content: center;
+  min-height: 44px;
+  padding: 12px 28px; border-radius: var(--radius-sm);
   text-decoration: none; font-weight: 700; font-size: 1rem;
   transition: background 0.15s, border-color 0.15s, box-shadow 0.2s;
 }
@@ -398,8 +407,9 @@ h2 {
   background: linear-gradient(180deg, rgba(9,13,21,0.92), rgba(5,8,13,0.94));
   border: 1px solid rgba(255,255,255,0.05);
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
-  border-radius: 0; padding: 1.25rem; margin-bottom: 1rem;
+  border-radius: var(--radius-md); padding: 1.25rem; margin-bottom: 1rem;
   position: relative; overflow: hidden;
+  border-radius: var(--radius-lg);
 }
 .card::before,
 .feature-card::before,
@@ -442,11 +452,11 @@ h2 {
 .feature-card {
   background: linear-gradient(180deg, rgba(8,12,18,0.92), rgba(6,9,14,0.96));
   border: 1px solid rgba(255,255,255,0.05);
-  border-radius: 0; padding: 1.15rem;
+  border-radius: var(--radius-md); padding: 1.15rem;
   transition: border-color 0.2s, box-shadow 0.2s, transform 0.2s;
   position: relative; overflow: hidden;
 }
-.feature-card:hover { border-color: rgba(135,216,255,0.28); box-shadow: 0 12px 26px rgba(0,0,0,0.18); transform: translateY(-2px); }
+.feature-card:hover { border-color: rgba(135,216,255,0.28); box-shadow: var(--surface-shadow); transform: translateY(-2px); }
 .feature-card h3 { color: #fff; font-size: 1rem; margin-bottom: 0.45rem; letter-spacing: -0.01em; }
 .feature-card p { color: var(--dim); font-size: 0.93rem; line-height: 1.65; }
 
@@ -499,6 +509,7 @@ h2 {
   padding: 1rem 1.05rem 1.1rem;
   border: 1px solid rgba(255,255,255,0.05);
   background: linear-gradient(180deg, rgba(10,14,21,0.94), rgba(6,9,14,0.98));
+  border-radius: var(--radius-sm);
 }
 .quadrant-cell-meridian {
   border-color: rgba(135,216,255,0.22);
@@ -569,6 +580,7 @@ h2 {
   padding: 1rem 1.05rem;
   position: relative;
   overflow: hidden;
+  border-radius: var(--radius-sm);
 }
 .metric-card::before,
 .lane-card::before,
@@ -720,6 +732,7 @@ h2 {
   padding: 1rem 1.05rem;
   position: relative;
   overflow: hidden;
+  border-radius: var(--radius-sm);
 }
 .live-chart-card::before {
   content: '';
@@ -825,7 +838,7 @@ h2 {
 .price-card {
   background: linear-gradient(180deg, rgba(8,12,18,0.92), rgba(5,8,14,0.96));
   border: 1px solid rgba(255,255,255,0.05);
-  border-radius: 0; padding: 1.5rem; text-align: center;
+  border-radius: var(--radius-md); padding: 1.5rem; text-align: center;
   position: relative; overflow: hidden;
 }
 .price-card.featured { border-color: rgba(135,216,255,0.38); box-shadow: 0 18px 40px rgba(6,25,35,0.28); }
@@ -873,7 +886,7 @@ h2 {
 
 /* ── Sample box ── */
 .sample-box {
-  background: #060810; border: 1px solid var(--border); border-radius: 8px;
+  background: #060810; border: 1px solid var(--border); border-radius: var(--radius-md);
   padding: 1.25rem; margin: 1rem 0; white-space: pre-wrap;
   font-family: var(--mono); font-size: 0.875rem;
   line-height: 1.55; color: #c9d1d9; max-height: 480px; overflow-y: auto;
@@ -915,7 +928,7 @@ details p { padding: 0 0 1rem 0; color: var(--dim); }
 .notice, .blocker {
   background: linear-gradient(180deg, rgba(20,15,8,0.92), rgba(13,10,6,0.96));
   border: 1px solid rgba(255, 183, 77, 0.16);
-  border-radius: 0; padding: 1rem 1.25rem; margin: 1.5rem 0;
+  border-radius: var(--radius-md); padding: 1rem 1.25rem; margin: 1.5rem 0;
   font-size: 0.95rem;
   line-height: 1.72;
   position: relative; overflow: hidden;
@@ -998,7 +1011,7 @@ code { background: #0e0e1a; padding: 2px 6px; border-radius: 3px; font-size: 0.8
 .channel {
   background: linear-gradient(180deg, rgba(8,12,18,0.94), rgba(4,7,12,0.98));
   border: 1px solid rgba(255,255,255,0.05);
-  border-radius: 0;
+  border-radius: var(--radius-md);
   padding: 1rem 1.1rem;
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.03);
 }
@@ -1029,6 +1042,8 @@ code { background: #0e0e1a; padding: 2px 6px; border-radius: 3px; font-size: 0.8
   background: linear-gradient(180deg, rgba(7,11,17,0.9), rgba(4,7,12,0.94));
   border: 1px solid rgba(255,255,255,0.05);
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.03);
+  border-radius: var(--radius-md);
+  overflow: hidden;
 }
 .data-table { width: 100%; border-collapse: collapse; margin: 0.5rem 0; font-size: 0.92rem; }
 .data-table th {
@@ -1050,7 +1065,7 @@ code { background: #0e0e1a; padding: 2px 6px; border-radius: 3px; font-size: 0.8
 .brief-box {
   background: linear-gradient(180deg, rgba(8,12,18,0.96), rgba(4,7,12,0.98));
   border: 1px solid rgba(255,255,255,0.05);
-  border-radius: 0;
+  border-radius: var(--radius-md);
   padding: 1.5rem;
   margin: 1rem 0;
   font-size: 0.92rem;
@@ -1081,7 +1096,7 @@ code { background: #0e0e1a; padding: 2px 6px; border-radius: 3px; font-size: 0.8
 .risk-box strong { color: var(--warn); }
 
 /* ── Battlecard ── */
-.battlecard { background: linear-gradient(180deg, rgba(8,12,18,0.92), rgba(5,8,13,0.96)); border: 1px solid rgba(255,255,255,0.05); border-radius: 0; overflow: hidden; margin: 1rem 0; position: relative; }
+.battlecard { background: linear-gradient(180deg, rgba(8,12,18,0.92), rgba(5,8,13,0.96)); border: 1px solid rgba(255,255,255,0.05); border-radius: var(--radius-md); overflow: hidden; margin: 1rem 0; position: relative; }
 .battlecard-header { background: #0a0a18; padding: 1rem 1.25rem; border-bottom: 1px solid var(--border); }
 .battlecard-header h4 { color: #fff; font-size: 1.1rem; margin: 0; }
 .battlecard-meta { color: var(--dim); font-size: 0.82rem; margin-top: 0.25rem; }
@@ -1097,7 +1112,7 @@ code { background: #0e0e1a; padding: 2px 6px; border-radius: 3px; font-size: 0.8
 .delivery-node {
   background: linear-gradient(180deg, rgba(9,13,21,0.95), rgba(5,8,13,0.94));
   border: 1px solid rgba(255,255,255,0.05);
-  border-radius: 0;
+  border-radius: var(--radius-sm);
   padding: 0.9rem 0.85rem;
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.03);
 }
@@ -1120,7 +1135,7 @@ code { background: #0e0e1a; padding: 2px 6px; border-radius: 3px; font-size: 0.8
 .status-warn { color: var(--warn); }
 
 /* ── CTA section (full-width call-to-action block) ── */
-.cta-section { text-align: center; margin: 3rem 0 2rem; padding: 2rem; background: linear-gradient(180deg, rgba(7,11,18,0.92), rgba(4,7,12,0.98)); border: 1px solid rgba(255,255,255,0.05); border-radius: 0; position: relative; overflow: hidden; }
+.cta-section { text-align: center; margin: 3rem 0 2rem; padding: 2rem; background: linear-gradient(180deg, rgba(7,11,18,0.92), rgba(4,7,12,0.98)); border: 1px solid rgba(255,255,255,0.05); border-radius: var(--radius-lg); position: relative; overflow: hidden; }
 .cta-section::before {
   content: '';
   position: absolute;
@@ -1285,14 +1300,14 @@ h3 { font-family: var(--display); color: #fff; font-size: 1rem; margin: 1.1rem 0
   }
   .brand-mark {
     display: block;
-    width: 31px;
-    height: 31px;
+    width: 32px;
+    height: 32px;
     padding: 3px;
     border-radius: 7px;
   }
   .brand-wordmark {
     display: block;
-    height: 23px;
+    height: 24px;
     max-width: min(66vw, 214px);
   }
   .site-nav {
@@ -1313,7 +1328,7 @@ h3 { font-family: var(--display); color: #fff; font-size: 1rem; margin: 1.1rem 0
     justify-content: center;
     align-items: center;
     flex: 0 0 auto;
-    min-height: 37px;
+    min-height: 38px;
     font-size: 0.68rem;
     letter-spacing: 0.1em;
     line-height: 1.35;
@@ -1325,7 +1340,7 @@ h3 { font-family: var(--display); color: #fff; font-size: 1rem; margin: 1.1rem 0
   }
   .nav-cta {
     display: flex !important;
-    min-height: 37px;
+    min-height: 38px;
     background: linear-gradient(180deg, rgba(255,215,0,0.34), rgba(214,174,0,0.22)) !important;
     color: #151515 !important;
     border-color: rgba(255,215,0,0.35) !important;
@@ -1371,7 +1386,7 @@ h3 { font-family: var(--display); color: #fff; font-size: 1rem; margin: 1.1rem 0
   .section-intro,
   .page-intro .subtitle { font-size: 0.94rem; line-height: 1.62; }
   .metric-value { font-size: 1.34rem; }
-  .checkout-card { padding: 1.15rem; }
+  .checkout-card { padding: 1.22rem; }
   .price-card { padding: 1.08rem; }
   .premium-pricing .price-amount { font-size: 2.05rem; }
   html {
@@ -1848,6 +1863,7 @@ h3 { font-family: var(--display); color: #fff; font-size: 1rem; margin: 1.1rem 0
   padding: 1.1rem 2rem;
   border: 1px solid rgba(0,212,255,0.12);
   background: linear-gradient(90deg, rgba(0,212,255,0.04), rgba(255,215,0,0.03), rgba(0,212,255,0.04));
+  border-radius: var(--radius-lg);
 }
 .trust-bar span {
   display: flex;
@@ -1990,7 +2006,7 @@ h3 { font-family: var(--display); color: #fff; font-size: 1rem; margin: 1.1rem 0
   margin: 1rem auto 0;
   background: linear-gradient(180deg, rgba(10,14,22,0.96), rgba(6,9,16,0.98));
   border: 1px solid rgba(0,212,255,0.15);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   padding: 2rem;
   box-shadow: 0 20px 48px rgba(0,0,0,0.2);
 }
@@ -2137,6 +2153,7 @@ h3 { font-family: var(--display); color: #fff; font-size: 1rem; margin: 1.1rem 0
   background: linear-gradient(180deg, rgba(10,14,21,0.92), rgba(6,9,16,0.98));
   box-shadow: 0 16px 40px rgba(0,0,0,0.28);
   text-align: left;
+  border-radius: var(--radius-lg);
 }
 .footer-inner {
   display: grid;
