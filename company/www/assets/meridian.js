@@ -221,11 +221,14 @@ window.__meridianFetchJsonWithTimeout = window.__meridianFetchJsonWithTimeout ||
     var toast = document.createElement('div');
     toast.className = 'toast toast-' + (type || 'info');
     toast.textContent = message;
+    while (toastContainer.children.length >= 4) {
+      toastContainer.removeChild(toastContainer.firstElementChild);
+    }
     toastContainer.appendChild(toast);
     setTimeout(function () {
       toast.classList.add('toast-fade-out');
-      setTimeout(function () { toast.remove(); }, 300);
-    }, 5000);
+      setTimeout(function () { toast.remove(); }, 430);
+    }, 4600);
   }
 
   function setStatus(message, isError) {

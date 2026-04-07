@@ -44,10 +44,10 @@ body {
   font-feature-settings: 'ss01', 'cv05';
   letter-spacing: -0.005em;
   background:
-    radial-gradient(circle at 52% -4%, rgba(0,212,255,0.12), transparent 30%),
-    radial-gradient(circle at 85% 6%, rgba(255,215,0,0.08), transparent 22%),
-    radial-gradient(circle at 18% 18%, rgba(255,255,255,0.03), transparent 18%),
-    linear-gradient(180deg, var(--bg) 0%, var(--bg-end) 100%);
+    radial-gradient(circle at 52% -4%, rgba(0,212,255,0.15), transparent 33%),
+    radial-gradient(circle at 85% 6%, rgba(255,215,0,0.11), transparent 26%),
+    radial-gradient(circle at 16% 16%, rgba(255,255,255,0.025), transparent 19%),
+    linear-gradient(180deg, #08090b 0%, #0d0f12 54%, #111215 100%);
   color: var(--fg);
   line-height: 1.7;
   min-height: 100vh;
@@ -193,7 +193,7 @@ li { padding: 0.2rem 0; }
 /* ── Hero ── */
 .hero {
   padding: 4.8rem 0 2.7rem;
-  background: linear-gradient(180deg, rgba(4,6,10,0.82) 0%, rgba(3,5,8,0.35) 45%, transparent 100%);
+  background: linear-gradient(180deg, rgba(3,5,8,0.92) 0%, rgba(3,5,8,0.52) 46%, rgba(3,5,8,0.08) 100%);
   position: relative;
   overflow: hidden;
   animation: fadeInUp 0.5s ease-out both;
@@ -1893,37 +1893,40 @@ h3 { font-family: var(--display); color: #fff; font-size: 1rem; margin: 1.1rem 0
 }
 .premium-pricing .price-card {
   border-radius: 12px;
-  transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
+  transition: transform 0.24s ease, box-shadow 0.24s ease, border-color 0.24s ease, filter 0.24s ease;
 }
 .premium-pricing .price-card:hover {
-  transform: translateY(-4px);
-  box-shadow: 0 20px 48px rgba(0,0,0,0.3);
+  transform: translateY(-5px);
+  box-shadow: 0 28px 62px rgba(0,0,0,0.34);
+  filter: saturate(1.07);
 }
 .premium-pricing .price-card.featured {
   border-color: rgba(0,212,255,0.4);
-  box-shadow: 0 0 32px rgba(0,212,255,0.1), 0 20px 48px rgba(0,0,0,0.25);
+  box-shadow: 0 0 42px rgba(0,212,255,0.14), 0 24px 54px rgba(0,0,0,0.27);
   background: linear-gradient(180deg, rgba(0,212,255,0.06), rgba(8,12,18,0.96));
 }
 .premium-pricing .price-card.featured:hover {
-  border-color: rgba(0,212,255,0.55);
-  box-shadow: 0 0 42px rgba(0,212,255,0.18), 0 24px 56px rgba(0,0,0,0.3);
+  border-color: rgba(0,212,255,0.62);
+  box-shadow: 0 0 56px rgba(0,212,255,0.24), 0 30px 66px rgba(0,0,0,0.33);
 }
 .premium-pricing .price-card:not(.featured) {
   border-color: rgba(255,215,0,0.22);
   background: linear-gradient(180deg, rgba(255,215,0,0.05), rgba(8,12,18,0.98));
 }
 .premium-pricing .price-card:not(.featured):hover {
-  border-color: rgba(255,215,0,0.42);
-  box-shadow: 0 0 36px rgba(255,215,0,0.13), 0 24px 56px rgba(0,0,0,0.3);
+  border-color: rgba(255,215,0,0.5);
+  box-shadow: 0 0 46px rgba(255,215,0,0.2), 0 30px 66px rgba(0,0,0,0.33);
 }
 .pricing-section .cta-primary {
   background: linear-gradient(180deg, #ffd700, #d6ae00);
   color: #161616;
-  box-shadow: 0 0 22px rgba(255,215,0,0.24);
+  box-shadow: 0 0 26px rgba(255,215,0,0.28);
+  transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
 }
 .pricing-section .cta-primary:hover {
   background: #ffe25a;
-  box-shadow: 0 0 28px rgba(255,215,0,0.34);
+  box-shadow: 0 0 40px rgba(255,215,0,0.42);
+  transform: translateY(-1px);
 }
 .price-badge {
   display: inline-block;
@@ -2208,9 +2211,23 @@ h3 { font-family: var(--display); color: #fff; font-size: 1rem; margin: 1.1rem 0
   font-size: 0.9rem;
   line-height: 1.5;
   pointer-events: auto;
-  animation: toastIn 0.35s ease-out;
+  animation: toastIn 0.42s cubic-bezier(0.2, 0.8, 0.2, 1);
   max-width: 380px;
   box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+  position: relative;
+  overflow: hidden;
+}
+.toast::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 2px;
+  width: 100%;
+  background: linear-gradient(90deg, rgba(255,255,255,0.7), rgba(255,255,255,0.22));
+  opacity: 0.7;
+  transform-origin: left center;
+  animation: toastLife 4.6s linear forwards;
 }
 .toast-success {
   background: rgba(76,175,80,0.15);
@@ -2228,14 +2245,18 @@ h3 { font-family: var(--display); color: #fff; font-size: 1rem; margin: 1.1rem 0
   color: var(--accent);
 }
 .toast-fade-out {
-  animation: toastOut 0.3s ease-in forwards;
+  animation: toastOut 0.42s cubic-bezier(0.4, 0, 0.2, 1) forwards;
 }
 @keyframes toastIn {
-  from { opacity: 0; transform: translateY(12px) scale(0.95); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
+  from { opacity: 0; transform: translateY(14px) scale(0.96); filter: blur(1px); }
+  to { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
 }
 @keyframes toastOut {
-  to { opacity: 0; transform: translateY(-8px) scale(0.95); }
+  to { opacity: 0; transform: translateY(-10px) scale(0.96); filter: blur(1px); }
+}
+@keyframes toastLife {
+  from { transform: scaleX(1); opacity: 0.78; }
+  to { transform: scaleX(0); opacity: 0.22; }
 }
 
 /* ── Live snapshot section polish ── */
@@ -2297,9 +2318,8 @@ h3 { font-family: var(--display); color: #fff; font-size: 1rem; margin: 1.1rem 0
   .footer-nav-col {
     grid-template-columns: 1fr;
   }
-  .checkout-card {
-    padding: 1rem;
-  }
+  .checkout-card { padding: 1.18rem; }
+  .price-card { padding: 1.16rem; }
   .section-heading-center { font-size: 1.35rem; }
   .section-intro,
   .subtitle,
