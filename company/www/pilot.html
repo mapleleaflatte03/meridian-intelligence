@@ -61,7 +61,7 @@
       </div>
       <div class="rail-item">
         <span>What this is not</span>
-        <strong>No purchase flow, no license checkout, no gated usage.</strong>
+        <strong>No purchase flow and no gated usage.</strong>
         <p>Support channels stay voluntary and separate from onboarding.</p>
       </div>
     </aside>
@@ -94,8 +94,8 @@ python3 meridian_gateway.py</code></pre>
 
   <h2>4. Create and run your first agent</h2>
   <div class="card">
-<pre><code>export LOOM_ROOT="${HOME}/.local/share/meridian-loom/runtime/default"
-export MERIDIAN_ROOT="$(pwd)"
+<pre><code>export MERIDIAN_ROOT="$(pwd)"
+export LOOM_ROOT="${MERIDIAN_ROOT}/runtime/default"
 export MERIDIAN_KERNEL_PATH="${MERIDIAN_ROOT}/kernel"
 export MERIDIAN_ORG_ID="${MERIDIAN_ORG_ID:-local_foundry}"
 

@@ -1569,10 +1569,10 @@ def _build_meridian_council_truth_packet() -> dict[str, Any]:
         "operator_truth": operator_truth,
         "open_source_posture": {
             "mode": "full_open_source",
-            "commercial_checkout_live": False,
+            "public_checkout_live": False,
             "support_model": "voluntary_support_and_research_collaboration",
             "setup_path": "/pilot",
-            "catalog_path_status": {
+            "legacy_route_status": {
                 "path": "/api/institution/license/catalog",
                 "status": "deprecated_410",
                 "reason": "open_source_mode",
@@ -1583,23 +1583,23 @@ def _build_meridian_council_truth_packet() -> dict[str, Any]:
             "telegram_bounded_delivery_live": True,
             "broad_customer_automation_live": False,
             "nightly_pipeline_state": "treasury_gated_and_preflight_gated",
-            "founder_led_customer_offer": False,
+            "open_enrollment_offer_live": False,
         },
         "payment_truth": {
-            "card_checkout_live": False,
-            "paypal_checkout_live": False,
+            "card_gateway_live": False,
+            "paypal_gateway_live": False,
             "manual_bank_wire_primary": False,
             "x402_external_customer_proof": False,
-            "base_usdc_public_checkout_live": False,
+            "base_usdc_public_gateway_live": False,
         },
         "service_state_truth": {
             "pilot_intake_mode": "deprecated_public_route",
             "subscription_preview_public_path": "",
-            "public_checkout_paths": {},
+            "public_support_paths": {},
         },
         "subscription_truth": {
             "status": "internal_subscription_state_preserved_for_ledger_continuity",
-            "public_checkout_enabled": False,
+            "public_support_intake_enabled": False,
         },
         "settlement_truth": {
             "ready_adapter_ids": list(readiness_payload.get("ready_adapter_ids") or []),
@@ -1610,7 +1610,7 @@ def _build_meridian_council_truth_packet() -> dict[str, Any]:
         "open_source_truth": {
             "kernel_open_source": True,
             "kernel_role": "runtime_neutral_governance_layer",
-            "intelligence_role": "first_commercial_wedge",
+            "intelligence_role": "first_open_research_vertical",
             "loom_role": "live_execution_runtime_on_this_host_and_installable_local_runtime",
             "hosted_service_fully_open": False,
             "not_open_scope": [
@@ -10439,6 +10439,24 @@ _STATUS_WORDING_REPLACEMENTS: tuple[tuple[str, str], ...] = (
     ("founding institution", "host-bound institution"),
 )
 
+_STATUS_KEY_REPLACEMENTS: dict[str, str] = {
+    "public_checkout_paths": "public_support_paths",
+    "checkout_claimed_count": "support_claimed_count",
+    "checkout_capture_path": "capture_path",
+}
+
+
+def _normalize_status_keys(value: Any) -> Any:
+    if isinstance(value, dict):
+        normalized: dict[str, Any] = {}
+        for key, item in value.items():
+            normalized_key = _STATUS_KEY_REPLACEMENTS.get(str(key), str(key))
+            normalized[normalized_key] = _normalize_status_keys(item)
+        return normalized
+    if isinstance(value, list):
+        return [_normalize_status_keys(item) for item in value]
+    return value
+
 
 def _normalize_status_wording(value: Any) -> Any:
     if isinstance(value, dict):
@@ -10454,7 +10472,7 @@ def _normalize_status_wording(value: Any) -> Any:
 
 
 def _normalize_status_payload_for_open_source(payload: dict[str, Any]) -> dict[str, Any]:
-    normalized = _normalize_status_wording(payload)
+    normalized = _normalize_status_wording(_normalize_status_keys(payload))
 
     service_state = normalized.get("service_state")
     if isinstance(service_state, dict):
@@ -10469,7 +10487,7 @@ def _normalize_status_payload_for_open_source(payload: dict[str, Any]) -> dict[s
 
         subscriptions_state = service_state.get("subscriptions")
         if isinstance(subscriptions_state, dict):
-            subscriptions_state["public_checkout_paths"] = {}
+            subscriptions_state["public_support_paths"] = {}
             subscriptions_state["open_source_mode"] = True
 
         preview_state = service_state.get("subscription_preview")
@@ -11576,7 +11594,7 @@ class WebAPIAdapter(ChannelAdapter):
                     self._send_json(410, {
                         "status": "deprecated",
                         "reason": "open_source_mode",
-                        "message": "The institution license catalog has been deprecated. Meridian is now fully open source.",
+                        "message": "This legacy monetization route has been deprecated. Meridian now runs in open-source setup mode.",
                         "next_steps": [
                             "Run one-command setup: curl -fsSL https://raw.githubusercontent.com/mapleleaflatte03/meridian/main/scripts/install-full.sh | bash",
                             "Visit https://github.com/mapleleaflatte03/meridian for source and documentation",
@@ -11600,7 +11618,7 @@ class WebAPIAdapter(ChannelAdapter):
                     self._send_json(410, {
                         "status": "deprecated",
                         "reason": "open_source_mode",
-                        "message": "Subscription checkout capture has been deprecated. Meridian is now fully open source.",
+                        "message": "This legacy payment-capture route has been deprecated. Meridian now runs in open-source setup mode.",
                         "next_steps": [
                             "Run local setup from /pilot",
                             "Run one-command setup: curl -fsSL https://raw.githubusercontent.com/mapleleaflatte03/meridian/main/scripts/install-full.sh | bash",
@@ -11734,7 +11752,7 @@ class WebAPIAdapter(ChannelAdapter):
                     self._send_json(410, {
                         "status": "deprecated",
                         "reason": "open_source_mode",
-                        "message": "Institution license checkout has been deprecated. Meridian is now fully open source.",
+                        "message": "This legacy payment-capture route has been deprecated. Meridian now runs in open-source setup mode.",
                         "next_steps": [
                             "Run one-command setup: curl -fsSL https://raw.githubusercontent.com/mapleleaflatte03/meridian/main/scripts/install-full.sh | bash",
                             "Visit https://github.com/mapleleaflatte03/meridian for source and documentation",
@@ -11758,7 +11776,7 @@ class WebAPIAdapter(ChannelAdapter):
                     self._send_json(410, {
                         "status": "deprecated",
                         "reason": "open_source_mode",
-                        "message": "Subscription checkout capture has been deprecated. Meridian is now fully open source.",
+                        "message": "This legacy payment-capture route has been deprecated. Meridian now runs in open-source setup mode.",
                         "next_steps": [
                             "Run local setup from /pilot",
                             "Run one-command setup: curl -fsSL https://raw.githubusercontent.com/mapleleaflatte03/meridian/main/scripts/install-full.sh | bash",

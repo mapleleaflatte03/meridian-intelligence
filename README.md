@@ -26,8 +26,8 @@
   <a href="https://app.welliam.codes/community">Community</a> ·
   <a href="https://app.welliam.codes/support">Support</a> ·
   <a href="https://app.welliam.codes/boundary">Boundary</a> ·
-  <a href="https://github.com/mapleleaflatte03/meridian-loom/tree/main/docs">Docs</a> ·
-  <a href="https://github.com/mapleleaflatte03/meridian-loom/blob/main/CONTRIBUTING.md">Contribute</a>
+  <a href="https://github.com/mapleleaflatte03/meridian">Docs</a> ·
+  <a href="https://github.com/mapleleaflatte03/meridian/blob/main/CONTRIBUTING.md">Contribute</a>
 </p>
 
 # Meridian Intelligence
@@ -51,13 +51,13 @@ Operational positioning shorthand:
 
 ## 1-Command Install
 
-If the operator question is "what do I install?", the answer is Loom:
+If the operator question is "what do I install?", use the monorepo one-command setup:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/mapleleaflatte03/meridian-loom/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/mapleleaflatte03/meridian/main/scripts/install-full.sh | bash
 ```
 
-The installer story belongs to Meridian Loom. This repo links to that runtime surface while keeping the live portal and host boundary honest.
+This keeps onboarding in one place while preserving clear module boundaries.
 
 ## Product Hierarchy
 
@@ -112,17 +112,11 @@ Rollback plan (safe + quick):
 3. Restart `meridian-gateway.service`.
 4. Verify via `GET /api/status` and a short manager route request.
 
-## Three-Part Architecture
+## Monorepo Architecture
 
-- [meridian-loom](https://github.com/mapleleaflatte03/meridian-loom): official first-party local runtime, install path, CLI, personal agents, channels, memory, and proof receipts.
-- [meridian-kernel](https://github.com/mapleleaflatte03/meridian-kernel): governance truth, institution, authority, treasury, court, and the runtime contract Loom consumes.
-- [meridian-intelligence](https://github.com/mapleleaflatte03/meridian-intelligence): portal, live host surface, first-party workflows, and contribution-first research routes.
-
-Canonical OSS development now also ships in the unified monorepo layout:
-
-- `meridian/loom`
-- `meridian/kernel`
-- `meridian/intelligence`
+- [meridian/loom](https://github.com/mapleleaflatte03/meridian/tree/main/loom): first-party local runtime, CLI, personal agents, channels, memory, and proof receipts.
+- [meridian/kernel](https://github.com/mapleleaflatte03/meridian/tree/main/kernel): governance truth, institution, authority, treasury, court, and the runtime contract Loom consumes.
+- [meridian/intelligence](https://github.com/mapleleaflatte03/meridian/tree/main/intelligence): portal, live host surface, first-party workflows, and contribution-first research routes.
 
 ## What Is Live Today
 
@@ -196,7 +190,7 @@ Connect via SSE: `https://app.welliam.codes/sse`
 
 | Tool | Access | Description |
 |------|--------|-------------|
-| `intelligence_latest_brief` | Public research surface | Brief output for the founding Meridian institution in current OSS boundary |
+| `intelligence_latest_brief` | Public research surface | Brief output for the host-bound Meridian institution in current OSS boundary |
 | `intelligence_on_demand_research` | Public research surface | Sourced research findings on the current public MCP surface |
 | `intelligence_competitor_snapshot` | Public research surface | Competitor snapshot surface; public battlecard layouts remain reference examples |
 | `intelligence_qa_verify` | Public research surface | QA verification of claims or text |
@@ -270,7 +264,7 @@ Constitutional 3-ledger internal economy:
 
 ## Tech Stack
 
-- **Runtime:** [Meridian Loom](https://github.com/mapleleaflatte03/meridian-loom) — primary execution surface for agent execution, capability dispatch, sessions
+- **Runtime:** [Meridian Loom](https://github.com/mapleleaflatte03/meridian/tree/main/loom) — primary execution surface for agent execution, capability dispatch, sessions
 - **Platform:** Python 3.10, JSON state files, JSONL audit/metering logs
 - **Proxy:** Caddy (auto-TLS)
 - **Payments:** [x402](https://x402.org) + USDC on Base L2
