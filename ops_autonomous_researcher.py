@@ -22,12 +22,22 @@ import ops_meridian_delivery_engine as engine
 import ops_meridian_golden_path as golden
 
 
-WORKSPACE = os.path.dirname(os.path.abspath(__file__))
+MONOREPO_ROOT = str(os.environ.get("MERIDIAN_ROOT") or "").strip()
+WORKSPACE = str(
+    os.environ.get("MERIDIAN_WORKSPACE_ROOT")
+    or (os.path.join(MONOREPO_ROOT, "intelligence") if MONOREPO_ROOT else "")
+    or os.path.dirname(os.path.abspath(__file__))
+).strip()
 DEFAULT_URL = "https://news.ycombinator.com/"
-LEGACY_ALIAS_PATH = "/opt/meridian-kernel/kernel/adapters/legacy_v1_compatible.py"
+KERNEL_ROOT_BASE = str(
+    os.environ.get("MERIDIAN_KERNEL_ROOT")
+    or (os.path.join(MONOREPO_ROOT, "kernel") if MONOREPO_ROOT else "")
+    or "/opt/meridian-kernel"
+).strip()
+LEGACY_ALIAS_PATH = os.path.join(KERNEL_ROOT_BASE, "kernel", "adapters", "legacy_v1_compatible.py")
 LEGACY_ADAPTER_PATHS = [
     os.path.join(
-        str(os.environ.get("MERIDIAN_KERNEL_ROOT") or "/opt/meridian-kernel").strip(),
+        KERNEL_ROOT_BASE,
         "kernel",
         "adapters",
         "legacy_v1_compatible.py",

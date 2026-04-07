@@ -17,13 +17,25 @@ import subprocess
 import time
 import urllib.error
 import urllib.request
+from pathlib import Path
 
 import ops_meridian_delivery_engine as engine
 
 
-WORKSPACE = os.path.dirname(os.path.abspath(__file__))
-CANONICAL_KERNEL_ROOT = "/opt/meridian-kernel"
+HOME_DIR = str(Path.home())
+MONOREPO_ROOT = str(os.environ.get("MERIDIAN_ROOT") or "").strip()
+WORKSPACE = str(
+    os.environ.get("MERIDIAN_WORKSPACE_ROOT")
+    or (os.path.join(MONOREPO_ROOT, "intelligence") if MONOREPO_ROOT else "")
+    or os.path.dirname(os.path.abspath(__file__))
+).strip()
+CANONICAL_KERNEL_ROOT = str(
+    os.environ.get("MERIDIAN_KERNEL_ROOT")
+    or (os.path.join(MONOREPO_ROOT, "kernel") if MONOREPO_ROOT else "")
+    or "/opt/meridian-kernel"
+).strip()
 LEGACY_KERNEL_ROOT = "/tmp/meridian-kernel"
+MERIDIAN_HOME = str(os.environ.get("MERIDIAN_HOME") or os.path.join(HOME_DIR, ".meridian")).strip()
 
 
 def _resolve_kernel_root() -> str:
@@ -43,8 +55,11 @@ WARRANTS_PATH = os.path.join(KERNEL_DIR, "warrants.py")
 AGENT_REGISTRY_FILE = os.path.join(KERNEL_DIR, "agent_registry.json")
 ORGANIZATIONS_FILE = os.path.join(KERNEL_DIR, "organizations.json")
 TARGET_URL = "https://httpbin.org/html"
-WORKSPACE_CREDENTIALS_PATH = os.path.join(os.path.dirname(WORKSPACE), ".workspace_credentials")
-WORKSPACE_GATEWAY_URL = "http://127.0.0.1:8266"
+WORKSPACE_CREDENTIALS_PATH = str(
+    os.environ.get("MERIDIAN_WORKSPACE_CREDENTIALS_PATH")
+    or os.path.join(MERIDIAN_HOME, ".workspace_credentials")
+).strip()
+WORKSPACE_GATEWAY_URL = str(os.environ.get("MERIDIAN_GATEWAY_URL") or "http://127.0.0.1:8266").strip()
 STEP_DELAY_SECONDS = 0.2
 
 RESET = "\033[0m"

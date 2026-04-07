@@ -17,13 +17,26 @@ from zoneinfo import ZoneInfo
 import time
 
 
-WORKSPACE = Path("/home/ubuntu/.meridian/workspace")
-CRON_JOBS = Path("/home/ubuntu/.meridian/cron/jobs.json")
+HOME_DIR = str(Path.home())
+MONOREPO_ROOT = str(os.environ.get("MERIDIAN_ROOT") or "").strip()
+MERIDIAN_HOME = str(os.environ.get("MERIDIAN_HOME") or os.path.join(HOME_DIR, ".meridian")).strip()
+WORKSPACE = Path(
+    os.environ.get("MERIDIAN_WORKSPACE_ROOT")
+    or (os.path.join(MONOREPO_ROOT, "intelligence") if MONOREPO_ROOT else "")
+    or str(Path(__file__).resolve().parents[2])
+).resolve()
+CRON_JOBS = Path(os.environ.get("MERIDIAN_CRON_JOBS_PATH") or os.path.join(MERIDIAN_HOME, "cron", "jobs.json"))
 GATEWAY_URL = "http://127.0.0.1:8266/api/run"
 GATEWAY_ORIGIN = "https://app.welliam.codes"
 DEFAULT_TZ = "Asia/Ho_Chi_Minh"
-LOOM_BIN = Path("/home/ubuntu/.local/share/meridian-loom/current/bin/loom")
-LOOM_ROOT = Path(os.environ.get("MERIDIAN_LOOM_ROOT", "/home/ubuntu/.local/share/meridian-loom/runtime/default"))
+LOOM_BIN = Path(
+    os.environ.get("MERIDIAN_LOOM_BIN")
+    or os.path.join(HOME_DIR, ".local", "share", "meridian-loom", "current", "bin", "loom")
+)
+LOOM_ROOT = Path(
+    os.environ.get("MERIDIAN_LOOM_ROOT")
+    or os.path.join(HOME_DIR, ".local", "share", "meridian-loom", "runtime", "default")
+)
 DELIVERY_DIR = LOOM_ROOT / "state" / "channels" / "delivery"
 RESEARCH_PIPELINE = WORKSPACE / "company" / "research_pipeline.py"
 BRIEF_QUALITY = WORKSPACE / "company" / "brief_quality.py"
@@ -604,7 +617,7 @@ def _send_channel_message(job: dict, text: str) -> dict:
         "channel",
         "send",
         "--root",
-        os.environ.get("MERIDIAN_LOOM_ROOT", "/home/ubuntu/.local/share/meridian-loom/runtime/default"),
+        str(LOOM_ROOT),
         "--channel",
         channel,
         "--recipient",

@@ -22,11 +22,21 @@ import subprocess
 import sys
 import tempfile
 import uuid
+from pathlib import Path
 
-WORKSPACE = os.path.dirname(os.path.abspath(__file__))
+HOME_DIR = str(Path.home())
+MONOREPO_ROOT = str(os.environ.get('MERIDIAN_ROOT') or '').strip()
+WORKSPACE = str(
+    os.environ.get('MERIDIAN_WORKSPACE_ROOT')
+    or (os.path.join(MONOREPO_ROOT, 'intelligence') if MONOREPO_ROOT else '')
+    or os.path.dirname(os.path.abspath(__file__))
+).strip()
 PLATFORM_DIR = os.path.join(WORKSPACE, 'company', 'meridian_platform')
-WORKSPACE_HOME = os.path.dirname(WORKSPACE)
-WORKSPACE_CREDENTIALS_PATH = os.path.join(WORKSPACE_HOME, '.workspace_credentials')
+MERIDIAN_HOME = str(os.environ.get('MERIDIAN_HOME') or os.path.join(HOME_DIR, '.meridian')).strip()
+WORKSPACE_CREDENTIALS_PATH = str(
+    os.environ.get('MERIDIAN_WORKSPACE_CREDENTIALS_PATH')
+    or os.path.join(MERIDIAN_HOME, '.workspace_credentials')
+).strip()
 
 if PLATFORM_DIR not in sys.path:
     sys.path.insert(0, PLATFORM_DIR)
@@ -38,8 +48,14 @@ import warrants as warrants_runtime
 DEFAULT_PLAN = 'premium-brief-weekly'
 DEFAULT_TELEGRAM_ID = 'meridian-ops-sink'
 SCRIPT_ACTOR = 'script:ops_meridian_delivery_engine'
-DIRECT_LOOM_BIN = '/home/ubuntu/.local/share/meridian-loom/current/bin/loom'
-DIRECT_LOOM_ROOT = '/home/ubuntu/.local/share/meridian-loom/runtime/default'
+DIRECT_LOOM_BIN = str(
+    os.environ.get('MERIDIAN_LOOM_BIN')
+    or os.path.join(HOME_DIR, '.local', 'share', 'meridian-loom', 'current', 'bin', 'loom')
+).strip()
+DIRECT_LOOM_ROOT = str(
+    os.environ.get('MERIDIAN_LOOM_ROOT')
+    or os.path.join(HOME_DIR, '.local', 'share', 'meridian-loom', 'runtime', 'default')
+).strip()
 DIRECT_LOOM_AGENT_REGISTRY_PATH = os.path.join(DIRECT_LOOM_ROOT, 'agents', 'registry.json')
 DIRECT_LOOM_CAPABILITY = 'loom.browser.navigate.v1'
 DIRECT_LOOM_URL = 'https://httpbin.org/html'
@@ -56,7 +72,11 @@ DIRECT_INTERNAL_SETTLEMENT_WALLET_ID = 'wallet_meridian_host_ops'
 DIRECT_INTERNAL_SETTLEMENT_WALLET_ADDRESS = '0x1111111111111111111111111111111111111111'
 DIRECT_INTERNAL_SETTLEMENT_CONTRIBUTOR_ID = 'contrib_meridian_host_ops'
 DIRECT_INTERNAL_SETTLEMENT_AMOUNT_USD = 0.0001
-CANONICAL_KERNEL_ROOT = '/opt/meridian-kernel'
+CANONICAL_KERNEL_ROOT = str(
+    os.environ.get('MERIDIAN_KERNEL_ROOT')
+    or (os.path.join(MONOREPO_ROOT, 'kernel') if MONOREPO_ROOT else '')
+    or '/opt/meridian-kernel'
+).strip()
 LEGACY_KERNEL_ROOT = '/tmp/meridian-kernel'
 
 

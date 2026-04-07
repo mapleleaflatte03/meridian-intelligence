@@ -11,8 +11,17 @@ import os
 
 
 PLATFORM_DIR = os.path.dirname(os.path.abspath(__file__))
-WORKSPACE = os.path.dirname(os.path.dirname(PLATFORM_DIR))
-CANONICAL_KERNEL_ROOT = '/opt/meridian-kernel'
+MONOREPO_ROOT = str(os.environ.get('MERIDIAN_ROOT') or '').strip()
+WORKSPACE = str(
+    os.environ.get('MERIDIAN_WORKSPACE_ROOT')
+    or (os.path.join(MONOREPO_ROOT, 'intelligence') if MONOREPO_ROOT else '')
+    or os.path.dirname(os.path.dirname(PLATFORM_DIR))
+).strip()
+CANONICAL_KERNEL_ROOT = str(
+    os.environ.get('MERIDIAN_KERNEL_ROOT')
+    or (os.path.join(MONOREPO_ROOT, 'kernel') if MONOREPO_ROOT else '')
+    or '/opt/meridian-kernel'
+).strip()
 LOCAL_ECONOMY_DIR = os.path.join(WORKSPACE, 'economy')
 ECONOMY_DIR = (
     os.path.join(CANONICAL_KERNEL_ROOT, 'economy')

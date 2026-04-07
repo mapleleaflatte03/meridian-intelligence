@@ -30,12 +30,37 @@ PLATFORM_DIR = os.path.dirname(os.path.abspath(__file__))
 COMPANY_DIR = os.path.dirname(PLATFORM_DIR)
 if COMPANY_DIR not in sys.path:
     sys.path.insert(0, COMPANY_DIR)
-WORKSPACE = os.path.dirname(COMPANY_DIR)
+
+
+def _first_dir(*candidates: str) -> str:
+    for candidate in candidates:
+        path = str(candidate or "").strip()
+        if path and os.path.isdir(path):
+            return path
+    return str(candidates[0] or "").strip()
+
+
+HOME_DIR = str(Path.home())
+MONOREPO_ROOT = str(os.environ.get("MERIDIAN_ROOT") or "").strip()
+MERIDIAN_HOME = str(os.environ.get("MERIDIAN_HOME") or os.path.join(HOME_DIR, ".meridian")).strip()
+WORKSPACE = _first_dir(
+    os.environ.get("MERIDIAN_WORKSPACE_ROOT"),
+    os.path.join(MONOREPO_ROOT, "intelligence") if MONOREPO_ROOT else "",
+    os.path.dirname(COMPANY_DIR),
+)
 NIGHT_SHIFT_DIR = os.path.join(WORKSPACE, "night-shift")
 SUBSCRIPTIONS_PY = os.path.join(COMPANY_DIR, "subscriptions.py")
 CI_VERTICAL_PY = os.path.join(PLATFORM_DIR, "ci_vertical.py")
-LOOM_REPO = "/home/ubuntu/meridian-loom"
-KERNEL_REPO = "/opt/meridian-kernel"
+LOOM_REPO = _first_dir(
+    os.environ.get("MERIDIAN_LOOM_ROOT"),
+    os.path.join(MONOREPO_ROOT, "loom") if MONOREPO_ROOT else "",
+    "/home/ubuntu/meridian-loom",
+)
+KERNEL_REPO = _first_dir(
+    os.environ.get("MERIDIAN_KERNEL_ROOT"),
+    os.path.join(MONOREPO_ROOT, "kernel") if MONOREPO_ROOT else "",
+    "/opt/meridian-kernel",
+)
 INTELLIGENCE_REPO = WORKSPACE
 MIGRATION_REPOS = (
     ("meridian-intelligence", INTELLIGENCE_REPO),
@@ -43,12 +68,12 @@ MIGRATION_REPOS = (
     ("meridian-kernel", KERNEL_REPO),
 )
 MIGRATION_CRITICAL_PATHS = (
-    ("/home/ubuntu/.meridian/.env", "secret_config"),
-    ("/home/ubuntu/.meridian/host_identity.json", "host_identity"),
-    ("/home/ubuntu/.local/share/meridian-loom/runtime/default", "loom_runtime_state"),
-    ("/opt/meridian-kernel/economy", "kernel_economy_state"),
-    ("/home/ubuntu/.meridian/workspace/company/meridian_platform/observability.db", "observability_db"),
-    ("/home/ubuntu/.config/systemd/user/meridian-gateway.service", "user_service_unit"),
+    (os.path.join(MERIDIAN_HOME, ".env"), "secret_config"),
+    (os.path.join(MERIDIAN_HOME, "host_identity.json"), "host_identity"),
+    (os.environ.get("MERIDIAN_LOOM_RUNTIME_ROOT", os.path.join(HOME_DIR, ".local", "share", "meridian-loom", "runtime", "default")), "loom_runtime_state"),
+    (os.path.join(KERNEL_REPO, "economy"), "kernel_economy_state"),
+    (os.path.join(WORKSPACE, "company", "meridian_platform", "observability.db"), "observability_db"),
+    (os.path.join(HOME_DIR, ".config", "systemd", "user", "meridian-gateway.service"), "user_service_unit"),
     ("/etc/caddy/Caddyfile", "reverse_proxy_config"),
 )
 

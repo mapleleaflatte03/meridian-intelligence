@@ -3,14 +3,21 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import os
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from loom_runtime_discovery import preferred_loom_root
 
-
-WORKSPACE = Path("/home/ubuntu/.meridian/workspace")
-CRON_JOBS = Path("/home/ubuntu/.meridian/cron/jobs.json")
+HOME_DIR = str(Path.home())
+MONOREPO_ROOT = str(os.environ.get("MERIDIAN_ROOT") or "").strip()
+MERIDIAN_HOME = str(os.environ.get("MERIDIAN_HOME") or os.path.join(HOME_DIR, ".meridian")).strip()
+WORKSPACE = Path(
+    os.environ.get("MERIDIAN_WORKSPACE_ROOT")
+    or (os.path.join(MONOREPO_ROOT, "intelligence") if MONOREPO_ROOT else "")
+    or str(Path(__file__).resolve().parents[2])
+).resolve()
+CRON_JOBS = Path(os.environ.get("MERIDIAN_CRON_JOBS_PATH") or os.path.join(MERIDIAN_HOME, "cron", "jobs.json"))
 BRIDGE = WORKSPACE / "company" / "meridian_platform" / "loom_schedule_bridge.py"
 SCHEDULE_PREFIX = "night-shift-"
 PLACEHOLDER_IDS = {
