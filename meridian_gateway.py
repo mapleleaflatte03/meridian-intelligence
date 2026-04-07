@@ -10462,7 +10462,7 @@ def _normalize_status_payload_for_open_source(payload: dict[str, Any]) -> dict[s
             service_state["setup_intake"] = {
                 "status": "deprecated",
                 "reason": "open_source_mode",
-                "message": "Public intake and checkout preview routes are deprecated in open-source mode.",
+                "message": "Public intake preview routes are deprecated in open-source mode.",
                 "setup_path": "/pilot",
             }
             service_state.pop("pilot_intake", None)
@@ -10638,7 +10638,7 @@ def _workflow_showcase_snapshot_cached() -> dict[str, Any]:
             and cached_at > 0
             and (now_ms - cached_at) <= max(1, WORKFLOW_SHOWCASE_CACHE_TTL_SECONDS) * 1000
         ):
-            snapshot = dict(cached_snapshot)
+            snapshot = _normalize_status_wording(dict(cached_snapshot))
             snapshot["gateway_cache"] = {
                 "state": "fresh",
                 "cached_at_unix_ms": cached_at,
@@ -10665,7 +10665,7 @@ def _workflow_showcase_snapshot_cached() -> dict[str, Any]:
 
                 threading.Thread(target=_refresh_workflow_showcase, daemon=True).start()
 
-        snapshot = dict(cached_snapshot)
+        snapshot = _normalize_status_wording(dict(cached_snapshot))
         snapshot["gateway_cache"] = {
             "state": "stale_fallback",
             "cached_at_unix_ms": cached_at,
@@ -10675,7 +10675,7 @@ def _workflow_showcase_snapshot_cached() -> dict[str, Any]:
         return snapshot
 
     try:
-        snapshot = _build_workflow_showcase_snapshot()
+        snapshot = _normalize_status_wording(_build_workflow_showcase_snapshot())
         with WORKFLOW_SHOWCASE_CACHE_LOCK:
             WORKFLOW_SHOWCASE_CACHE["fetched_at_unix_ms"] = now_ms
             WORKFLOW_SHOWCASE_CACHE["snapshot"] = dict(snapshot)
@@ -10690,7 +10690,7 @@ def _workflow_showcase_snapshot_cached() -> dict[str, Any]:
             cached_at = int(WORKFLOW_SHOWCASE_CACHE.get("fetched_at_unix_ms") or 0)
             cached_snapshot = WORKFLOW_SHOWCASE_CACHE.get("snapshot")
         if isinstance(cached_snapshot, dict):
-            snapshot = dict(cached_snapshot)
+            snapshot = _normalize_status_wording(dict(cached_snapshot))
             snapshot["gateway_cache"] = {
                 "state": "stale_fallback",
                 "cached_at_unix_ms": cached_at,
@@ -11543,11 +11543,34 @@ class WebAPIAdapter(ChannelAdapter):
                     )
                     return
                 if request_path == "/api/workflows/showcase":
-                    self._send_json(200, {"status": "success", "showcase": _workflow_showcase_snapshot_cached()})
+                    self._send_json(
+                        200,
+                        {
+                            "status": "success",
+                            "showcase": _normalize_status_wording(_workflow_showcase_snapshot_cached()),
+                        },
+                    )
                     return
                 if request_path == "/api/status":
                     proxied = _workspace_status_snapshot_cached()
                     self._send_json(int(proxied.get("status_code") or 200), dict(proxied.get("payload") or {}))
+                    return
+                if request_path == "/api/institution/template":
+                    proxied = _workspace_api_get_json(proxied_path)
+                    payload = _normalize_status_wording(dict(proxied.get("payload") or {}))
+                    boundary = payload.get("boundary")
+                    if isinstance(boundary, dict):
+                        boundary["service_scope"] = "host_bound_service_only"
+                        boundary["note"] = (
+                            "Template is production-ready for host-bound open-source deployments; "
+                            "multi-institution self-serve remains intentionally bounded."
+                        )
+                    self._send_json(int(proxied.get("status_code") or 200), payload)
+                    return
+                if request_path == "/api/kernel-proof-bundle":
+                    proxied = _workspace_api_get_json(proxied_path)
+                    payload = _normalize_status_wording(dict(proxied.get("payload") or {}))
+                    self._send_json(int(proxied.get("status_code") or 200), payload)
                     return
                 if request_path == "/api/institution/license/catalog":
                     self._send_json(410, {
@@ -11555,8 +11578,8 @@ class WebAPIAdapter(ChannelAdapter):
                         "reason": "open_source_mode",
                         "message": "The institution license catalog has been deprecated. Meridian is now fully open source.",
                         "next_steps": [
-                            "Install Loom: curl -fsSL https://raw.githubusercontent.com/mapleleaflatte03/meridian-loom/main/scripts/install.sh | bash",
-                            "Visit https://github.com/mapleleaflatte03/meridian-loom for source and documentation",
+                            "Run one-command setup: curl -fsSL https://raw.githubusercontent.com/mapleleaflatte03/meridian/main/scripts/install-full.sh | bash",
+                            "Visit https://github.com/mapleleaflatte03/meridian for source and documentation",
                             "The institution template remains available at /api/institution/template",
                         ],
                     })
@@ -11568,7 +11591,7 @@ class WebAPIAdapter(ChannelAdapter):
                         "message": "Public pilot intake has been deprecated. Use /pilot for open-source setup.",
                         "next_steps": [
                             "Open /pilot and follow the local bootstrap path",
-                            "Install Loom: curl -fsSL https://raw.githubusercontent.com/mapleleaflatte03/meridian-loom/main/scripts/install.sh | bash",
+                            "Run one-command setup: curl -fsSL https://raw.githubusercontent.com/mapleleaflatte03/meridian/main/scripts/install-full.sh | bash",
                             "Use the monorepo: https://github.com/mapleleaflatte03/meridian",
                         ],
                     })
@@ -11580,6 +11603,7 @@ class WebAPIAdapter(ChannelAdapter):
                         "message": "Subscription checkout capture has been deprecated. Meridian is now fully open source.",
                         "next_steps": [
                             "Run local setup from /pilot",
+                            "Run one-command setup: curl -fsSL https://raw.githubusercontent.com/mapleleaflatte03/meridian/main/scripts/install-full.sh | bash",
                             "Use /api/workflows/showcase and /api/proofs to verify runtime behavior",
                             "Contribute via https://github.com/mapleleaflatte03/meridian/issues",
                         ],
@@ -11712,8 +11736,8 @@ class WebAPIAdapter(ChannelAdapter):
                         "reason": "open_source_mode",
                         "message": "Institution license checkout has been deprecated. Meridian is now fully open source.",
                         "next_steps": [
-                            "Install Loom: curl -fsSL https://raw.githubusercontent.com/mapleleaflatte03/meridian-loom/main/scripts/install.sh | bash",
-                            "Visit https://github.com/mapleleaflatte03/meridian-loom for source and documentation",
+                            "Run one-command setup: curl -fsSL https://raw.githubusercontent.com/mapleleaflatte03/meridian/main/scripts/install-full.sh | bash",
+                            "Visit https://github.com/mapleleaflatte03/meridian for source and documentation",
                             "The institution template remains available at /api/institution/template",
                         ],
                     })
@@ -11725,7 +11749,7 @@ class WebAPIAdapter(ChannelAdapter):
                         "message": "Public pilot intake has been deprecated. Use /pilot for open-source setup.",
                         "next_steps": [
                             "Open /pilot and follow the local bootstrap path",
-                            "Install Loom: curl -fsSL https://raw.githubusercontent.com/mapleleaflatte03/meridian-loom/main/scripts/install.sh | bash",
+                            "Run one-command setup: curl -fsSL https://raw.githubusercontent.com/mapleleaflatte03/meridian/main/scripts/install-full.sh | bash",
                             "Use the monorepo: https://github.com/mapleleaflatte03/meridian",
                         ],
                     })
@@ -11737,6 +11761,7 @@ class WebAPIAdapter(ChannelAdapter):
                         "message": "Subscription checkout capture has been deprecated. Meridian is now fully open source.",
                         "next_steps": [
                             "Run local setup from /pilot",
+                            "Run one-command setup: curl -fsSL https://raw.githubusercontent.com/mapleleaflatte03/meridian/main/scripts/install-full.sh | bash",
                             "Use /api/workflows/showcase and /api/proofs to verify runtime behavior",
                             "Contribute via https://github.com/mapleleaflatte03/meridian/issues",
                         ],

@@ -204,9 +204,9 @@ Connect via SSE: `https://app.welliam.codes/sse`
 | `company_info` | Public | Meridian capabilities and runtime boundary |
 
 On the live host today, every MCP tool call is audited and metered for the
-founding Meridian institution only. The shared runtime-core taxonomy classifies
+host-bound Meridian institution path. The shared runtime-core taxonomy classifies
 that path as `mcp_service` with identity model `x402_payment` and scope
-`founding_service_only`. Multi-institution MCP routing is not live.
+`host_bound_service_only`. Multi-institution MCP routing is not live.
 The live agent registry also surfaces `runtime_binding` on each governed agent
 record, and that same field is visible through `GET /api/agents` and the
 `agents` array plus the top-level `agent_runtime_bindings` summary block inside
