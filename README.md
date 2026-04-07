@@ -32,6 +32,9 @@
 
 # Meridian Intelligence
 
+> Canonical source moved to monorepo: https://github.com/mapleleaflatte03/meridian/tree/main/intelligence  
+> This repository remains as a mirror for deployment compatibility.
+
 This repo is the public Meridian portal plus the first-party Meridian apps that run on Loom + Kernel. It is not the governance kernel, and it is not the runtime itself. The product front door is now Loom.
 
 ## Launch Positioning
