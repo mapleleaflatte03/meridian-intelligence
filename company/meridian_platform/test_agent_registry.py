@@ -82,5 +82,50 @@ class TestAgentRegistry(unittest.TestCase):
         self.assertEqual(agent['budget'], custom_budget)
         self.assertTrue(agent['approval_required'])
 
+    def test_get_agent_by_economy_key_supports_org_scoping(self):
+        agent_a = agent_registry.register_agent(
+            org_id='org_a',
+            name='AtlasA',
+            role='analyst',
+            purpose='Org A analyst',
+        )
+        agent_b = agent_registry.register_agent(
+            org_id='org_b',
+            name='AtlasB',
+            role='analyst',
+            purpose='Org B analyst',
+        )
+
+        data = agent_registry.load_registry()
+        data['agents'][agent_a]['economy_key'] = 'atlas'
+        data['agents'][agent_b]['economy_key'] = 'atlas'
+        agent_registry.save_registry(data)
+
+        ambiguous = agent_registry.get_agent_by_economy_key('atlas')
+        self.assertIsNone(ambiguous)
+
+        scoped = agent_registry.get_agent_by_economy_key('atlas', org_id='org_b')
+        self.assertIsNotNone(scoped)
+        self.assertEqual(scoped['id'], agent_b)
+
+    def test_resolve_agent_supports_registry_id_and_economy_key(self):
+        agent_id = agent_registry.register_agent(
+            org_id='org_123',
+            name='Resolver',
+            role='analyst',
+            purpose='Resolve by id and economy key',
+        )
+        data = agent_registry.load_registry()
+        data['agents'][agent_id]['economy_key'] = 'resolver'
+        agent_registry.save_registry(data)
+
+        by_id = agent_registry.resolve_agent(agent_id, org_id='org_123')
+        self.assertIsNotNone(by_id)
+        self.assertEqual(by_id['id'], agent_id)
+
+        by_key = agent_registry.resolve_agent('resolver', org_id='org_123')
+        self.assertIsNotNone(by_key)
+        self.assertEqual(by_key['id'], agent_id)
+
 if __name__ == '__main__':
     unittest.main()

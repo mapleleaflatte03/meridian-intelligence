@@ -3,6 +3,7 @@ import importlib.util
 import os
 import sys
 import tempfile
+import time
 import types
 import unittest
 from pathlib import Path
@@ -282,6 +283,99 @@ class GatewayBrainRouterIntegrationTests(unittest.TestCase):
         self.assertTrue(handler._public_read_allowed("/api/payouts"))
         self.assertFalse(handler._public_read_allowed("/api/treasury/accounts"))
         self.assertFalse(handler._public_read_allowed("/api/unknown"))
+
+
+class GatewayLiveSurfaceAssetTests(unittest.TestCase):
+    def test_meridian_js_exposes_shared_fetch_timeout_helper_for_all_live_surface_modules(self):
+        asset_path = WORKSPACE / "company" / "www" / "assets" / "meridian.js"
+        content = asset_path.read_text(encoding="utf-8")
+
+        self.assertIn(
+            "window.__meridianFetchJsonWithTimeout",
+            content,
+            "live surfaces must share one fetch helper across modules to avoid scope regressions",
+        )
+        self.assertGreaterEqual(
+            content.count("var fetchJsonWithTimeout = window.__meridianFetchJsonWithTimeout;"),
+            2,
+            "both live snapshot and proof summary modules must bind the shared helper",
+        )
+
+
+class GatewayStatusCacheConsistencyTests(unittest.TestCase):
+    def setUp(self):
+        self._cache_snapshot = dict(meridian_gateway.WORKSPACE_STATUS_CACHE)
+        self._refresh_in_flight = meridian_gateway.WORKSPACE_STATUS_REFRESH_IN_FLIGHT
+
+    def tearDown(self):
+        meridian_gateway.WORKSPACE_STATUS_CACHE.clear()
+        meridian_gateway.WORKSPACE_STATUS_CACHE.update(self._cache_snapshot)
+        meridian_gateway.WORKSPACE_STATUS_REFRESH_IN_FLIGHT = self._refresh_in_flight
+
+    def test_workspace_status_snapshot_hydrates_missing_treasury_from_treasury_route(self):
+        meridian_gateway.WORKSPACE_STATUS_CACHE["fetched_at_unix_ms"] = 0
+        meridian_gateway.WORKSPACE_STATUS_CACHE["snapshot"] = None
+        meridian_gateway.WORKSPACE_STATUS_REFRESH_IN_FLIGHT = False
+
+        def fake_workspace_get(path: str, timeout_seconds: float):  # noqa: ARG001
+            if path == "/api/status":
+                return {
+                    "ok": True,
+                    "status_code": 200,
+                    "payload": {
+                        "runtime_id": "loom_native",
+                        "slo": {"status": "healthy", "alert_count": 0},
+                        "treasury": {"balance_usd": None, "reserve_floor_usd": None},
+                    },
+                }
+            if path == "/api/treasury":
+                return {
+                    "ok": True,
+                    "status_code": 200,
+                    "payload": {"balance_usd": 52.47, "reserve_floor_usd": 50.5, "paid_orders": 1},
+                }
+            return {"ok": False, "status_code": 500, "payload": {"status": "error"}}
+
+        with mock.patch.object(
+            meridian_gateway,
+            "_workspace_api_get_json_with_timeout",
+            side_effect=fake_workspace_get,
+        ):
+            result = meridian_gateway._workspace_status_snapshot_cached()
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["status_code"], 200)
+        self.assertEqual(result["payload"]["treasury"]["balance_usd"], 52.47)
+        self.assertEqual(result["payload"]["treasury"]["reserve_floor_usd"], 50.5)
+
+    def test_workspace_status_snapshot_repairs_cached_treasury_nulls(self):
+        meridian_gateway.WORKSPACE_STATUS_CACHE["fetched_at_unix_ms"] = int(time.time() * 1000)
+        meridian_gateway.WORKSPACE_STATUS_CACHE["snapshot"] = {
+            "runtime_id": "loom_native",
+            "slo": {"status": "healthy", "alert_count": 0},
+            "treasury": {"balance_usd": None, "reserve_floor_usd": None},
+        }
+        meridian_gateway.WORKSPACE_STATUS_REFRESH_IN_FLIGHT = False
+
+        def fake_workspace_get(path: str, timeout_seconds: float):  # noqa: ARG001
+            if path == "/api/treasury":
+                return {
+                    "ok": True,
+                    "status_code": 200,
+                    "payload": {"balance_usd": 52.47, "reserve_floor_usd": 50.5},
+                }
+            return {"ok": False, "status_code": 500, "payload": {"status": "error"}}
+
+        with mock.patch.object(
+            meridian_gateway,
+            "_workspace_api_get_json_with_timeout",
+            side_effect=fake_workspace_get,
+        ):
+            result = meridian_gateway._workspace_status_snapshot_cached()
+
+        self.assertEqual(result["payload"]["gateway_cache"]["state"], "fresh")
+        self.assertEqual(result["payload"]["treasury"]["balance_usd"], 52.47)
+        self.assertEqual(result["payload"]["treasury"]["reserve_floor_usd"], 50.5)
 
 
 if __name__ == "__main__":

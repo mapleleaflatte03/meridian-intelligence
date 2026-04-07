@@ -10,6 +10,7 @@ import datetime as dt
 import hashlib
 import importlib.util
 import json
+import math
 import os
 import queue
 import re
@@ -10383,6 +10384,50 @@ def _workspace_api_get_json_with_timeout(path: str, timeout_seconds: float) -> d
         return _workspace_api_get_json(path)
 
 
+def _float_or_none(value: Any) -> float | None:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(parsed):
+        return None
+    return parsed
+
+
+def _status_payload_repair_treasury(payload: dict[str, Any]) -> dict[str, Any]:
+    treasury = dict(payload.get("treasury") or {})
+    balance_usd = _float_or_none(treasury.get("balance_usd"))
+    reserve_floor_usd = _float_or_none(treasury.get("reserve_floor_usd"))
+    if balance_usd is not None:
+        treasury["balance_usd"] = balance_usd
+    if reserve_floor_usd is not None:
+        treasury["reserve_floor_usd"] = reserve_floor_usd
+
+    if balance_usd is None or reserve_floor_usd is None:
+        treasury_result = _workspace_api_get_json_with_timeout(
+            "/api/treasury",
+            min(4.0, max(0.1, WORKSPACE_STATUS_UPSTREAM_TIMEOUT_SECONDS)),
+        )
+        treasury_payload = dict(treasury_result.get("payload") or {}) if treasury_result.get("ok") else {}
+        if balance_usd is None:
+            fallback_balance = _float_or_none(treasury_payload.get("balance_usd"))
+            if fallback_balance is not None:
+                treasury["balance_usd"] = fallback_balance
+        if reserve_floor_usd is None:
+            fallback_floor = _float_or_none(treasury_payload.get("reserve_floor_usd"))
+            if fallback_floor is not None:
+                treasury["reserve_floor_usd"] = fallback_floor
+        if treasury.get("paid_orders") is None:
+            paid_orders = treasury_payload.get("paid_orders")
+            try:
+                treasury["paid_orders"] = int(paid_orders)
+            except (TypeError, ValueError):
+                pass
+
+    payload["treasury"] = treasury
+    return payload
+
+
 def _workspace_status_snapshot_cached() -> dict[str, Any]:
     now_ms = int(time.time() * 1000)
     with WORKSPACE_STATUS_CACHE_LOCK:
@@ -10394,7 +10439,7 @@ def _workspace_status_snapshot_cached() -> dict[str, Any]:
             and cached_at > 0
             and (now_ms - cached_at) <= max(1, WORKSPACE_STATUS_CACHE_TTL_SECONDS) * 1000
         ):
-            payload = dict(cached_snapshot)
+            payload = _status_payload_repair_treasury(dict(cached_snapshot))
             payload["gateway_cache"] = {
                 "state": "fresh",
                 "cached_at_unix_ms": cached_at,
@@ -10425,7 +10470,7 @@ def _workspace_status_snapshot_cached() -> dict[str, Any]:
 
                 threading.Thread(target=_refresh_workspace_status, daemon=True).start()
 
-        payload = dict(cached_snapshot)
+        payload = _status_payload_repair_treasury(dict(cached_snapshot))
         payload["gateway_cache"] = {
             "state": "stale_fallback",
             "cached_at_unix_ms": cached_at,
@@ -10439,7 +10484,7 @@ def _workspace_status_snapshot_cached() -> dict[str, Any]:
         WORKSPACE_STATUS_UPSTREAM_TIMEOUT_SECONDS,
     )
     if proxied.get("ok") and isinstance(proxied.get("payload"), dict):
-        snapshot = dict(proxied["payload"])
+        snapshot = _status_payload_repair_treasury(dict(proxied["payload"]))
         with WORKSPACE_STATUS_CACHE_LOCK:
             WORKSPACE_STATUS_CACHE["fetched_at_unix_ms"] = now_ms
             WORKSPACE_STATUS_CACHE["snapshot"] = snapshot
@@ -10481,6 +10526,7 @@ def _workspace_status_snapshot_cached() -> dict[str, Any]:
             "generated_at_unix_ms": now_ms,
         },
     }
+    degraded = _status_payload_repair_treasury(degraded)
     return {"ok": True, "status_code": 200, "payload": degraded}
 
 

@@ -97,6 +97,14 @@ def _backfill_runtime_bindings(data, context_source='agent_registry'):
     return changed
 
 
+def _org_matches(agent, org_id=None):
+    if not agent:
+        return False
+    if org_id is None:
+        return True
+    return agent.get('org_id') == org_id
+
+
 def load_registry():
     if os.path.exists(REGISTRY_FILE):
         with open(REGISTRY_FILE) as f:
@@ -157,9 +165,11 @@ def register_agent(org_id, name, role, purpose, scopes=None, model_policy=None,
     return agent_id
 
 
-def get_agent(agent_id):
+def get_agent(agent_id, org_id=None):
     data = load_registry()
     agent = data['agents'].get(agent_id)
+    if not _org_matches(agent, org_id):
+        return None
     return normalize_agent_record(agent) if agent else None
 
 
@@ -276,13 +286,35 @@ def record_incident(agent_id):
     return count
 
 
-def get_agent_by_economy_key(economy_key):
-    """Lookup agent by economy ledger key."""
+def get_agents_by_economy_key(economy_key, org_id=None):
+    """Lookup all agents by economy ledger key, optionally scoped by institution."""
     data = load_registry()
+    matches = []
     for agent in data['agents'].values():
-        if agent.get('economy_key') == economy_key:
-            return normalize_agent_record(agent)
-    return None
+        if agent.get('economy_key') == economy_key and _org_matches(agent, org_id):
+            matches.append(normalize_agent_record(agent))
+    return matches
+
+
+def get_agent_by_economy_key(economy_key, org_id=None):
+    """Lookup a single agent by economy ledger key.
+
+    Returns None when ambiguous and no org_id is provided.
+    """
+    matches = get_agents_by_economy_key(economy_key, org_id=org_id)
+    if not matches:
+        return None
+    if org_id is None and len(matches) != 1:
+        return None
+    return matches[0]
+
+
+def resolve_agent(agent_ref, org_id=None):
+    """Resolve by registry id first, then fallback to economy key."""
+    agent = get_agent(agent_ref, org_id=org_id)
+    if agent:
+        return agent
+    return get_agent_by_economy_key(agent_ref, org_id=org_id)
 
 
 def sync_from_economy():

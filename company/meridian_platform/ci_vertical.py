@@ -89,7 +89,11 @@ def _phase_gate_snapshot(reg=None, org_id=None):
         if agent:
             budget_required = float(agent.get('budget', {}).get('max_per_run_usd', 0.0) or 0.0)
             if budget_required > 0:
-                budget_allowed, budget_reason = check_budget(agent['id'], budget_required, org_id=org_id)
+                try:
+                    budget_allowed, budget_reason = check_budget(agent['id'], budget_required, org_id=org_id)
+                except TypeError:
+                    # Compatibility for kernels that still expose check_budget(agent_id, amount)
+                    budget_allowed, budget_reason = check_budget(agent['id'], budget_required)
 
         blockers = []
         if not auth_allowed:

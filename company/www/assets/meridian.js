@@ -1,4 +1,20 @@
 /* meridian.js — Scroll-reveal observer. No dependencies. */
+window.__meridianFetchJsonWithTimeout = window.__meridianFetchJsonWithTimeout || async function (url, timeoutMs) {
+  var controller = new AbortController();
+  var timeout = window.setTimeout(function () {
+    controller.abort();
+  }, Math.max(300, timeoutMs || 6000));
+  try {
+    var response = await fetch(url, { signal: controller.signal });
+    if (!response.ok) {
+      throw new Error(url + ' returned HTTP ' + response.status);
+    }
+    return await response.json();
+  } finally {
+    window.clearTimeout(timeout);
+  }
+};
+
 (function () {
   'use strict';
   var els = document.querySelectorAll('.reveal');
@@ -917,22 +933,7 @@
       renderLoadingChart(shell.querySelector('[data-live-chart="' + name + '"]'));
     });
   }
-
-  async function fetchJsonWithTimeout(url, timeoutMs) {
-    var controller = new AbortController();
-    var timeout = window.setTimeout(function () {
-      controller.abort();
-    }, Math.max(300, timeoutMs || 6000));
-    try {
-      var response = await fetch(url, { signal: controller.signal });
-      if (!response.ok) {
-        throw new Error(url + ' returned HTTP ' + response.status);
-      }
-      return await response.json();
-    } finally {
-      window.clearTimeout(timeout);
-    }
-  }
+  var fetchJsonWithTimeout = window.__meridianFetchJsonWithTimeout;
 
   function renderSnapshotIntoShell(shell, status, proof) {
     var runtimeItems = [
@@ -1175,6 +1176,7 @@
 
   var summaryFetchedAt = null;
   var lastGoodSummary = null;
+  var fetchJsonWithTimeout = window.__meridianFetchJsonWithTimeout;
 
   function renderSummary(status, proof) {
     if (!summaryShell) {
@@ -1216,6 +1218,19 @@
         proof = await fetchJsonWithTimeout('/api/runtime-proof', 7000);
       } catch (_proofError) {
         proof = {};
+      }
+      var treasury = status && typeof status === 'object' && status.treasury && typeof status.treasury === 'object'
+        ? status.treasury
+        : {};
+      if (!Number.isFinite(Number(treasury.balance_usd)) || !Number.isFinite(Number(treasury.reserve_floor_usd))) {
+        try {
+          var treasuryFallback = await fetchJsonWithTimeout('/api/treasury', 6000);
+          status.treasury = status.treasury && typeof status.treasury === 'object' ? status.treasury : {};
+          status.treasury.balance_usd = Number(treasuryFallback && treasuryFallback.balance_usd) || 0;
+          status.treasury.reserve_floor_usd = Number(treasuryFallback && treasuryFallback.reserve_floor_usd) || 0;
+        } catch (_treasuryError) {
+          // Keep status payload unchanged when treasury fallback is unavailable.
+        }
       }
       renderSummary(status, proof);
     } catch (error) {
