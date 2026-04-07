@@ -5064,7 +5064,7 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
             return self._json({
                 'status': 'deprecated',
                 'reason': 'open_source_mode',
-                'message': 'The institution license catalog has been deprecated. Meridian is now fully open source.',
+                'message': 'This legacy monetization route has been deprecated. Meridian now runs in open-source setup mode.',
                 'next_steps': [
                     'Run one-command setup: curl -fsSL https://raw.githubusercontent.com/mapleleaflatte03/meridian/main/scripts/install-full.sh | bash',
                     'Visit https://github.com/mapleleaflatte03/meridian for source and documentation',
@@ -5503,7 +5503,7 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
             return self._json({
                 'status': 'deprecated',
                 'reason': 'open_source_mode',
-                'message': 'Subscription checkout capture has been deprecated. Meridian is now fully open source.',
+                'message': 'This legacy payment-capture route has been deprecated. Meridian now runs in open-source setup mode.',
                 'next_steps': [
                     'Open /pilot and follow the local bootstrap path',
                     'Run one-command setup: curl -fsSL https://raw.githubusercontent.com/mapleleaflatte03/meridian/main/scripts/install-full.sh | bash',
@@ -5625,7 +5625,7 @@ class WorkspaceHandler(BaseHTTPRequestHandler):
             return self._json({
                 'status': 'deprecated',
                 'reason': 'open_source_mode',
-                'message': 'Institution license checkout has been deprecated. Meridian is now fully open source.',
+                'message': 'This legacy payment-capture route has been deprecated. Meridian now runs in open-source setup mode.',
                 'next_steps': [
                     'Run one-command setup: curl -fsSL https://raw.githubusercontent.com/mapleleaflatte03/meridian/main/scripts/install-full.sh | bash',
                     'Visit https://github.com/mapleleaflatte03/meridian for source and documentation',
