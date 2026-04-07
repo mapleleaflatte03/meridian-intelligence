@@ -220,16 +220,16 @@ li { padding: 0.2rem 0; }
 }
 .hero h1 {
   font-family: var(--display);
-  font-size: clamp(2.6rem, 5vw, 4.6rem); color: #fff;
-  margin-bottom: 0.9rem; line-height: 1.15;
+  font-size: clamp(2.7rem, 5.2vw, 4.9rem); color: #fff;
+  margin-bottom: 1rem; line-height: 1.12;
   letter-spacing: -0.035em; font-weight: 700;
   text-transform: none; max-width: 700px;
   margin-left: 0; margin-right: 0;
 }
 .hero .tagline {
-  font-size: 1.05rem; color: #b4bfcd;
-  margin-bottom: 1.45rem; max-width: 660px;
-  margin-left: 0; margin-right: 0; line-height: 1.72;
+  font-size: clamp(1.02rem, 1.7vw, 1.14rem); color: #b4bfcd;
+  margin-bottom: 1.55rem; max-width: 660px;
+  margin-left: 0; margin-right: 0; line-height: 1.66;
 }
 .hero .subtitle {
   color: var(--dim); font-size: 1.04rem; max-width: 640px;
@@ -329,19 +329,19 @@ li { padding: 0.2rem 0; }
 .cta-note { color: var(--dim); font-size: 0.9rem; line-height: 1.7; max-width: 720px; }
 
 /* ── Headings ── */
-h1 { font-family: var(--display); color: #fff; font-size: 2.2rem; line-height: 1.14; letter-spacing: -0.03em; margin-bottom: 0.9rem; text-transform: none; }
+h1 { font-family: var(--display); color: #fff; font-size: 2.3rem; line-height: 1.12; letter-spacing: -0.03em; margin-bottom: 0.95rem; text-transform: none; }
 h2 {
   font-family: var(--display);
   font-size: clamp(1.35rem, 2.2vw, 1.95rem);
   color: #fff;
-  margin: 3.2rem 0 1rem;
+  margin: 2.85rem 0 1rem;
   padding: 1.05rem 0 0 0;
   border-top: 1px solid rgba(135,216,255,0.18);
   letter-spacing: -0.02em;
   text-transform: none;
   font-weight: 700;
 }
-.subtitle { color: var(--dim); margin-bottom: 2rem; font-size: 1.05rem; }
+.subtitle { color: var(--dim); margin-bottom: 2rem; font-size: 1.04rem; line-height: 1.72; }
 
 /* ── Cards ── */
 .card {
@@ -545,7 +545,7 @@ h2 {
 .metric-value {
   color: #fff;
   font-family: var(--display);
-  font-size: 1.55rem;
+  font-size: clamp(1.45rem, 2.3vw, 1.72rem);
   letter-spacing: -0.03em;
   margin-bottom: 0.25rem;
 }
@@ -1119,7 +1119,7 @@ code { background: #0e0e1a; padding: 2px 6px; border-radius: 3px; font-size: 0.8
 .roster .agent-role { color: var(--dim); }
 
 /* ── Section intro ── */
-.section-intro { color: var(--dim); margin-bottom: 1rem; font-size: 1.03rem; line-height: 1.76; max-width: 760px; }
+.section-intro { color: var(--dim); margin-bottom: 1rem; font-size: 1.01rem; line-height: 1.7; max-width: 760px; }
 
 /* ── Full-width CTA button ── */
 .cta-block { width: 100%; display: block; text-align: center; }
@@ -1180,8 +1180,8 @@ code { background: #0e0e1a; padding: 2px 6px; border-radius: 3px; font-size: 0.8
   background: radial-gradient(ellipse 500px 280px at 50% 0%, rgba(0,229,255,0.05) 0%, transparent 70%);
   pointer-events: none;
 }
-.page-intro h1 { font-family: var(--display); font-size: clamp(2.2rem, 4vw, 3.2rem); max-width: var(--copy-max); margin: 0 0 0.9rem; }
-.page-intro .subtitle { max-width: var(--copy-max); margin: 0; font-size: 1.04rem; line-height: 1.75; }
+.page-intro h1 { font-family: var(--display); font-size: clamp(2.15rem, 3.7vw, 3rem); max-width: var(--copy-max); margin: 0 0 0.88rem; line-height: 1.13; }
+.page-intro .subtitle { max-width: var(--copy-max); margin: 0; font-size: 1.02rem; line-height: 1.68; }
 
 /* ── h3 baseline ── */
 h3 { font-family: var(--display); color: #fff; font-size: 1rem; margin: 1.1rem 0 0.4rem; }
@@ -1255,19 +1255,19 @@ h3 { font-family: var(--display); color: #fff; font-size: 1rem; margin: 1.1rem 0
     justify-content: center;
     align-items: center;
     flex: 0 0 auto;
-    min-height: 40px;
+    min-height: 38px;
     font-size: 0.68rem;
-    letter-spacing: 0.12em;
+    letter-spacing: 0.1em;
     line-height: 1.35;
     text-align: center;
     white-space: nowrap;
-    padding: 0.58rem 0.8rem;
+    padding: 0.52rem 0.72rem;
     border-color: rgba(255,255,255,0.05);
     background: rgba(255,255,255,0.015);
   }
   .nav-cta {
     display: flex !important;
-    min-height: 40px;
+    min-height: 38px;
     background: linear-gradient(180deg, rgba(255,215,0,0.34), rgba(214,174,0,0.22)) !important;
     color: #151515 !important;
     border-color: rgba(255,215,0,0.35) !important;
@@ -1304,11 +1304,18 @@ h3 { font-family: var(--display); color: #fff; font-size: 1rem; margin: 1.1rem 0
   .quadrant-cell { min-height: 0; }
   .process-step::after { display: none; }
   .hero h1 { font-size: 2rem; }
-  h1 { font-size: 1.6rem; }
-  h2 { font-size: 1.28rem; }
+  h1 { font-size: 1.52rem; line-height: 1.15; }
+  h2 { font-size: 1.22rem; margin-top: 2.15rem; }
   .hero-lockup { width: min(280px, 80vw); }
   .page-wordmark { width: min(220px, 72vw); }
-  .container { padding: 1.5rem 1rem 2rem; }
+  .container { padding: 1.25rem 0.9rem 1.85rem; }
+  .subtitle,
+  .section-intro,
+  .page-intro .subtitle { font-size: 0.94rem; line-height: 1.62; }
+  .metric-value { font-size: 1.34rem; }
+  .checkout-card { padding: 1.15rem; }
+  .price-card { padding: 1.08rem; }
+  .premium-pricing .price-amount { font-size: 2.05rem; }
   html {
     scroll-padding-top: 132px;
   }
@@ -2146,6 +2153,11 @@ h3 { font-family: var(--display); color: #fff; font-size: 1rem; margin: 1.1rem 0
 
 /* ── Mobile adjustments for premium sections ── */
 @media (max-width: 768px) {
+  :root { --header-h: 96px; }
+  .container { padding: 1.65rem 1.05rem 2.25rem; }
+  h2 { margin-top: 2.45rem; }
+  .section-intro,
+  .subtitle { font-size: 0.98rem; line-height: 1.65; }
   .checkout-grid {
     grid-template-columns: 1fr;
   }
@@ -2157,8 +2169,8 @@ h3 { font-family: var(--display); color: #fff; font-size: 1rem; margin: 1.1rem 0
     gap: 1.5rem;
   }
   .footer-nav-col {
-    grid-template-columns: repeat(3, 1fr);
-    gap: 1rem;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1.15rem;
   }
   .premium-pricing {
     grid-template-columns: 1fr;
@@ -2169,6 +2181,7 @@ h3 { font-family: var(--display); color: #fff; font-size: 1rem; margin: 1.1rem 0
   .trust-bar {
     gap: 1rem;
     padding: 0.9rem 1rem;
+    margin: 1.95rem 0 2.35rem;
   }
   .trust-bar span {
     font-size: 0.7rem;
@@ -2184,6 +2197,8 @@ h3 { font-family: var(--display); color: #fff; font-size: 1rem; margin: 1.1rem 0
 }
 @media (max-width: 480px) {
   :root { --header-h: 144px; }
+  .site-nav { gap: 0.45rem; }
+  .site-nav a { font-size: 0.66rem; letter-spacing: 0.085em; }
   .steps-grid {
     grid-template-columns: 1fr;
   }
@@ -2193,6 +2208,12 @@ h3 { font-family: var(--display); color: #fff; font-size: 1rem; margin: 1.1rem 0
   .checkout-card {
     padding: 1rem;
   }
+  .section-heading-center { font-size: 1.35rem; }
+  .section-intro,
+  .subtitle,
+  .page-intro .subtitle { font-size: 0.91rem; line-height: 1.58; }
+  .premium-pricing .price-amount { font-size: 1.85rem; }
+  .trust-bar span { font-size: 0.67rem; }
   .form-actions .cta {
     width: 100%;
     justify-content: center;
