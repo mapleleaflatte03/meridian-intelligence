@@ -121,4 +121,37 @@ for channel, state in expected.items():
     assert payload["results_by_channel"][channel]["status"] == state, payload
 PY
 
+python3 - <<'PY'
+import json
+import urllib.request
+
+BASE = "https://app.welliam.codes"
+checks = [
+    ("/api/institution/template", "json"),
+    ("/api/institution/license/catalog", "json"),
+    ("/", "html"),
+]
+
+def fetch(path: str):
+    with urllib.request.urlopen(BASE + path, timeout=20) as response:
+        return response.read().decode("utf-8", "ignore")
+
+for path, mode in checks:
+    body = fetch(path)
+    if mode == "json":
+        payload = json.loads(body)
+        if path.endswith("/template"):
+            assert payload.get("schema_version") == "meridian.institution_template.v1", payload
+            assert len(payload.get("court_rule_set") or []) >= 3, payload
+        if path.endswith("/catalog"):
+            catalog = payload.get("catalog") or {}
+            assert catalog.get("default_plan") == "institution-license-foundation", payload
+            assert (catalog.get("checkout_capture_path") or "").endswith("/api/institution/license/checkout-capture"), payload
+            assert len(catalog.get("plans") or []) >= 2, payload
+    else:
+        assert "Constitutional Institution License" in body
+        assert "data-institution-license-checkout-form" in body
+        assert "/api/institution/license/catalog" in body
+PY
+
 echo "acceptance_publish_live_lane: PASS"
