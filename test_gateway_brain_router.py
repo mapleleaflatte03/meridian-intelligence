@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import json
 import importlib.util
 import os
 import sys
@@ -397,6 +398,94 @@ class GatewayStatusCacheConsistencyTests(unittest.TestCase):
         self.assertEqual(result["payload"]["gateway_cache"]["state"], "fresh")
         self.assertEqual(result["payload"]["treasury"]["balance_usd"], 52.47)
         self.assertEqual(result["payload"]["treasury"]["reserve_floor_usd"], 50.5)
+
+    def test_workspace_status_snapshot_normalizes_legacy_service_wording(self):
+        meridian_gateway.WORKSPACE_STATUS_CACHE["fetched_at_unix_ms"] = 0
+        meridian_gateway.WORKSPACE_STATUS_CACHE["snapshot"] = None
+        meridian_gateway.WORKSPACE_STATUS_REFRESH_IN_FLIGHT = False
+
+        legacy_payload = {
+            "runtime_id": "loom_native",
+            "slo": {"status": "healthy", "alert_count": 0},
+            "treasury": {"balance_usd": 52.47, "reserve_floor_usd": 50.5},
+            "runtime_core": {
+                "service_registry": {
+                    "subscriptions": {
+                        "description": "Subscription entitlement state on a founding-locked host",
+                    },
+                    "accounting": {
+                        "description": "Accounting ledger on a founding-locked host",
+                    },
+                },
+            },
+            "service_state": {
+                "pilot_intake": {"status": "active"},
+                "subscription_preview": {
+                    "public_intake_path": "/api/pilot/intake",
+                    "queue_paths": {
+                        "public_intake": "/api/pilot/intake",
+                        "source_review": "/api/pilot/intake/operator/review",
+                        "checkout_capture": "/api/subscriptions/checkout-capture",
+                    },
+                },
+            },
+            "observability": {
+                "metrics": {
+                    "audit": {
+                        "actions": {
+                            "pilot_intake_requested": 1,
+                            "pilot_intake_reviewed": 1,
+                        },
+                    },
+                },
+            },
+            "ci_vertical": {
+                "phases": [
+                    {
+                        "phase": "deliver",
+                        "description": "Deliver brief through the current honest customer path",
+                    }
+                ]
+            },
+        }
+
+        def fake_workspace_get(path: str, timeout_seconds: float):  # noqa: ARG001
+            if path == "/api/status":
+                return {"ok": True, "status_code": 200, "payload": legacy_payload}
+            return {"ok": False, "status_code": 500, "payload": {"status": "error"}}
+
+        with mock.patch.object(
+            meridian_gateway,
+            "_workspace_api_get_json_with_timeout",
+            side_effect=fake_workspace_get,
+        ):
+            result = meridian_gateway._workspace_status_snapshot_cached()
+
+        normalized = result["payload"]
+        normalized_blob = json.dumps(normalized, ensure_ascii=False)
+
+        for token in (
+            "founding-locked",
+            "pilot_intake",
+            "/api/subscriptions/checkout-capture",
+            "customer path",
+        ):
+            self.assertNotIn(token, normalized_blob)
+
+        self.assertIn("setup_intake", normalized["service_state"])
+        self.assertNotIn("pilot_intake", normalized["service_state"])
+        self.assertEqual(
+            normalized["service_state"]["subscription_preview"]["queue_paths"]["capture"],
+            "deprecated_open_source_mode",
+        )
+        self.assertIn(
+            "setup_intake_requested_deprecated",
+            normalized["observability"]["metrics"]["audit"]["actions"],
+        )
+        self.assertIn(
+            "setup_intake_reviewed_deprecated",
+            normalized["observability"]["metrics"]["audit"]["actions"],
+        )
 
 
 if __name__ == "__main__":

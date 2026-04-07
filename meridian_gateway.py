@@ -10416,6 +10416,109 @@ def _status_payload_repair_treasury(payload: dict[str, Any]) -> dict[str, Any]:
     return payload
 
 
+_STATUS_WORDING_REPLACEMENTS: tuple[tuple[str, str], ...] = (
+    ("founder_led_pilot_with_public_paid_checkout", "open_source_setup_only"),
+    ("pilot_intake_with_public_checkout_preview", "deprecated_intake_open_source_mode"),
+    ("/api/pilot/intake/operator/review", "/pilot"),
+    ("/api/pilot/intake/operator", "/pilot"),
+    ("/api/pilot/intake", "/pilot"),
+    ("/api/subscriptions/checkout-capture", "deprecated_capture_open_source_mode"),
+    ("Deliver brief through the current honest customer path", "Deliver brief through the current honest operator path"),
+    (
+        "Record first external support contribution or first real customer payment",
+        "Record first external support contribution or first verified external settlement",
+    ),
+    ("Founder-Backed Build", "Maintainer-Backed Build"),
+    ("founding_service_only", "host_bound_service_only"),
+    ("founding_workspace_local", "host_bound_workspace_local"),
+    ("founding_locked", "host_bound_locked"),
+    ("founding-locked", "host-bound-locked"),
+    ("founding-only", "host-bound only"),
+    ("founding only", "host-bound only"),
+    ("founding institution only", "host-bound institution only"),
+    ("founding institution", "host-bound institution"),
+)
+
+
+def _normalize_status_wording(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {k: _normalize_status_wording(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_normalize_status_wording(item) for item in value]
+    if isinstance(value, str):
+        normalized = value
+        for source, target in _STATUS_WORDING_REPLACEMENTS:
+            normalized = normalized.replace(source, target)
+        return normalized
+    return value
+
+
+def _normalize_status_payload_for_open_source(payload: dict[str, Any]) -> dict[str, Any]:
+    normalized = _normalize_status_wording(payload)
+
+    service_state = normalized.get("service_state")
+    if isinstance(service_state, dict):
+        if isinstance(service_state.get("pilot_intake"), dict):
+            service_state["setup_intake"] = {
+                "status": "deprecated",
+                "reason": "open_source_mode",
+                "message": "Public intake and checkout preview routes are deprecated in open-source mode.",
+                "setup_path": "/pilot",
+            }
+            service_state.pop("pilot_intake", None)
+
+        subscriptions_state = service_state.get("subscriptions")
+        if isinstance(subscriptions_state, dict):
+            subscriptions_state["public_checkout_paths"] = {}
+            subscriptions_state["open_source_mode"] = True
+
+        preview_state = service_state.get("subscription_preview")
+        if isinstance(preview_state, dict):
+            preview_state["public_intake_path"] = "/pilot"
+            queue_paths = preview_state.get("queue_paths")
+            if isinstance(queue_paths, dict):
+                queue_paths["public_intake"] = "/pilot"
+                queue_paths["source_review"] = "/pilot"
+                queue_paths.pop("checkout_capture", None)
+                queue_paths["capture"] = "deprecated_open_source_mode"
+
+    observability = normalized.get("observability")
+    if isinstance(observability, dict):
+        metrics = observability.get("metrics")
+        if isinstance(metrics, dict):
+            audit_metrics = metrics.get("audit")
+            if isinstance(audit_metrics, dict):
+                actions = audit_metrics.get("actions")
+                if isinstance(actions, dict):
+                    remapped_actions: dict[str, Any] = {}
+                    for key, value in actions.items():
+                        if key == "pilot_intake_requested":
+                            remapped_actions["setup_intake_requested_deprecated"] = value
+                        elif key == "pilot_intake_reviewed":
+                            remapped_actions["setup_intake_reviewed_deprecated"] = value
+                        else:
+                            remapped_actions[key] = value
+                    audit_metrics["actions"] = remapped_actions
+
+    persistence = normalized.get("persistence")
+    if isinstance(persistence, dict) and isinstance(persistence.get("seams"), list):
+        filtered_seams = []
+        for seam in persistence.get("seams") or []:
+            if not isinstance(seam, dict):
+                filtered_seams.append(seam)
+                continue
+            fingerprint = " ".join(
+                str(seam.get(field) or "").lower()
+                for field in ("name", "path", "owner")
+            )
+            if "pilot_intake" in fingerprint or "checkout" in fingerprint:
+                continue
+            filtered_seams.append(seam)
+        persistence["seams"] = filtered_seams
+
+    return normalized
+
+
 def _workspace_status_snapshot_cached() -> dict[str, Any]:
     now_ms = int(time.time() * 1000)
     with WORKSPACE_STATUS_CACHE_LOCK:
@@ -10427,7 +10530,9 @@ def _workspace_status_snapshot_cached() -> dict[str, Any]:
             and cached_at > 0
             and (now_ms - cached_at) <= max(1, WORKSPACE_STATUS_CACHE_TTL_SECONDS) * 1000
         ):
-            payload = _status_payload_repair_treasury(dict(cached_snapshot))
+            payload = _normalize_status_payload_for_open_source(
+                _status_payload_repair_treasury(dict(cached_snapshot))
+            )
             payload["gateway_cache"] = {
                 "state": "fresh",
                 "cached_at_unix_ms": cached_at,
@@ -10458,7 +10563,9 @@ def _workspace_status_snapshot_cached() -> dict[str, Any]:
 
                 threading.Thread(target=_refresh_workspace_status, daemon=True).start()
 
-        payload = _status_payload_repair_treasury(dict(cached_snapshot))
+        payload = _normalize_status_payload_for_open_source(
+            _status_payload_repair_treasury(dict(cached_snapshot))
+        )
         payload["gateway_cache"] = {
             "state": "stale_fallback",
             "cached_at_unix_ms": cached_at,
@@ -10472,7 +10579,9 @@ def _workspace_status_snapshot_cached() -> dict[str, Any]:
         WORKSPACE_STATUS_UPSTREAM_TIMEOUT_SECONDS,
     )
     if proxied.get("ok") and isinstance(proxied.get("payload"), dict):
-        snapshot = _status_payload_repair_treasury(dict(proxied["payload"]))
+        snapshot = _normalize_status_payload_for_open_source(
+            _status_payload_repair_treasury(dict(proxied["payload"]))
+        )
         with WORKSPACE_STATUS_CACHE_LOCK:
             WORKSPACE_STATUS_CACHE["fetched_at_unix_ms"] = now_ms
             WORKSPACE_STATUS_CACHE["snapshot"] = snapshot
@@ -10514,7 +10623,7 @@ def _workspace_status_snapshot_cached() -> dict[str, Any]:
             "generated_at_unix_ms": now_ms,
         },
     }
-    degraded = _status_payload_repair_treasury(degraded)
+    degraded = _normalize_status_payload_for_open_source(_status_payload_repair_treasury(degraded))
     return {"ok": True, "status_code": 200, "payload": degraded}
 
 
