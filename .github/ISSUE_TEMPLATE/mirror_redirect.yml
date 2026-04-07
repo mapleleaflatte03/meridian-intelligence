@@ -1,0 +1,17 @@
+name: Mirror Redirect
+description: This repo is a mirror. Open issues in the canonical monorepo.
+labels: ["redirect"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This repository is a mirror.
+        Please open your issue in the monorepo:
+        https://github.com/mapleleaflatte03/meridian/issues/new/choose
+  - type: input
+    id: canonical_target
+    attributes:
+      label: Canonical module path
+      placeholder: intelligence/
+    validations:
+      required: true

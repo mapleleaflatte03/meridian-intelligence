@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Canonical Meridian Issues
+    url: https://github.com/mapleleaflatte03/meridian/issues/new/choose
+    about: Open all new bugs/features in the monorepo (canonical source).
+  - name: Monorepo Discussions
+    url: https://github.com/mapleleaflatte03/meridian/discussions
+    about: Use discussions for architecture/onboarding questions.
+  - name: Security Reports
+    url: https://github.com/mapleleaflatte03/meridian/security/policy
+    about: Report vulnerabilities through monorepo security process.
