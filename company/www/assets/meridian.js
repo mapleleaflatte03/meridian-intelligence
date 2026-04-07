@@ -197,19 +197,36 @@ window.__meridianFetchJsonWithTimeout = window.__meridianFetchJsonWithTimeout ||
   'use strict';
   var licenseShell = document.querySelector('[data-license-shell]');
   var checkoutForm = document.querySelector('[data-institution-license-checkout-form]');
-  if (!licenseShell || !checkoutForm) {
+  if (!checkoutForm) {
     return;
   }
 
   var fetchJsonWithTimeout = window.__meridianFetchJsonWithTimeout;
-  var titleNode = licenseShell.querySelector('[data-license-title]');
-  var summaryNode = licenseShell.querySelector('[data-license-summary]');
-  var pricingNode = licenseShell.querySelector('[data-license-pricing]');
-  var boundaryNode = licenseShell.querySelector('[data-license-boundary]');
-  var statusNode = licenseShell.querySelector('[data-institution-license-status]');
-  var planSelect = licenseShell.querySelector('[data-license-plan-select]');
-  var submitButton = checkoutForm.querySelector('button[type="submit"]');
+  var titleNode = document.querySelector('[data-license-title]');
+  var summaryNode = document.querySelector('[data-license-summary]');
+  var pricingNode = document.querySelector('[data-license-pricing]');
+  var boundaryNode = document.querySelector('[data-license-boundary]');
+  var statusNode = document.querySelector('[data-institution-license-status]');
+  var planSelect = document.querySelector('[data-license-plan-select]');
+  var submitButton = checkoutForm.querySelector('[data-checkout-submit]');
+  var btnText = submitButton ? submitButton.querySelector('.btn-text') : null;
+  var btnSpinner = submitButton ? submitButton.querySelector('.btn-spinner') : null;
+  var txHashInput = document.querySelector('[data-tx-hash-input]');
+  var txHashHint = document.querySelector('[data-tx-hash-hint]');
+  var toastContainer = document.querySelector('[data-toast-container]');
   var planCatalog = {};
+
+  function showToast(message, type) {
+    if (!toastContainer) { return; }
+    var toast = document.createElement('div');
+    toast.className = 'toast toast-' + (type || 'info');
+    toast.textContent = message;
+    toastContainer.appendChild(toast);
+    setTimeout(function () {
+      toast.classList.add('toast-fade-out');
+      setTimeout(function () { toast.remove(); }, 300);
+    }, 5000);
+  }
 
   function setStatus(message, isError) {
     if (!statusNode) {
@@ -217,6 +234,12 @@ window.__meridianFetchJsonWithTimeout = window.__meridianFetchJsonWithTimeout ||
     }
     statusNode.textContent = message;
     statusNode.style.color = isError ? '#ff9b9b' : '';
+  }
+
+  function setLoading(loading) {
+    if (submitButton) { submitButton.disabled = loading; }
+    if (btnText) { btnText.textContent = loading ? 'Processing…' : 'Capture Institution License'; }
+    if (btnSpinner) { btnSpinner.hidden = !loading; }
   }
 
   function formatUsd(value) {
@@ -227,6 +250,30 @@ window.__meridianFetchJsonWithTimeout = window.__meridianFetchJsonWithTimeout ||
     return '$' + amount.toFixed(2);
   }
 
+  function validateTxHash(value) {
+    return /^0x[0-9a-fA-F]{64}$/.test(value);
+  }
+
+  if (txHashInput) {
+    txHashInput.addEventListener('input', function () {
+      var val = txHashInput.value.trim();
+      if (!val) {
+        txHashInput.classList.remove('valid', 'invalid');
+        if (txHashHint) { txHashHint.className = 'form-hint'; txHashHint.textContent = 'Must start with 0x followed by exactly 64 hex characters.'; }
+        return;
+      }
+      if (validateTxHash(val)) {
+        txHashInput.classList.add('valid');
+        txHashInput.classList.remove('invalid');
+        if (txHashHint) { txHashHint.className = 'form-hint success'; txHashHint.textContent = 'Valid transaction hash format.'; }
+      } else {
+        txHashInput.classList.add('invalid');
+        txHashInput.classList.remove('valid');
+        if (txHashHint) { txHashHint.className = 'form-hint error'; txHashHint.textContent = 'Invalid format. Expected 0x + 64 hex characters (got ' + val.length + ' chars).'; }
+      }
+    });
+  }
+
   function renderCatalog(payload) {
     var catalog = payload && payload.catalog ? payload.catalog : {};
     var offer = payload && payload.default_offer ? payload.default_offer : {};
@@ -235,7 +282,7 @@ window.__meridianFetchJsonWithTimeout = window.__meridianFetchJsonWithTimeout ||
     planCatalog = {};
 
     if (titleNode) {
-      titleNode.textContent = 'Constitutional Institution License (default: ' + (catalog.default_plan || 'n/a') + ')';
+      titleNode.textContent = 'Institution License — Foundation';
     }
     if (summaryNode) {
       summaryNode.textContent = 'One-time license + recurring maintenance + ledger-bound revenue-share metadata.';
@@ -248,7 +295,7 @@ window.__meridianFetchJsonWithTimeout = window.__meridianFetchJsonWithTimeout ||
       }).join(' | ');
     }
     if (boundaryNode) {
-      boundaryNode.textContent = boundary.note || 'Boundary note unavailable.';
+      boundaryNode.textContent = boundary.note || 'Founding-service scope. Base USDC checkout capture.';
     }
 
     if (planSelect) {
@@ -293,6 +340,11 @@ window.__meridianFetchJsonWithTimeout = window.__meridianFetchJsonWithTimeout ||
     event.preventDefault();
     var formData = new FormData(checkoutForm);
     var txHash = String(formData.get('tx_hash') || '').trim();
+    if (!validateTxHash(txHash)) {
+      setStatus('Invalid transaction hash. Must be 0x followed by 64 hex characters.', true);
+      showToast('Invalid tx hash format. Please check and try again.', 'error');
+      return;
+    }
     var payload = {
       plan: String(formData.get('plan') || '').trim(),
       institution_name: String(formData.get('institution_name') || '').trim(),
@@ -305,9 +357,7 @@ window.__meridianFetchJsonWithTimeout = window.__meridianFetchJsonWithTimeout ||
         payment_ref: txHash,
       },
     };
-    if (submitButton) {
-      submitButton.disabled = true;
-    }
+    setLoading(true);
     setStatus('Capturing institution license checkout and binding ledger evidence…', false);
     try {
       var response = await fetch(checkoutForm.getAttribute('action') || '/api/institution/license/checkout-capture', {
@@ -321,21 +371,20 @@ window.__meridianFetchJsonWithTimeout = window.__meridianFetchJsonWithTimeout ||
       }
       var capture = result && result.capture ? result.capture : {};
       var sharePct = Number(capture.revenue_share_pct || 0) * 100;
-      setStatus(
-        'Captured ' + (capture.license_id || 'license') + ' on plan ' + (capture.plan || payload.plan) +
+      var successMsg = 'Captured ' + (capture.license_id || 'license') + ' on plan ' + (capture.plan || payload.plan) +
         ' with recurring plan ' + (capture.maintenance_plan || 'n/a') +
-        ' and revenue-share ' + sharePct.toFixed(1) + '%.',
-        false
-      );
+        ' and revenue-share ' + sharePct.toFixed(1) + '%.';
+      setStatus(successMsg, false);
+      showToast('License captured successfully! ' + (capture.license_id || ''), 'success');
       if (result && result.catalog) {
         renderCatalog(result.catalog);
       }
     } catch (error) {
-      setStatus(error.message || 'Institution license capture failed', true);
+      var errMsg = error.message || 'Institution license capture failed';
+      setStatus(errMsg, true);
+      showToast(errMsg, 'error');
     } finally {
-      if (submitButton) {
-        submitButton.disabled = false;
-      }
+      setLoading(false);
     }
   });
 

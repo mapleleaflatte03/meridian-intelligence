@@ -149,9 +149,16 @@ for path, mode in checks:
             assert (catalog.get("checkout_capture_path") or "").endswith("/api/institution/license/checkout-capture"), payload
             assert len(catalog.get("plans") or []) >= 2, payload
     else:
-        assert "Constitutional Institution License" in body
-        assert "data-institution-license-checkout-form" in body
-        assert "/api/institution/license/catalog" in body
+        assert "Constitutional Institution License" in body, "Missing 'Constitutional Institution License' in homepage"
+        assert "data-institution-license-checkout-form" in body, "Missing checkout form marker"
+        assert "/api/institution/license/catalog" in body, "Missing catalog API reference"
+        assert "$299" in body or "299" in body, "Missing foundation pricing value"
+        assert "$79" in body or "79" in body, "Missing maintenance pricing value"
+        assert "data-checkout-submit" in body, "Missing checkout submit button marker"
+        assert "data-tx-hash-input" in body, "Missing tx-hash input marker"
+        assert "trust-bar" in body or "Local-first" in body, "Missing trust bar section"
+        assert "pricing" in body.lower(), "Missing pricing section"
+        assert "premium-footer" in body or "footer-nav-group" in body, "Missing premium footer"
 PY
 
 echo "acceptance_publish_live_lane: PASS"
